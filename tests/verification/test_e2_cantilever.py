@@ -64,3 +64,31 @@ def test_cantilever_tip_deflection(etype, nx, ny):
     # tip deflection vs. Timoshenko beam theory with kappa = 5/6 (sanity, same order)
     beam = P * L**3 / (3 * Ep * I) + P * L / (5 / 6 * Ep / (2 * (1 + NUp)) * D)
     assert abs(u[tip, 1] - beam) / beam < 0.01
+
+
+@pytest.mark.parametrize("etype,nx,ny", [(ElemType.T3, 160, 16), (ElemType.T6, 40, 4)])
+@pytest.mark.parametrize("order", ["default", "high"])
+def test_mixed_cantilever_tip_deflection(etype, nx, ny, order):
+    from slipsurface.fe2d.mesh import recombine_mesh
+
+    mesh = recombine_mesh(
+        rectangle(L, D, nx, ny, etype, origin=(0.0, -D / 2)), where=lambda x: x[:, 0] < L / 2
+    )
+    assert len(mesh.blocks) == 2
+    mesh, bcs = per_node_displacements(mesh, mesh.nodes("left"), u_exact)
+    model = api.Model(
+        analysis=api.Analysis.PLANE_STRAIN,
+        mesh=mesh,
+        materials={"m": api.MaterialSpec.elastic("m", E, NU)},
+        region_material={1: "m"},
+        displacements=bcs,
+        initial=api.InitialStress("none"),
+        stages=[api.Stage("tip")],
+        settings=api.SolverSettings(gauss_order=order),
+    )
+    res = StaticSolver(model, extra_tractions={"tip": (("right", shear_traction),)}).run()
+    tip = int(np.argmin(np.hypot(mesh.coords[:, 0] - L, mesh.coords[:, 1])))
+    exact = u_exact(L, 0.0)[1]
+    assert abs(res.last.u[tip, 1] - exact) / abs(exact) < 0.01
+    # The imposed end traction is P; global force/moment balance must be unchanged.
+    np.testing.assert_allclose(res.last.reactions[:, 1].sum(), -P, atol=1e-8)

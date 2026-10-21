@@ -21,16 +21,26 @@ Example::
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 
 from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
+from ..fem.progress import SolveCancelled, SolveProgress
 from ..fem.srf import SRFResult, strength_reduction
 from ..fem.static import SolveResult, StageResult, solve
+from ..io.project import Project, load_project, save_project
 from ..io.project_json import load_model, save_model
-from ..io.results_h5 import ResultsFile, read_results, write_results
-from ..io.ssproj import load_project, open_project_results, save_project
+from ..io.results_h5 import (
+    ResultsFile,
+    ResultsReader,
+    load_results,
+    read_results,
+    save_results,
+    write_results,
+)
+from ..io.ssproj import open_project_results
 from ..io.vtk_export import write_vtu
 from ..model import (
     BoltSpec,
@@ -49,25 +59,23 @@ from ..model import (
     Stage,
     WaterCondition,
 )
-from ..post.recovery import nodal_average, principal_stresses, spr
+from ..post.recovery import nodal_average, principal_stresses
+from ..post.result_fields import active_mesh, active_values, recovered_stress, stage_result
 
 
-def run(model: Model) -> SolveResult:
+def run(
+    model: Model, *, progress: Callable[[SolveProgress], None] | None = None,
+    cancel: Callable[[], bool] | None = None,
+) -> SolveResult:
     """Validate and solve ``model`` (initial stress + all stages)."""
-    return solve(model)
+    return solve(model, progress=progress, cancel=cancel)
 
 
 def nodal_stress(
     result: SolveResult, stage: str | int | None = None, method: str = "spr"
 ) -> np.ndarray:
     """Nodal stresses (nn, 4): ``method="spr"`` (patch recovery) or ``"average"``."""
-    st = result.last if stage is None else result.stage(stage)
-    mesh = result.model.mesh
-    if method == "average":
-        return nodal_average(mesh, st.sig)
-    if method == "spr":
-        return spr(mesh, st.sig, {k: g.xg for k, g in result.geom.items()})
-    raise ValueError(f"unknown recovery method '{method}'")
+    return recovered_stress(result, stage, method)
 
 
 def export_vtu(
@@ -82,8 +90,9 @@ def export_vtu(
     eps_p (equivalent plastic strain, averaged). Cell data: plastic (fraction of
     yielding Gauss points per element).
     """
-    st: StageResult = result.last if stage is None else result.stage(stage)
-    mesh = result.model.mesh
+    st = stage_result(result, stage)
+    original_mesh = result.model.mesh
+    mesh = active_mesh(original_mesh, st)
     s = nodal_stress(result, stage, method)
     p = principal_stresses(s)
     pd = {
@@ -99,11 +108,21 @@ def export_vtu(
     cd = {}
     if st.q:
         pd["eps_p"] = np.maximum(
-            0.0, nodal_average(mesh, {k: v[..., :1] for k, v in st.q.items()})[:, 0]
+            0.0, nodal_average(mesh, active_values(original_mesh, st,
+                          {k: v[..., :1] for k, v in st.q.items()}))[:, 0]
         )
     if st.plastic:
-        blocks = [b for b in mesh.continuum_blocks() if b.tag in st.plastic]
-        cd["plastic"] = np.concatenate([(st.plastic[b.tag] > 0).mean(axis=1) for b in blocks])
+        values = []
+        for b in mesh.blocks:
+            if b.etype in (ElemType.IFACE4, ElemType.IFACE6):
+                continue  # zero-thickness joints are not VTU volume/line cells
+            if b.tag in st.plastic:
+                mask = st.active.get(b.tag, np.ones(b.ne, bool))
+                value = (st.plastic[b.tag][mask] > 0).mean(axis=1)
+            else:
+                value = np.full(b.ne, np.nan)
+            values.append(value)
+        cd["plastic"] = np.concatenate(values)
     return write_vtu(path, mesh, pd, cd)
 
 
@@ -127,8 +146,12 @@ __all__ = [
     "Model",
     "PlasticFlag",
     "PointLoad",
+    "Project",
+    "ResultsReader",
     "SRFResult",
     "SolveResult",
+    "SolveProgress",
+    "SolveCancelled",
     "SolverSettings",
     "Stage",
     "StageResult",
@@ -137,9 +160,11 @@ __all__ = [
     "load_project",
     "open_project_results",
     "read_results",
+    "load_results",
     "nodal_stress",
     "run",
     "save_model",
     "save_project",
+    "save_results",
     "strength_reduction",
 ]

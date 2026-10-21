@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from ..core.enums import Drainage
@@ -38,8 +39,15 @@ class MaterialSpec:
             raise ModelError(f"material '{self.name}': missing parameters {missing}")
         object.__setattr__(self, "k_sat", tuple(float(v) for v in self.k_sat))
         object.__setattr__(self, "vg", tuple(float(v) for v in self.vg))
-        if min(self.k_sat) < 0 or self.vg[0] <= 0 or self.vg[1] <= 1 or not 0 < self.vg[2] <= 1:
+        if (len(self.k_sat) != 2 or len(self.vg) != 3
+                or not all(math.isfinite(v) for v in (*self.k_sat, *self.vg))
+                or min(self.k_sat) < 0 or self.vg[0] <= 0 or self.vg[1] <= 1
+                or not 0 < self.vg[2] <= 1):
             raise ModelError(f"material '{self.name}': invalid hydraulic parameters")
+        if not all(math.isfinite(v) for v in self.params.values()):
+            raise ModelError(f"material '{self.name}': parameters must be finite")
+        if "Kw_n" in self.params and self.params["Kw_n"] <= 0:
+            raise ModelError(f"material '{self.name}': Kw_n must be positive")
         if "nu" in self.params and not (-1.0 < self.params["nu"] < 0.5):
             raise ModelError(f"material '{self.name}': nu must be in (-1, 0.5)")
         if "E" in self.params and self.params["E"] <= 0.0:
@@ -53,12 +61,22 @@ class MaterialSpec:
                 raise ModelError(f"material '{self.name}': need 0 <= psi <= phi < 90")
             if self.params["c"] < 0.0:
                 raise ModelError(f"material '{self.name}': c must be >= 0")
+        if self.drainage is Drainage.UNDRAINED_B:
+            if self.model not in ("elastic", "mohr_coulomb", "drucker_prager", "von_mises"):
+                raise ModelError("undrained B requires a total undrained strength model")
+            if self.params.get("phi", 0.0) != 0.0:
+                raise ModelError("undrained B requires phi = 0 and c = su")
         if self.model == "hoek_brown":
             p = self.params
             if p["sigci"] <= 0 or not 0 < p["GSI"] <= 100 or p["mi"] <= 0:
                 raise ModelError(f"material '{self.name}': need sigci > 0, 0 < GSI <= 100, mi > 0")
             if not 0.0 <= p.get("D", 0.0) <= 1.0 or not 0.0 <= p.get("psi", 0.0) < 90.0:
                 raise ModelError(f"material '{self.name}': need 0 <= D <= 1, 0 <= psi < 90")
+        if self.params.get("rankine_at_apex", False):
+            if self.model != "mohr_coulomb" or self.params["phi"] <= 0 or "sig_t" in self.params:
+                raise ModelError("rankine_at_apex needs Mohr-Coulomb, phi > 0 and no sig_t")
+        if self.params.get("rankine_at_apex", False) not in (False, True):
+            raise ModelError("rankine_at_apex must be boolean")
 
     @classmethod
     def elastic(
@@ -80,11 +98,20 @@ class MaterialSpec:
         sig_t: float | None = None,
         gamma: float = 0.0,
         gamma_sat: float | None = None,
+        *,
+        rankine_at_apex: bool = False,
     ) -> MaterialSpec:
-        """Mohr-Coulomb; ``sig_t`` = tensile strength (``None``: apex c·cot(phi) only)."""
+        """MC with optional associated Rankine flow.
+
+        ``sig_t=None`` adds no Rankine flow. ``rankine_at_apex=True`` explicitly
+        adds it at c·cot(phi), recalculated from the current strengths under SRF.
+        A numeric ``sig_t`` instead sets an independent, fixed tensile strength.
+        """
         p = {"E": E, "nu": nu, "c": c, "phi": phi, "psi": psi}
         if sig_t is not None:
             p["sig_t"] = sig_t
+        if rankine_at_apex:
+            p["rankine_at_apex"] = rankine_at_apex
         return cls(name, "mohr_coulomb", p, gamma, gamma if gamma_sat is None else gamma_sat)
 
     @classmethod

@@ -23,10 +23,8 @@ Tangent options (``SolverSettings.method``):
 * ``"hybrid"``  mNR, switching to NR inside a step when ``||R_i|| / ||R_i-1|| > ratio``
 * ``"initial"`` elastic stiffness, factorised once per stage
 
-An iterate that increases the residual more than 1000-fold is halved back towards the
-previous one (up to four times, then the load step is cut; after two halvings the step
-continues with the committed tangent). A step is abandoned early when the residual
-stagnates (no 20 % reduction over four iterations) or diverges.
+A step is abandoned early when its residual stagnates or diverges. Local material
+failures cut the load step; the requested Newton method is never silently changed.
 
 Convergence needs both ``||R|| / f_ref < tol_force`` and
 ``|du_i . R_i| / |du_0 . R_0| < tol_energy``; ``f_ref`` is the norm of the stage's change
@@ -42,7 +40,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
-from ..core.errors import LocalIntegrationError, NonConvergence, SingularSystemError
+from ..core.errors import MaterialIntegrationError, NonConvergence, SingularSystemError
 from ..core.log import get_logger
 from ..model.stages import SolverSettings
 
@@ -57,7 +55,12 @@ class StepRecord:
     iterations: int
     residuals: list[float]  # relative force residual per iteration
     converged: bool
-    worst_dofs: NDArray[np.int64] | None = None  # failed step: free DOFs with largest |R|
+    termination: str = ""  # empty when reading records written before diagnostics existed
+    force_norms: list[float] = field(default_factory=list)
+    energy_ratios: list[float | None] = field(default_factory=list)
+    detail: str = ""
+    material_failure: dict | None = None
+    worst_dofs: NDArray[np.int64] | None = None
 
 
 @dataclass
@@ -87,6 +90,7 @@ class Problem:
     factor: Callable[[str, object | None], object]
     # commit(trial, du_total_so_far): make a converged step the new committed state
     commit: Callable[[object, Arr], None]
+    progress: Callable | None = None
 
 
 def solve_stage(
@@ -125,6 +129,11 @@ def solve_stage(
         dpres = (lam_t - lam) * du_presc if pres.size else np.zeros(0)
         du = du_total.copy()
         res_hist: list[float] = []
+        force_norms: list[float] = []
+        energy_ratios: list[float | None] = []
+        termination = "max_iterations"
+        detail = ""
+        material_failure = None
         converged = False
         fact = None
         use_nr = s.method == "NR"
@@ -132,64 +141,63 @@ def solve_stage(
         ddu = np.zeros(free.size)
         trial: object | None = None
         prev_rel = np.inf
-        n_back = 0  # consecutive backtracks
         Rf: Arr | None = None
         it = 0
         try:
             for it in range(s.max_iter + 1):
-                try:
-                    trial, fint = prob.integrate(du - du_total)
-                except LocalIntegrationError:
-                    if it == 0:
-                        raise
-                    rel = np.inf  # constitutive update failed: treat as divergent iterate
-                else:
-                    R = lam_t * f_ext + (1.0 - lam_t) * f0 - fint
-                    Rf = R[free]
-                    f_reac = (fint - f0)[pres] if pres.size else np.zeros(0)
-                    f_ref = max(
-                        n_dfext * lam_t,
-                        float(np.linalg.norm(f_reac)),
-                        float(np.linalg.norm(fint[driven])) if driven.size else 0.0,
-                        1e-10 * f_scale,
-                    )
-                    rel = float(np.linalg.norm(Rf)) / f_ref
+                if prob.progress is not None:
+                    prob.progress(lam_t, it)
+                trial, fint = prob.integrate(du - du_total)
+                R = lam_t * f_ext + (1.0 - lam_t) * f0 - fint
+                Rf = R[free]
+                f_reac = (fint - f0)[pres] if pres.size else np.zeros(0)
+                f_ref = max(
+                    n_dfext * lam_t,
+                    float(np.linalg.norm(f_reac)),
+                    float(np.linalg.norm(fint[driven])) if driven.size else 0.0,
+                    1e-10 * f_scale,
+                )
+                residual_norm = float(np.linalg.norm(Rf))
+                rel = residual_norm / f_ref
+                # A held prestressed stage may have zero load change, but assembled
+                # internal forces still cancel only to floating-point precision. Do
+                # not cut steps trying to resolve numerical noise below that scale.
+                roundoff = 64 * np.finfo(float).eps * max(f_scale, float(np.linalg.norm(fint)))
                 res_hist.append(rel)
-                if it == 0 and rel < 1e-3 * s.tol_force and not driven.size:
+                if prob.progress is not None:
+                    prob.progress(lam_t, it, rel)
+                force_norms.append(residual_norm)
+                e_rel = abs(float(ddu @ Rf)) / max(abs(g0), 1e-300) if it > 0 else None
+                energy_ratios.append(e_rel)
+                if (
+                    it == 0
+                    and (rel < 1e-3 * s.tol_force or residual_norm <= roundoff)
+                    and not driven.size
+                ):
                     converged = True
+                    termination = "initial_equilibrium"
                     break
                 if it > 0:
-                    e_rel = abs(float(ddu @ Rf)) / max(abs(g0), 1e-300)
-                    # the energy ratio is round-off dominated once the force residual is
-                    # far below tolerance: accept on the force criterion alone then
-                    if rel < s.tol_force and (e_rel < s.tol_energy or rel < 1e-2 * s.tol_force):
+                    if residual_norm <= roundoff:
                         converged = True
+                        termination = "roundoff"
+                        break
+                    if rel < s.tol_force and e_rel < s.tol_energy:
+                        converged = True
+                        termination = "force_and_energy"
                         break
                     if linear and rel < 1e-8:
                         converged = True
+                        termination = "linear_force"
                         break
-                # residual backtracking: an iterate that blows the residual up by more than
-                # 1e3 (a nearly singular tangent at an apex / fully slipping joint) is
-                # pulled back towards the previous one; after two halvings the step
-                # continues with the tangent of the last converged state. Moderate
-                # temporary increases are normal for piecewise-linear plasticity and are
-                # left to Newton. The residual before the predictor of a
-                # displacement-driven step carries no information: skip that comparison.
-                first_driven = it == 1 and dpres.size > 0 and bool(np.any(dpres != 0.0))
-                if it > 0 and not first_driven and (not np.isfinite(rel) or rel > 1e3 * prev_rel):
-                    if n_back >= 4:
-                        break  # still diverging with a 1/16 step: cut the load step
-                    ddu *= 0.5
-                    du[free] -= ddu
-                    n_back += 1
-                    if n_back >= 2 and s.method != "initial":
-                        use_nr, fact = False, prob.factor("committed", None)
-                    continue
-                n_back = 0
-                if it == s.max_iter or not np.isfinite(rel) or rel > 1e8:
+                if not np.isfinite(rel) or rel > 1e8:
+                    termination = "nonfinite_or_divergent"
+                    break
+                if it == s.max_iter:
                     break
                 # stagnation / divergence: give up early and cut the step
                 if it >= 6 and rel > 0.8 * res_hist[it - 4] and rel > s.tol_force:
+                    termination = "stagnation"
                     break
                 # ---- tangent / factorisation
                 if s.method == "hybrid" and it >= 2 and rel > s.hybrid_ratio * prev_rel:
@@ -200,7 +208,15 @@ def solve_stage(
                     fact = initial_fact
                 elif it == 0 or (not use_nr and fact is None):
                     # predictor (and mNR): tangent of the last converged state
-                    fact = prob.factor("committed", None)
+                    try:
+                        fact = prob.factor("committed", None)
+                    except SingularSystemError:
+                        if it != 0:
+                            raise
+                        # A perfectly plastic corner can have exactly zero tangent.
+                        # An elastic predictor permits unloading from it; subsequent
+                        # NR iterations still use the actual constitutive tangent.
+                        fact = prob.factor("elastic", None)
                 elif use_nr:
                     fact = prob.factor("tangent", trial)
                 if it == 0:
@@ -218,17 +234,37 @@ def solve_stage(
                         ddu = _line_search(prob, du - du_total, ddu, Rf, lam_t, f_ext, f0, free)
                 du[free] += ddu
                 prev_rel = rel
-        except SingularSystemError:
+        except (SingularSystemError, MaterialIntegrationError) as exc:
             if linear:
                 raise
             converged = False
-        worst = None
-        if not converged and Rf is not None:
-            worst = free[np.argsort(-np.abs(Rf))[:8]]
-        hist.steps.append(StepRecord(lam_t, it, res_hist, converged, worst))
+            termination = (
+                "material_return"
+                if isinstance(exc, MaterialIntegrationError)
+                else "singular_tangent"
+            )
+            detail = str(exc)
+            if isinstance(exc, MaterialIntegrationError):
+                material_failure = exc.details
+        hist.steps.append(
+            StepRecord(
+                lam_t,
+                it,
+                res_hist,
+                converged,
+                termination,
+                force_norms,
+                energy_ratios,
+                detail,
+                material_failure,
+                free[np.argsort(-np.abs(Rf))[:8]] if not converged and Rf is not None else None,
+            )
+        )
         if not converged:
             if linear:
-                raise NonConvergence(lam, f"linear stage did not converge (rel={res_hist[-1]:.2e})")
+                raise NonConvergence(
+                    lam, f"linear stage did not converge (rel={res_hist[-1]:.2e})", history=hist
+                )
             dlam *= 0.5
             log.debug(
                 "step to lam=%.4f failed after %d its (residuals %s); dlam -> %.3g",
@@ -244,6 +280,8 @@ def solve_stage(
         last_trial = trial
         prob.commit(trial, du_total)
         lam = lam_t
+        if prob.progress is not None:
+            prob.progress(lam, it, res_hist[-1], True)
         if it <= s.fast_iter:
             dlam = min(dlam * 1.5, s.dlam_max)
     assert last_trial is not None
@@ -271,7 +309,7 @@ def _line_search(
         trial_du[free] += s_cur * ddu
         try:
             _, fint = prob.integrate(trial_du)
-        except LocalIntegrationError:
+        except MaterialIntegrationError:
             s_cur = max(0.5 * s_cur, 0.1)  # shorten the step and stop searching
             break
         g = float(ddu @ (lam * f_ext + (1 - lam) * f0 - fint)[free])

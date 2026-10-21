@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "solver_base_commit": "5f0c4eba64b1ad72ad01f9d8db52eace9f31446f",
+  "solver_source_sha256": {
+    "src/slipsurface/fe2d/mesh/topology.py": "e367384fc270af3d2babf0af154661df6c4a1419f6c9c3a823ff39cec7743c71",
+    "src/slipsurface/fe2d/mesh/structures.py": "430a61a817d3eb61777d8d0e8b56d7874e91d6174270f9c1a458a783e33cff9a",
+    "examples/sheet_pile_staged_excavation.py": "f003077ffc78f630f25d7b83669fd83e357286657509573c3b2af476423cfa02",
+    "examples/verify_sheet_pile.py": "fc6271a373c2cef3db97f2c816611b60fa1be2263a9b9d4440fe88426514e60e"
+  },
+  "external_reference_status": "pending",
+  "runs": {
+    "h050": {
+      "local_mesh_size_m": 0.5,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "503a13bd309116a6e13b81225826a88d885c283db3ccee1a28de60e0ad442088",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 3657,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 163.72975892954855,
+      "peak_moment_depth_m": 6.4375,
+      "max_abs_wall_ux_m": 0.03162498570119611,
+      "wall_top_ux_m": 0.03162498570119611,
+      "wall_toe_ux_m": 0.005937016801606912,
+      "max_domain_displacement_norm_m": 0.03974763468706568,
+      "free_residual_l2": 0.004311354423824592,
+      "external_force_l2": 307.02592106863943,
+      "accepted_steps": 13,
+      "rejected_steps": 0,
+      "material_return_rejected_steps": 0,
+      "iterations": 59
+    },
+    "h025": {
+      "local_mesh_size_m": 0.25,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "503a13bd309116a6e13b81225826a88d885c283db3ccee1a28de60e0ad442088",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 4916,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 168.05817530475468,
+      "peak_moment_depth_m": 6.546875,
+      "max_abs_wall_ux_m": 0.03279331749295998,
+      "wall_top_ux_m": 0.03279331749295998,
+      "wall_toe_ux_m": 0.0058384240108600325,
+      "max_domain_displacement_norm_m": 0.04204448993231009,
+      "free_residual_l2": 0.007919551751130979,
+      "external_force_l2": 296.1561510157735,
+      "accepted_steps": 24,
+      "rejected_steps": 3,
+      "material_return_rejected_steps": 0,
+      "iterations": 133
+    },
+    "h0125": {
+      "local_mesh_size_m": 0.125,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "503a13bd309116a6e13b81225826a88d885c283db3ccee1a28de60e0ad442088",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 7403,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 168.9116000352175,
+      "peak_moment_depth_m": 6.546875,
+      "max_abs_wall_ux_m": 0.03339139236947281,
+      "wall_top_ux_m": 0.03339139236947281,
+      "wall_toe_ux_m": 0.005798870680088342,
+      "max_domain_displacement_norm_m": 0.04323022583223039,
+      "free_residual_l2": 0.0006987523351988834,
+      "external_force_l2": 293.90565510139976,
+      "accepted_steps": 41,
+      "rejected_steps": 5,
+      "material_return_rejected_steps": 0,
+      "iterations": 298
+    },
+    "h050-half-steps": {
+      "local_mesh_size_m": 0.5,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "503a13bd309116a6e13b81225826a88d885c283db3ccee1a28de60e0ad442088",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 3657,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.05,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.25,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 163.78519160992707,
+      "peak_moment_depth_m": 6.4375,
+      "max_abs_wall_ux_m": 0.03164974963848424,
+      "wall_top_ux_m": 0.03164974963848424,
+      "wall_toe_ux_m": 0.005937758512015365,
+      "max_domain_displacement_norm_m": 0.03977477697623646,
+      "free_residual_l2": 0.018439649689784367,
+      "external_force_l2": 307.02592106863943,
+      "accepted_steps": 19,
+      "rejected_steps": 1,
+      "material_return_rejected_steps": 0,
+      "iterations": 85
+    },
+    "h050-split-release": {
+      "local_mesh_size_m": 0.5,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "503a13bd309116a6e13b81225826a88d885c283db3ccee1a28de60e0ad442088",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 3657,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "half-release",
+          "lambda": 0.5
+        },
+        {
+          "name": "complete-release",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 164.07668028277726,
+      "peak_moment_depth_m": 6.4375,
+      "max_abs_wall_ux_m": 0.0315047162651147,
+      "wall_top_ux_m": 0.0315047162651147,
+      "wall_toe_ux_m": 0.00594021339398949,
+      "max_domain_displacement_norm_m": 0.03955895123256009,
+      "free_residual_l2": 0.0061213740259629225,
+      "external_force_l2": 307.02592106863943,
+      "accepted_steps": 18,
+      "rejected_steps": 1,
+      "material_return_rejected_steps": 0,
+      "iterations": 81
+    },
+    "h050-right-first": {
+      "local_mesh_size_m": 0.5,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "503a13bd309116a6e13b81225826a88d885c283db3ccee1a28de60e0ad442088",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 3657,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 163.72975892944643,
+      "peak_moment_depth_m": 6.4375,
+      "max_abs_wall_ux_m": 0.0316249857011708,
+      "wall_top_ux_m": 0.0316249857011708,
+      "wall_toe_ux_m": 0.005937016801608046,
+      "max_domain_displacement_norm_m": 0.039747634687030624,
+      "free_residual_l2": 0.004311354423374812,
+      "external_force_l2": 307.0259210686394,
+      "accepted_steps": 13,
+      "rejected_steps": 0,
+      "material_return_rejected_steps": 0,
+      "iterations": 59
+    }
+  },
+  "same_mesh_sensitivity": {
+    "half-steps": {
+      "relative_peak_moment_change": 0.00033856203503217816,
+      "relative_moment_field_change": 0.0005635753053306911,
+      "relative_wall_ux_field_change": 0.0007830497544603309
+    },
+    "split-release": {
+      "relative_peak_moment_change": 0.0021188655959481725,
+      "relative_moment_field_change": 0.0027351281806996335,
+      "relative_wall_ux_field_change": 0.0038029878406192464
+    }
+  },
+  "mesh_refinement_relative_changes": {
+    "h050->h025": {
+      "max_abs_moment_kNm_per_m": 0.02643634488626231,
+      "max_abs_wall_ux_m": 0.036943314466690275,
+      "max_domain_displacement_norm_m": 0.0577859604307934
+    },
+    "h025->h0125": {
+      "max_abs_moment_kNm_per_m": 0.005078150639891391,
+      "max_abs_wall_ux_m": 0.01823770579604291,
+      "max_domain_displacement_norm_m": 0.028201933281371508
+    }
+  },
+  "reversed_interface_order_relative_changes": {
+    "relative_peak_moment_change": 6.237058104225425e-13,
+    "relative_moment_field_change": 9.825037309708987e-13,
+    "relative_wall_ux_field_change": 8.001947038538121e-13
+  },
+  "task_status": "closed_external_comparison_deferred",
+  "decision_date": "2026-10-21"
+}

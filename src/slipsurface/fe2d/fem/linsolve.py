@@ -28,7 +28,16 @@ _SINGULAR_MSG = "stiffness matrix is singular — check boundary conditions (rig
 
 class _SuperLU:
     def __init__(self, K: sp.spmatrix, symmetric: bool = True) -> None:
-        Kc = sp.csc_matrix(K)
+        Kc = sp.csc_matrix(K, copy=True)
+        Kc.sum_duplicates()
+        Kc.eliminate_zeros()
+        if not np.isfinite(Kc.data).all():
+            raise SingularSystemError("non-finite stiffness matrix")
+        if Kc.shape[0] and (np.any(np.diff(Kc.indptr) == 0) or
+                            np.any(np.diff(Kc.tocsr().indptr) == 0)):
+            # SuperLU may emit invalid BLAS-argument messages for exactly empty
+            # rows/columns at a plastic mechanism. Reject before factorisation.
+            raise SingularSystemError(_SINGULAR_MSG)
         if not symmetric:
             # non-associated plasticity: the tangent is structurally symmetric, so keep
             # the symmetric ordering but allow threshold pivoting off the diagonal

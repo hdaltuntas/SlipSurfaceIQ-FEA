@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
 from scipy.optimize import minimize
 
 from slipsurface.fe2d.core.enums import PlasticFlag
+from slipsurface.fe2d.core.errors import MaterialIntegrationError
 from slipsurface.fe2d.fem.materials import DruckerPrager, MohrCoulomb, VonMises
 from slipsurface.fe2d.fem.materials.drucker_prager import DPYield
 from slipsurface.fe2d.fem.materials.substep import SubstepSettings, batch, integrate_substep
@@ -21,6 +24,84 @@ MC_CASES = [
     (5.0, 0.0, 0.0, None),
     (0.0, 35.0, 35.0, None),
 ]
+
+
+@pytest.mark.parametrize("strain", [1e-9, 1e-5, 1e-2])
+def test_zero_dilation_apex_failure_never_returns_elastic_trial(strain):
+    """Isochoric shear potentials cannot remove positive hydrostatic trial stress.
+
+    Previously this returned flag 255 with f_MC > 0, which global equilibrium
+    could accept. A local failure must reject the entire batch, without mutation.
+    """
+    mc = MohrCoulomb(3e4, 0.3, 0, 30, 0)
+    sig_n, q_n = np.zeros((2, 4)), np.zeros((2, 1))
+    deps = np.array([[-strain, -strain, -strain, 0.0], [strain, strain, strain, 0.0]])
+    before = [a.copy() for a in (sig_n, deps, q_n)]
+    with pytest.raises(MaterialIntegrationError, match=r"batch indices \[1\]") as caught:
+        mc.integrate(sig_n, deps, q_n)
+    details = caught.value.details
+    assert details["failed_count"] == 1
+    point = details["points"][0]
+    assert point["reason"] == "zero_dilation_trial_above_apex"
+    assert point["trial_mean"] > details["apex"] + point["mean_apex_tolerance"]
+    # The diagnostic is self-contained: replay reproduces the same rejection.
+    saved = json.loads(json.dumps(details, allow_nan=False))
+    with pytest.raises(MaterialIntegrationError):
+        MohrCoulomb(**saved["params"]).integrate(
+            np.array([point["sig_n"]]), np.array([point["deps"]]), np.array([point["q_n"]])
+        )
+    for a, b in zip((sig_n, deps, q_n), before):
+        np.testing.assert_array_equal(a, b)
+
+
+def test_return_failure_payload_is_bounded():
+    mc = MohrCoulomb(3e4, 0.3, 0, 30, 0)
+    with pytest.raises(MaterialIntegrationError) as caught:
+        mc.integrate(np.zeros((20, 4)), np.tile([1e-4, 1e-4, 0, 0], (20, 1)), np.zeros((20, 1)))
+    assert caught.value.details["failed_count"] == 20
+    assert len(caught.value.details["points"]) == 8
+
+
+@pytest.mark.parametrize(
+    "case",
+    json.loads(
+        (Path(__file__).parents[1] / "verification/data/material_return_failures.json").read_text(
+            encoding="utf-8"
+        )
+    ),
+    ids=lambda case: case["case"],
+)
+def test_recorded_returns_have_trace_obstruction_even_with_subdivisions(case):
+    data = case["details"]
+    point = data["points"][0]
+    mc = MohrCoulomb(**data["params"])
+    sig_n = np.array([point["sig_n"]])
+    deps = np.array([point["deps"]])
+    q_n = np.array([point["q_n"]])
+    assert mc.yield_function(sig_n)[0] < 1e-8
+    for count in (1, 128):
+        sig, q = sig_n.copy(), q_n.copy()
+        completed = 0
+        with pytest.raises(MaterialIntegrationError) as caught:
+            for _ in range(count):
+                sig, q, _, _ = mc.integrate(sig, deps / count, q)
+                completed += 1
+        assert completed < count
+        assert caught.value.details["points"][0]["reason"] == "zero_dilation_trial_above_apex"
+        # Every accepted partial return respects the original trace balance.
+        expected_mean = np.mean((sig_n + completed / count * deps @ mc.elastic_D().T)[0, :3])
+        assert np.mean(sig[0, :3]) == pytest.approx(expected_mean, abs=1e-9)
+
+
+def test_zero_dilation_compressive_shear_still_has_admissible_return():
+    mc = MohrCoulomb(3e4, 0.3, 0, 30, 0)
+    sig, _, _, flag = mc.integrate(
+        np.array([[-100.0, -100.0, -100.0, 0.0]]),
+        np.array([[0.0, 0.0, 0.0, 0.02]]),
+        np.zeros((1, 1)),
+    )
+    assert flag[0] == 1
+    assert mc.yield_function(sig)[0] < 1e-8
 
 
 def _fd_tangent(model, sig_n, deps, q_n, h=1e-7):
@@ -50,27 +131,49 @@ def test_mohr_coulomb_return_and_tangent(c, phi, psi, st, rng):
         assert np.abs(Dfd - D[i]).max() < 1e-5 * np.abs(mc._D).max()
     if psi == phi:  # associated: closest point in the energy norm
         Dinv = np.linalg.inv(mc._D)
-        checked = 0
         for i in np.flatnonzero(fl > 0)[:10]:
             tr = sig_n[i] + mc._D @ deps[i]
 
             def obj(x, tr=tr):
                 return (tr - x) @ Dinv @ (tr - x)
 
-            cons = {"type": "ineq", "fun": lambda x: -mc.yield_function(x[None])[0]}
-            # reference: best *feasible* SLSQP optimum from several starts (an SLSQP run
-            # that hits its iteration limit may return a point slightly outside the
-            # surface, whose objective is then below the true constrained minimum)
-            best = np.inf
-            for x0 in (sig[i], 0.5 * (sig[i] + tr)):
-                r = minimize(obj, x0, constraints=[cons], method="SLSQP",
-                             options={"ftol": 1e-12, "maxiter": 300})  # fmt: skip
-                if r.success and mc.yield_function(r.x[None])[0] <= 1e-8 * 100:
-                    best = min(best, float(r.fun))
-            if np.isfinite(best):
-                checked += 1
-                assert obj(sig[i]) <= best * (1 + 1e-6) + 1e-10
-        assert checked >= 5
+            # Independent convex QP in principal stresses. Six linear MC planes
+            # avoid finite-difference optimization of a nonsmooth spectral max.
+            # An infeasible/unsuccessful optimizer is never a reference solution.
+            trial = np.linalg.eigvalsh([[tr[0], tr[3], 0], [tr[3], tr[1], 0], [0, 0, tr[2]]])
+            scale = max(np.abs(trial).max(), c, 1.0)
+            trial = trial / scale
+            compliance = np.full((3, 3), -0.3)
+            np.fill_diagonal(compliance, 1.0)
+            A, b = [], []
+            sp, cp = math.sin(math.radians(phi)), math.cos(math.radians(phi))
+            for j in range(3):
+                for k in range(3):
+                    if j == k:
+                        continue
+                    row = np.zeros(3)
+                    row[j], row[k] = 1 + sp, -(1 - sp)
+                    A.append(row)
+                    b.append(2 * c * cp / scale)
+            if st is not None:
+                A.extend(np.eye(3))
+                b.extend([st / scale] * 3)
+            A, b = np.asarray(A), np.asarray(b)
+
+            def energy(x, trial=trial, compliance=compliance):
+                d = x - trial
+                return d @ compliance @ d
+
+            def gradient(x, trial=trial, compliance=compliance):
+                return 2 * compliance @ (x - trial)
+
+            cons = {"type": "ineq", "fun": lambda x, b=b, A=A: b - A @ x, "jac": lambda x, A=A: -A}
+            r = minimize(energy, np.zeros(3), jac=gradient, constraints=[cons], method="SLSQP",
+                         options={"ftol": 1e-12, "maxiter": 500})  # fmt: skip
+            assert r.success, r.message
+            assert np.max(A @ r.x - b) < 1e-9
+            reference = r.fun * scale**2 / 1e4
+            assert obj(sig[i]) <= reference * (1 + 1e-4) + 1e-12
 
 
 @pytest.mark.parametrize(
@@ -156,9 +259,8 @@ def test_substep_batch_elastic_and_unloading():
 
 @pytest.mark.parametrize("psi,st", [(0.0, None), (5.0, None), (0.0, 5.0)])
 def test_mohr_coulomb_apex_region_non_associated(psi, st, rng):
-    """Trials far beyond the apex that no combination of (isochoric) flow vectors can
-    reach must still return to an admissible corner (regression: flag 255)."""
-    mc = MohrCoulomb(3e4, 0.3, 10.0, 30.0, psi, st)
+    """Explicit tensile flow accepts tension; the uncut isochoric model rejects it."""
+    mc = MohrCoulomb(3e4, 0.3, 10.0, 30.0, psi, st, rankine_at_apex=st is None)
     n = 50000
     tr = rng.normal(0, 100, (n, 4))
     deps = tr @ np.linalg.inv(mc._D).T
@@ -167,9 +269,8 @@ def test_mohr_coulomb_apex_region_non_associated(psi, st, rng):
     assert mc.yield_function(sig).max() < 1e-9 * 100
     bad = np.array([[-62.68490516, 126.43094959, 10.15193833, -48.74336934]])
     mc0 = MohrCoulomb(3e4, 0.3, 10.0, 30.0, 0.0)
-    s, _, _, f = mc0.integrate(np.zeros((1, 4)), bad @ np.linalg.inv(mc0._D).T, np.zeros((1, 1)))
-    assert f[0] == PlasticFlag.APEX
-    assert np.allclose(s[0, :3], 10.0 * math.sqrt(3))  # apex c cot(phi), phi = 30°
+    with pytest.raises(MaterialIntegrationError):
+        mc0.integrate(np.zeros((1, 4)), bad @ np.linalg.inv(mc0._D).T, np.zeros((1, 1)))
 
 
 def test_mcc_return_tangent_and_unloading(rng):
@@ -221,6 +322,10 @@ def test_hoek_brown_return_and_tangent(case, rng):
     sig_n[:, 3] = rng.normal(0, 2e3, n)
     deps = rng.normal(0, 1, (n, 4)) * 3e-3
     deps[: n // 4, :3] += 2e-3  # some returns towards the tensile apex
+    if hb.psi == 0:
+        # Preserve random shear but keep mean compression; tension obstruction is
+        # checked separately instead of demanding an impossible plastic flow.
+        deps[:, :3] -= deps[:, :3].mean(axis=1, keepdims=True)
     sig, q, D, fl = hb.integrate(sig_n, deps, np.zeros((n, 1)))
     f = hb.yield_function(sig)
     assert f.max() < 1e-8 * hb.sci
@@ -242,6 +347,7 @@ def test_hoek_brown_closest_point_is_idempotent(rng):
     sig_n = np.zeros((200, 4))
     sig_n[:, :3] = -1e4
     deps = rng.normal(0, 1, (200, 4)) * 5e-3
+    deps[:, :3] -= deps[:, :3].mean(axis=1, keepdims=True)
     sig, *_ = hb.integrate(sig_n, deps, np.zeros((200, 1)))
     sig2, _, _, fl2 = hb.integrate(sig, np.zeros_like(deps), np.zeros((200, 1)))
     assert np.allclose(sig2, sig, rtol=0, atol=1e-8 * hb.sci)

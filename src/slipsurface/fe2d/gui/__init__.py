@@ -1,4 +1,7 @@
-"""L6 — graphical front-ends (optional ``[gui]`` extra). Faz 2: read-only result viewer."""
+"""L6 — optional graphical front-ends.
+
+Native desktop: ``python -m slipsurface.fe2d.gui`` (install ``[gui]``).
+"""
 
 from .results_view import show_result, to_pyvista
 

@@ -59,6 +59,10 @@ class ModifiedCamClay:
         p_min: float = 1.0,
         p_ref: float = 100.0,
     ) -> None:
+        if not all(np.isfinite(v) for v in (nu, M, lam, kappa, e0, OCR, p_min, p_ref)):
+            raise ValueError("MCC: parameters must be finite")
+        if p_min <= 0 or p_ref <= 0:
+            raise ValueError("MCC: p_min and p_ref must be positive")
         if not (0 < kappa < lam) or M <= 0 or e0 <= 0 or OCR < 1.0 or not -1 < nu < 0.5:
             raise ValueError("MCC: need 0 < kappa < lambda, M > 0, e0 > 0, OCR >= 1")
         self.nu, self.M, self.lam, self.kappa, self.e0 = nu, M, lam, kappa, e0
@@ -151,7 +155,10 @@ class ModifiedCamClay:
             J[:, 2, 0] = 2 * p - pc
             J[:, 2, 1] = -p
             J[:, 2, 2] = 2 * q / M2 * dq_ddl
-            dx = np.linalg.solve(J, -r[..., None])[..., 0]
+            try:
+                dx = np.linalg.solve(J, -r[..., None])[..., 0]
+            except np.linalg.LinAlgError as exc:
+                raise LocalIntegrationError("MCC local Jacobian is singular") from exc
             p, pc, dl = p + dx[:, 0], pc + dx[:, 1], np.maximum(dl + dx[:, 2], 0.0)
             p = np.maximum(p, 1e-12 * pcn)
             pc = np.maximum(pc, 1e-12 * pcn)
@@ -185,7 +192,10 @@ class ModifiedCamClay:
         dR = np.zeros((pl.size, 3, 2))
         dR[:, 0, 0] = -b * (E1 + a_sh)
         dR[:, 2, 1] = 2 * q / M2 * (1.0 / a)
-        dx = -np.linalg.solve(J, dR)  # (m, 3, 2): d(p, pc, dl)/d(dev, q_tr)
+        try:
+            dx = -np.linalg.solve(J, dR)  # (m, 3, 2): d(p, pc, dl)/d(dev, q_tr)
+        except np.linalg.LinAlgError as exc:
+            raise LocalIntegrationError("MCC tangent Jacobian is singular") from exc
         dp = dx[:, 0, :]
         dq = dx[:, 2, :] * dq_ddl[:, None]
         dq[:, 1] += 1.0 / a

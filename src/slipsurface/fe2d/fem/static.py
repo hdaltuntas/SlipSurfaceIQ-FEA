@@ -27,14 +27,15 @@ family in :mod:`.nonlinear`:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
 import scipy.sparse as sp
 from numpy.typing import NDArray
 
-from ..core.enums import Analysis, Drainage, ElemType
-from ..core.errors import ModelError
+from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
+from ..core.errors import MaterialIntegrationError, ModelError, SolverError
 from ..core.log import get_logger
 from ..core.units import GAMMA_W
 from ..model.boundary import Displacement, WaterCondition
@@ -47,7 +48,9 @@ from .elements.base import GeomCache
 from .linsolve import factorize
 from .loads import TractionFn, assemble_nodal_loads, k0_stress_field, pressure_edge_forces
 from .materials import build as build_material
+from .materials.mohr_coulomb import MohrCoulomb
 from .nonlinear import Problem, StageHistory, solve_stage
+from .progress import SolveCancelled, SolveProgress
 from .seepage import SeepageBlock, SeepageResult, solve_seepage
 from .state import SolverState
 from .structural import GROUP_TYPES, BarGroup, BeamGroup, InterfaceGroup
@@ -205,7 +208,15 @@ class _StageCtx:
 
 # ================================================================== solver
 class StaticSolver:
-    def __init__(self, model: Model, extra_tractions: dict[str, tuple] | None = None) -> None:
+    def __init__(
+        self, model: Model, extra_tractions: dict[str, tuple] | None = None, *,
+        progress: Callable[[SolveProgress], None] | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> None:
+        self.progress, self.cancel = progress, cancel
+        self._stage_name, self._stage_index = "initial", 0
+        self._stage_count = len(model.stages) + 1
+        self._report()
         model.validate()
         self.model = model
         self.mesh = model.mesh
@@ -240,6 +251,14 @@ class StaticSolver:
         self._D_committed: tuple[dict, dict] | None = None
         # nodal external force applied at the end of the previous stage (load split)
         self._f_applied: NDArray[np.float64] | None = None
+        self._D_committed_key: tuple | None = None
+
+    def _report(self, lam=0.0, iteration=0, residual=None, accepted=False, completed=False):
+        if self.cancel is not None and self.cancel():
+            raise SolveCancelled("analysis cancelled")
+        if self.progress is not None:
+            self.progress(SolveProgress(self._stage_name, self._stage_index, self._stage_count,
+                                        lam, iteration, residual, accepted, completed))
 
     # ------------------------------------------------------------------ materials
     def _cm(self, spec: MaterialSpec) -> object:
@@ -437,7 +456,7 @@ class StaticSolver:
                 gs = g
             else:
                 gs = GeomCache(B=g.B[ids], wdet=g.wdet[ids], N=g.N, xg=g.xg[ids])
-            ed = dm.node_dofs[b.conn[ids]][:, :, :2].reshape(ids.size, -1)
+            ed = dm.node_dofs[b.conn[ids]][:, :, :2].reshape(ids.size, 2 * b.etype.nen)
             groups = []
             for cm, gids in bm.groups:
                 pos = gids if ids.size == b.ne else np.flatnonzero(np.isin(ids, gids))
@@ -502,9 +521,10 @@ class StaticSolver:
         heads = [(h.node_set, self._set_nodes(h.node_set), h.head) for h in water.head_bcs]
         fluxes = [(self.mesh.edges(f.edge_set), f.q) for f in water.flux_bcs]
         faces = [(nm, self._set_nodes(nm)) for nm in water.seepage_faces]
-        res = solve_seepage(self.mesh, blocks, heads, fluxes, faces, self.model.analysis)
+        res = solve_seepage(self.mesh, blocks, heads, fluxes, faces, self.model.analysis,
+                            checkpoint=self._report)
         if not res.converged:
-            log.warning("seepage did not converge; pore pressures may be inaccurate")
+            raise SolverError("seepage did not converge; mechanical stage was not started")
         return res
 
     # ------------------------------------------------------------- integration
@@ -532,11 +552,24 @@ class StaticSolver:
                 for cm, pos in c.groups:
                     ni = cm.n_int  # type: ignore[attr-defined]
                     nq = max(ni, 1)
-                    sg, qg, Dg, fg = cm.integrate(  # type: ignore[attr-defined]
-                        s_n[pos].reshape(-1, 4),
-                        deps[pos].reshape(-1, 4),
-                        q_n[pos][..., :nq].reshape(-1, nq),
-                    )
+                    try:
+                        sg, qg, Dg, fg = cm.integrate(  # type: ignore[attr-defined]
+                            s_n[pos].reshape(-1, 4),
+                            deps[pos].reshape(-1, 4),
+                            q_n[pos][..., :nq].reshape(-1, nq),
+                        )
+                    except MaterialIntegrationError as exc:
+                        if exc.details is not None:
+                            exc.details["block"] = c.tag
+                            for point in exc.details.get("points", []):
+                                local, gp = divmod(point["batch_index"], ngp)
+                                elem = int(pos[local])
+                                point.update(
+                                    element_id=int(c.ids[elem]),
+                                    gauss_point=gp,
+                                    coordinates=c.geom.xg[elem, gp].tolist(),
+                                )
+                        raise
                     s_out[pos] = sg.reshape(pos.size, ngp, 4)
                     if ni:
                         q_out[pos, :, :ni] = qg.reshape(pos.size, ngp, ni)
@@ -577,7 +610,7 @@ class StaticSolver:
 
     # ------------------------------------------------------------------ assembly
     def _stiffness(self, sysm: System, D: dict, K: dict) -> sp.csr_matrix:
-        kes = [element_stiffness(c.geom, D[c.tag]) for c in sysm.cont]
+        kes = [element_stiffness(c.geom, D[c.tag] if c.ids.size else c.De) for c in sysm.cont]
         kes += [K[s.group.tag] for s in sysm.struct]
         return sysm.pattern.assemble(kes)
 
@@ -623,6 +656,39 @@ class StaticSolver:
         D = {c.tag: c.D_total(c.De) for c in sysm.cont}
         K = {s.group.tag: s.group.elastic_K(s.ids) for s in sysm.struct}
         return D, K
+
+    def _iteration_tangents(
+        self, sysm: System, D: dict, sig: dict, flags: dict, ratio: float
+    ) -> dict:
+        """Optional apex-only quasi-Newton stiffness; never mutate true tangents.
+
+        This is NOT the derivative of the internal force. It does not add stress,
+        hardening or energy and cannot guarantee global nonsingularity.
+        All arrays here are indexed by the active elements of each block.
+        """
+        if ratio == 0.0:
+            return D
+        out = dict(D)
+        for c in sysm.cont:
+            if not c.ids.size or D[c.tag].ndim != 4:
+                continue
+            mask = np.zeros(D[c.tag].shape[:2], dtype=bool)
+            for cm, pos in c.groups:
+                if not isinstance(cm, MohrCoulomb) or not cm.has_apex:
+                    continue
+                s, fl = sig[c.tag][pos], flags[c.tag][pos]
+                tol = 1e-10 * max(abs(cm.apex), 1.0)
+                mask[pos] = (
+                    np.all(np.abs(s[..., :3] - cm.apex) <= tol, axis=-1)
+                    & (np.abs(s[..., 3]) <= tol)
+                    & ((fl == PlasticFlag.APEX) | (fl == PlasticFlag.TENSION))
+                    & np.all(D[c.tag][pos] == 0.0, axis=(-2, -1))
+                )
+            if mask.any():
+                out[c.tag] = D[c.tag].copy()
+                elastic = np.broadcast_to(c.De[:, None], D[c.tag].shape)
+                out[c.tag][mask] = ratio * elastic[mask]
+        return out
 
     def _factor_free(self, sysm: System, Kmat: sp.csr_matrix, symmetric: bool) -> object:
         f, p = sysm.dm.free, sysm.dm.prescribed
@@ -840,6 +906,7 @@ class StaticSolver:
         trial, _ = self.integrate(state, np.zeros(sysm.dm.ndof), sysm, lay)
         self._commit_trial(state, sysm, trial)
         self._D_committed = self._tangent_record(sysm, trial)
+        self._D_committed_key = sysm.key
 
     def _commit_trial(self, state: SolverState, sysm: System, t: Trial) -> None:
         for c in sysm.cont:
@@ -884,7 +951,11 @@ class StaticSolver:
         base = state.commit()
         committed = base
         u_start = state.u.copy()
-        D_comm = self._D_committed
+        # Tangents are indexed by the exact active element IDs, not just block tags
+        # or array sizes. Excavation (even swapping equally sized sets) invalidates
+        # the previous stage's committed tangent and structural DOF layout.
+        D_comm = self._D_committed if self._D_committed_key == sysm.key else None
+        solve_settings = settings or self.model.settings
 
         def integrate(du: NDArray[np.float64]) -> tuple[Trial, NDArray[np.float64]]:
             return self.integrate(committed, du, sysm, lay)
@@ -901,8 +972,14 @@ class StaticSolver:
             if kind == "tangent":
                 t: Trial = trial  # type: ignore[assignment]
                 D, K = t.D, t.K
+                stresses, flags = t.sig, t.flag
             else:
-                D, K = self._tangent_for(sysm, D_comm)  # type: ignore[arg-type]
+                D, K = self._tangent_for(sysm, D_comm)
+                stresses = {c.tag: committed.sig[c.tag][c.ids] for c in sysm.cont}
+                flags = {c.tag: committed.plastic[c.tag][c.ids] for c in sysm.cont}
+            D = self._iteration_tangents(
+                sysm, D, stresses, flags, solve_settings.apex_stiffness_ratio
+            )
             return self._factor_free(sysm, self._stiffness(sysm, D, K), sysm.symmetric)
 
         def commit(trial: object, du_total: NDArray[np.float64]) -> None:
@@ -914,13 +991,14 @@ class StaticSolver:
             committed = new
             D_comm = self._tangent_record(sysm, t)
 
-        prob = Problem(dm.ndof, dm.free, dm.prescribed, integrate, factor, commit)
+        prob = Problem(dm.ndof, dm.free, dm.prescribed, integrate, factor, commit, self._report)
         try:
             _, _, hist = solve_stage(
-                prob, f_ext, f0, du_presc, settings or self.model.settings, sysm.linear, lam_end
+                prob, f_ext, f0, du_presc, solve_settings, sysm.linear, lam_end
             )
         finally:
             self._D_committed = D_comm
+            self._D_committed_key = sysm.key if D_comm is not None else None
             for k in ("u", "sig", "q", "plastic", "struct", "struct_flag", "pex"):
                 setattr(state, k, getattr(committed, k))
         return state, hist
@@ -1106,14 +1184,20 @@ class StaticSolver:
     def run(self, stop_after: int | None = None) -> SolveResult:
         """Initial state + stages ``0..stop_after`` (all stages by default)."""
         model = self.model
+        self._stage_count = (len(model.stages) if stop_after is None else
+                             len(model.stages[:stop_after + 1])) + 1
+        self._report()
         state, initial = self.initial_state()
+        self._report(lam=initial.lam, accepted=True, completed=True)
         results = []
         override: dict[int, str] = {}
         lay = self._layout
         drained = True
         assert lay is not None
         stages = model.stages if stop_after is None else model.stages[: stop_after + 1]
-        for st in stages:
+        for index, st in enumerate(stages, start=1):
+            self._stage_name, self._stage_index = st.name, index
+            self._report()
             t1 = time.perf_counter()
             if st.material_override != override or st.drained != drained:
                 override, drained = dict(st.material_override), st.drained
@@ -1131,6 +1215,7 @@ class StaticSolver:
                 self._result(st.name, state, sysm, lay, f_eq, timings, hist, st.load_split)
             )
             self.system, self._ctx, self._layout = sysm, ctx, lay
+            self._report(lam=st.load_split, accepted=True, completed=True)
         self.state = state
         return SolveResult(model=model, geom=self.geom, initial=initial, stages=results)
 
@@ -1143,9 +1228,13 @@ def _water_stiffness(spec: MaterialSpec, De: NDArray[np.float64]) -> float:
     return 100.0 * float(K)
 
 
-def solve(model: Model, extra_tractions: dict[str, tuple] | None = None) -> SolveResult:
+def solve(
+    model: Model, extra_tractions: dict[str, tuple] | None = None, *,
+    progress: Callable[[SolveProgress], None] | None = None,
+    cancel: Callable[[], bool] | None = None,
+) -> SolveResult:
     """Solve ``model``: initial stress state followed by every stage in order."""
-    return StaticSolver(model, extra_tractions).run()
+    return StaticSolver(model, extra_tractions, progress=progress, cancel=cancel).run()
 
 
 __all__ = ["Analysis", "SolveResult", "StageResult", "StaticSolver", "Trial", "solve", "Stage"]
