@@ -156,6 +156,7 @@ def model_from_dict(doc: dict) -> Model:
             water=_water(s["water"]),
             load_split=s["load_split"],
             reset_displacements=s["reset_displacements"],
+            displacements=tuple(Displacement(**d) for d in s.get("displacements", [])),
         )
         for s in doc["stages"]
     ]

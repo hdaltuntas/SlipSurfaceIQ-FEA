@@ -27,8 +27,14 @@ _SINGULAR_MSG = "stiffness matrix is singular — check boundary conditions (rig
 
 
 class _SuperLU:
-    def __init__(self, K: sp.spmatrix) -> None:
+    def __init__(self, K: sp.spmatrix, symmetric: bool = True) -> None:
         Kc = sp.csc_matrix(K)
+        if not symmetric:  # non-associated plasticity: partial pivoting, COLAMD
+            try:
+                self._lu = spla.splu(Kc, permc_spec="COLAMD")
+            except RuntimeError as exc:
+                raise SingularSystemError(_SINGULAR_MSG) from exc
+            return
         try:
             self._lu = spla.splu(
                 Kc,
@@ -75,7 +81,8 @@ def _pardiso_available() -> bool:
     return True
 
 
-def factorize(K: sp.spmatrix, method: str = "auto") -> Factorization:
+def factorize(K: sp.spmatrix, method: str = "auto", symmetric: bool = True) -> Factorization:
+    """Factorise K. ``symmetric=False`` (non-associated tangents) enables pivoting."""
     if method == "pardiso" or (method == "auto" and _pardiso_available()):
         return _Pardiso(K)
-    return _SuperLU(K)
+    return _SuperLU(K, symmetric)

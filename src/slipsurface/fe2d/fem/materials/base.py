@@ -13,7 +13,8 @@ from numpy.typing import NDArray
 
 
 class ConstitutiveModel(Protocol):
-    n_int: int
+    n_int: int  # internal variables per Gauss point (q[..., 0] = equivalent plastic strain)
+    symmetric: bool  # consistent tangent is symmetric (associated flow)
 
     def elastic_D(self) -> NDArray[np.float64]: ...
 

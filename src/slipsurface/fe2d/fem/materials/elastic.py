@@ -21,6 +21,8 @@ def isotropic_D(E: float, nu: float) -> NDArray[np.float64]:
 
 class LinearElastic:
     n_int = 0
+    symmetric = True
+    plastic = False
 
     def __init__(self, E: float, nu: float, phi_deg: float | None = None) -> None:
         self.E = float(E)

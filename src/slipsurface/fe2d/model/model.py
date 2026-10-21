@@ -46,8 +46,15 @@ class Model:
                     raise ModelError(f"stage '{st.name}': unknown edge set '{ld.edge_set}'")
                 if isinstance(ld, PointLoad) and not 0 <= ld.node < self.mesh.nn:
                     raise ModelError(f"stage '{st.name}': point load node {ld.node} out of range")
+            for dp in st.displacements:
+                if dp.node_set not in self.mesh.node_sets:
+                    raise ModelError(f"stage '{st.name}': unknown node set '{dp.node_set}'")
             for r, m in st.material_override.items():
                 if m not in self.materials:
                     raise ModelError(f"stage '{st.name}': override region {r} -> unknown '{m}'")
-        if self.initial.mode not in ("gravity", "k0_field", "none"):
+        if self.initial.mode not in ("gravity", "k0_field", "field", "none"):
             raise ModelError(f"unknown initial stress mode '{self.initial.mode}'")
+        if self.initial.mode == "field" and self.initial.field is None:
+            raise ModelError("initial stress mode 'field' needs InitialStress.field")
+        if self.settings.method not in ("NR", "mNR", "hybrid", "initial"):
+            raise ModelError(f"unknown nonlinear method '{self.settings.method}'")

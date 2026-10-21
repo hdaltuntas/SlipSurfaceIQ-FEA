@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..core.enums import Analysis, Drainage, ElemType
+from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
 from ..fem.static import SolveResult, StageResult, solve
 from ..io.project_json import load_model, save_model
 from ..io.vtk_export import write_vtu
@@ -86,6 +86,7 @@ __all__ = [
     "MaterialSpec",
     "Mesh",
     "Model",
+    "PlasticFlag",
     "PointLoad",
     "SolveResult",
     "SolverSettings",
