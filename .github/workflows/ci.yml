@@ -48,4 +48,4 @@ jobs:
           sudo apt-get install -y libegl1 libopengl0 libxkbcommon0
       - run: python -m pip install -e ".[dev,gui]"
       - name: Native worker, persistence, cancellation and active result exports
-        run: pytest -q tests/unit/test_desktop.py tests/unit/test_progress_exports.py tests/unit/test_viewer.py
+        run: pytest -q tests/unit/test_desktop.py tests/unit/test_progress_exports.py tests/unit/test_viewer.py tests/unit/test_cad_geometry.py tests/unit/test_cad_desktop.py

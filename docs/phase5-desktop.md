@@ -3,6 +3,8 @@
 Faz 4 sonrasındaki ilk Faz 5 teslimidir. Native **PySide6 / Qt Widgets** uygulamasıdır;
 web sunucusu veya tarayıcı arayüzü kullanmaz. **Kapı 5 ve v1.0 tamamlanmış değildir.**
 
+Devam teslimi: [Faz 5.2 CAD, DXF ve çizimden ağ](phase5-cad.md).
+
 ## Kurulum ve çalıştırma
 
 ```bash
@@ -54,8 +56,9 @@ Ana dal ve PR #1 farklı HDF5/.ssproj şemaları geliştirmişti. İkisi de koru
 
 ## Kapı 5 için kalanlar
 
-1. QGraphicsView CAD: snap, çizgi/poligon/delik, geri al/yeniden yap, DXF; çizimden
-   Domain/mesh oluşturma ve geometri doğrulama.
+1. İlk QGraphicsView CAD/Domain/ağ bağlantısı tamamlandı: [sınırlar](phase5-cad.md).
+   Kalanlar: DWG, yay/spline/blok DXF, katman sınırını kesen boşluklar, yeniden
+   ağlama sırasında mevcut FE atamalarını koruma.
 2. Yeni malzeme/yapı oluşturma, yük/su/sınır koşulu düzenleyicileri; aşama ekleme/silme/
    sıralama ve zaman çizelgesi.
 3. Asal gerilme okları, tek tek plastik noktalar, sorgu çizgileri; işaret ve eksenleri

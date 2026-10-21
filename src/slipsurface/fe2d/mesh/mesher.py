@@ -61,6 +61,7 @@ def unstructured_mesh(
     max_points: int = 2_000_000,
     max_rounds: int = 1000,
     renumber: bool = True,
+    checkpoint: Callable[[], None] | None = None,
 ) -> Mesh:
     """Generate a quality triangular mesh of ``domain``.
 
@@ -78,6 +79,8 @@ def unstructured_mesh(
     renumber:
         Reverse Cuthill–McKee node numbering (smaller profile; the sparse direct
         solve is ~30 % faster than with insertion order).
+    checkpoint:
+        Optional callback between refinement rounds (e.g. cooperative cancellation).
     """
     if etype not in (ElemType.T3, ElemType.T6):
         raise MeshError("unstructured_mesh supports T3 and T6")
@@ -86,7 +89,7 @@ def unstructured_mesh(
     pslg = domain.build() if isinstance(domain, Domain) else domain
     hfun = _size_function(h)
     eng = _Refiner(pslg, hfun, min_angle, max_area, max_points)
-    tri, label = eng.run(max_rounds)
+    tri, label = eng.run(max_rounds, checkpoint)
     mesh = _assemble(eng, tri, label, etype, tag)
     return rcm_renumber(mesh) if renumber else mesh
 
@@ -182,8 +185,10 @@ class _Refiner:
         return np.minimum(half[sid], 2.0 * rho * np.sin(0.5 * np.minimum(phi, np.pi)))
 
     # ------------------------------------------------------------- main loop
-    def run(self, max_rounds: int) -> tuple[Delaunay, NDArray[np.int64]]:
+    def run(self, max_rounds: int, checkpoint=None) -> tuple[Delaunay, NDArray[np.int64]]:
         for _ in range(max_rounds):
+            if checkpoint is not None:
+                checkpoint()
             self.rounds += 1
             if self.P.shape[0] > self.max_points:
                 raise MeshError(

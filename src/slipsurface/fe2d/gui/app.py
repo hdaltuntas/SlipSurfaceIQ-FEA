@@ -158,7 +158,8 @@ class MainWindow(QMainWindow):
             file_menu.addAction(a)
             self.edit_actions.append(a)
         toolbar.addSeparator()
-        for title, slot in [("Malzemeler", self.edit_materials), ("Aşamalar", self.edit_stages)]:
+        for title, slot in [("Geometri / CAD", self.edit_geometry),
+                            ("Malzemeler", self.edit_materials), ("Aşamalar", self.edit_stages)]:
             a = action(title, slot)
             toolbar.addAction(a)
             self.edit_actions.append(a)
@@ -293,6 +294,18 @@ class MainWindow(QMainWindow):
         dialog = MaterialDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)
+
+    def edit_geometry(self):
+        if self.busy or not self.discard_changes():
+            return
+        try:
+            from .cad import CadDialog
+
+            dialog = CadDialog(self.model, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.set_model(dialog.updated, dirty=True)
+        except Exception as exc:
+            self.show_error(str(exc))
 
     def edit_stages(self):
         dialog = StageDialog(self.model, self)

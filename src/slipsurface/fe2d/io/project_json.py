@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -101,6 +102,7 @@ def model_to_dict(
         "bolts": _enc(model.bolts),
         "settings": _enc(model.settings),
         "interfaces": _enc(model.interfaces),
+        "geometry": _enc(model.geometry),
     }
 
     if not include_mesh:
@@ -209,6 +211,7 @@ def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
         bolts={k: BoltSpec(**v) for k, v in doc["bolts"].items()},
         interfaces={k: InterfaceSpec(**v) for k, v in doc.get("interfaces", {}).items()},
         settings=SolverSettings(**doc["settings"]),
+        geometry=deepcopy(doc.get("geometry")),
     )
 
 

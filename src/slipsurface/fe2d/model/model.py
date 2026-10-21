@@ -26,6 +26,8 @@ class Model:
     bolts: dict[str, BoltSpec] = field(default_factory=dict)
     settings: SolverSettings = field(default_factory=SolverSettings)
     interfaces: dict[str, InterfaceSpec] = field(default_factory=dict)
+    # Optional CAD authoring snapshot. The solver uses mesh, never this drawing.
+    geometry: dict | None = None
 
     def structure_tags(self) -> dict[str, str]:
         """Structural block tag -> kind ("beam" | "bar" | "interface")."""
