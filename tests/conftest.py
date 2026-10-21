@@ -59,6 +59,36 @@ def rng():
     return np.random.default_rng(1234)
 
 
+@pytest.fixture(scope="session")
+def _qt_application():
+    """Qt permits one QApplication for the process, not one per test module."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    yield app  # keep the Python owner alive through every desktop test module
+
+
+@pytest.fixture
+def qt_app(_qt_application):
+    """Destroy test widgets while Qt is alive; drain deferred QObject deletions."""
+    import gc
+
+    from PySide6.QtCore import QCoreApplication, QEvent, QThread
+
+    yield _qt_application
+    for window in _qt_application.topLevelWidgets():
+        for thread in window.findChildren(QThread):
+            if thread.isRunning():
+                thread.requestInterruption()
+                assert thread.wait(5000), "test left an unresponsive Qt worker"
+        window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    _qt_application.processEvents()
+    gc.collect()
+
+
 def pytest_runtest_logreport(report):  # pragma: no cover - CI only
     """On GitHub Actions, turn every failure into an ``::error`` annotation so the failing
     test and its message are visible in the check run without downloading the log."""

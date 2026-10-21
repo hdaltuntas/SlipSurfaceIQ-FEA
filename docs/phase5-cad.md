@@ -89,6 +89,12 @@ CAD kurucusundan alınan uniform basınçlı model analitik düzlem şekil deği
 çözümünü sağlar; Qt işçi sonucu doğrudan API ile bit düzeyinde aynıdır.
 Linux/Windows GUI CI işi yeni CAD testlerini de çalıştırır.
 
+İlk CI denemesinde 35 GUI testi geçmesine rağmen süreç kapanışında Qt hatası oluştu.
+Aynı sıra yerelde de `exit 139` ile yeniden üretildi. Test modüllerinin ayrı QApplication
+ömürleri yerine oturum boyunca tek uygulama nesnesi ve her testten sonra widget/deferred
+delete temizliği kullanıldı. Aynı 35 test `exit 0` ile bitti; test atlama veya çıkış kodunu
+yok sayma eklenmedi. Wheel paketi de başarıyla derlendi.
+
 ## Sıradaki teslim
 
 Yeni malzeme/bölge atama, liner/bolt ve yük/su kurucuları; aşama ekle/sil/sırala

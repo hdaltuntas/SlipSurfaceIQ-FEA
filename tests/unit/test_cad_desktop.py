@@ -13,16 +13,16 @@ pytest.importorskip("shapely")
 pytest.importorskip("ezdxf")
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QDialog
 
 from slipsurface.fe2d import api
 from slipsurface.fe2d.cad.geometry import Drawing, Entity
 from slipsurface.fe2d.gui.cad import CadDialog
 
 
-@pytest.fixture(scope="module")
-def app():
-    return QApplication.instance() or QApplication([])
+@pytest.fixture
+def app(qt_app):
+    return qt_app
 
 
 def finish(dialog, app):
