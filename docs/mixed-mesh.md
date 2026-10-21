@@ -64,15 +64,30 @@ momenti/yer değiştirmesi üretilmez.
 | 0.25 | T6+Q8 | 4917 | 1594 / 463 | 6634 / 13731 |
 
 `default`: T6 3 GP, Q8 2×2 azaltılmış integrasyon; `high`: T6 6 GP, Q8 3×3.
-Kaba ağda default ile T6 maksimum |M| = 165.281 kNm/m, karma ağda 168.262
-kNm/m (%1.80 fark); maksimum düğüm yer değiştirme normu 0.041328 ve 0.042162 m
-(%2.02 fark). Düğüm sayısı %5.94, GP sayısı %8.42 azalır; bu koşuda çözüm
-süresi azalmadı. Tek ortamda ölçülen süreler performans garantisi değildir.
+Kaba ağda düğüm sayısı %5.94, default GP sayısı %8.42 azalır. Bu, hızlanma veya
+nonlinear yakınsama garantisi değildir. Yerel MC dönüşünün başarısızlığını `255`
+bayraklı elastik denemeyle gizleyen hata düzeltildikten sonra aynı sekiz koşu tekrar
+çalıştırıldı; aşağıdaki değerler bu korumalı kod içindir.
 
-High ile kaba T6 tamamlandı (|M| = 165.329 kNm/m); karma ağ kazıda λ=0.19427'de
-durdu. İnce ağda high ile T6 λ=0.42573, karma ağ λ=0.53631'de durdu.
-İnce default T6 λ=0.89377, karma ağ λ=0.99613'te durdu. Son değerin 1'e yakın
-olması, aşamanın tamamlandığı veya sonucun kabul edildiği anlamına gelmez.
-İntegrasyon duyarlılığının nedeni henüz
-ayrıştırılmadı; yakınsama toleransları bu sonuçları elde etmek için gevşetilmedi.
-İnce ağ yakınsaması ve bağımsız S4 referansı çözülmeden Kapı 3 açık kalır.
+| h (m) | Ağ | Integrasyon | Kazı son yük çarpanı | Tamamlandı mı? |
+|---|---|---|---:|---|
+| 0.50 | T6 | default | 0.98698 | Hayır |
+| 0.50 | T6+Q8 | default | 1.00000 | Evet |
+| 0.25 | T6 | default | 0.88966 | Hayır |
+| 0.25 | T6+Q8 | default | 0.57445 | Hayır |
+| 0.50 | T6 | high | 0.96729 | Hayır |
+| 0.50 | T6+Q8 | high | 0.14826 | Hayır |
+| 0.25 | T6 | high | 0.42167 | Hayır |
+| 0.25 | T6+Q8 | high | 0.06509 | Hayır |
+
+Tamamlanan tek koşuda |M|max = 168.278009 kNm/m ve maksimum düğüm yer değiştirme
+normu 0.04217045 m. Eşdeğer T6 koşusu tamamlanmadığından doğrulanmış bir moment
+farkı veya ağ yakınsaması hesabı yapılamaz. Önceden bildirilen %1.80 fark ve diğer
+yük çarpanları korumasız koda aittir; doğrulama kanıtı olarak geri çekilmiştir.
+
+High karma kaba ağ tanısı, eski kabul edilmiş durumdaki 6 adet `255` GP'yi
+gösterdi; koruma sonrasında bu durum kabul edilmiyor. Ayırıcı elastik-zemin
+koşusu tamamlandı. Yerel hata, P4'e etkisi ve tanı komutları:
+[nonlinear-diagnostics.md](nonlinear-diagnostics.md).
+Toleranslar ve fiziksel malzeme parametreleri bu karşılaştırmada değiştirilmedi.
+İnce ağ yakınsaması, P4 ve bağımsız S4 referansı çözülmeden kapılar açık kalır.

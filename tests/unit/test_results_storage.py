@@ -83,6 +83,22 @@ def test_h5_roundtrip_and_postprocessing(tmp_path, solved):
         assert root.attrs["stress_convention"] == "tension_positive"
 
 
+def test_h5_reads_history_without_new_diagnostics(tmp_path, solved):
+    path = api.save_results(solved, tmp_path / "old-history.h5")
+    with h5py.File(path, "a") as root:
+        group = root["stages/0"]
+        data = json.loads(group["history"].asstr()[()])
+        for step in data["steps"]:
+            for key in ("termination", "force_norms", "energy_ratios", "detail"):
+                step.pop(key)
+        del group["history"]
+        group.create_dataset("history", data=json.dumps(data), dtype=h5py.string_dtype("utf-8"))
+    loaded = api.load_results(path)
+    assert loaded.stages[0].history.n_steps == solved.stages[0].history.n_steps
+    assert all(s.termination == "" for s in loaded.stages[0].history.steps)
+    np.testing.assert_array_equal(loaded.stages[0].u, solved.stages[0].u)
+
+
 def test_lazy_stage_detaches_and_preserves_duplicate_names(tmp_path, solved):
     path = api.save_results(solved, tmp_path / "results.h5")
     with api.ResultsReader(path) as reader:

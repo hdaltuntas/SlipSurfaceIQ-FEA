@@ -120,14 +120,19 @@ Alt sınır iki yönde, yan sınırlar yatay yönde tutulur. Su yoktur.
 
 ```bash
 PYTHONPATH=src python examples/sheet_pile_staged_excavation.py --size 0.5
-# Başarılı çözümü model ve sonuçlarıyla kaydetmek için:
+# Yalnızca çözüm tamamlanırsa kayıt yapılır:
 PYTHONPATH=src python examples/sheet_pile_staged_excavation.py --size 0.5 --output pile.ssproj
 ```
 
 | Yerel ağ boyutu | Düğüm | Gözlem |
 |---|---|---|
-| 0.50 m | 3889 | Aşamalar tamamlandı; maksimum eleman uç momenti 165.280601 kN·m/m |
-| 0.25 m | 5380 | Yakınsamadı; son yakınsayan yük faktörü 0.8938 |
+| 0.50 m | 3889 | Yerel MC dönüş korumasıyla default T6 kazı λ=0.98698'de durur |
+| 0.25 m | 5380 | Aynı korumayla default T6 kazı λ=0.88966'da durur |
+
+Önceki 165.280601 kN·m/m momenti ve λ=0.8938 kaydı, başarısız yerel dönüşü
+elastik deneme gerilmesiyle sürdüren koddan geliyordu; doğrulanmış sonuç olarak
+kullanılmıyor. Karma ağ/integrasyon tablosu [mixed-mesh.md](mixed-mesh.md),
+yeniden üretim ve P4'teki etkisi [nonlinear-diagnostics.md](nonlinear-diagnostics.md) içinde.
 
 Bu açık başarısızlık bir başarı toleransıyla örtülmedi. Göçme ile sayısal yakınsama
 sorununu ayıran bağımsız kontrol ve ince ağ çözümü gereklidir. Bu nedenle örnek **S4

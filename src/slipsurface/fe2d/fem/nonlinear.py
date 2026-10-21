@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
-from ..core.errors import NonConvergence, SingularSystemError
+from ..core.errors import MaterialIntegrationError, NonConvergence, SingularSystemError
 from ..core.log import get_logger
 from ..model.stages import SolverSettings
 
@@ -53,6 +53,10 @@ class StepRecord:
     iterations: int
     residuals: list[float]  # relative force residual per iteration
     converged: bool
+    termination: str = ""  # empty when reading records written before diagnostics existed
+    force_norms: list[float] = field(default_factory=list)
+    energy_ratios: list[float | None] = field(default_factory=list)
+    detail: str = ""
 
 
 @dataclass
@@ -120,6 +124,10 @@ def solve_stage(
         dpres = (lam_t - lam) * du_presc if pres.size else np.zeros(0)
         du = du_total.copy()
         res_hist: list[float] = []
+        force_norms: list[float] = []
+        energy_ratios: list[float | None] = []
+        termination = "max_iterations"
+        detail = ""
         converged = False
         fact = None
         use_nr = s.method == "NR"
@@ -147,28 +155,38 @@ def solve_stage(
                 # not cut steps trying to resolve numerical noise below that scale.
                 roundoff = 64 * np.finfo(float).eps * max(f_scale, float(np.linalg.norm(fint)))
                 res_hist.append(rel)
+                force_norms.append(residual_norm)
+                e_rel = abs(float(ddu @ Rf)) / max(abs(g0), 1e-300) if it > 0 else None
+                energy_ratios.append(e_rel)
                 if (
                     it == 0
                     and (rel < 1e-3 * s.tol_force or residual_norm <= roundoff)
                     and not driven.size
                 ):
                     converged = True
+                    termination = "initial_equilibrium"
                     break
                 if it > 0:
                     if residual_norm <= roundoff:
                         converged = True
+                        termination = "roundoff"
                         break
-                    e_rel = abs(float(ddu @ Rf)) / max(abs(g0), 1e-300)
                     if rel < s.tol_force and e_rel < s.tol_energy:
                         converged = True
+                        termination = "force_and_energy"
                         break
                     if linear and rel < 1e-8:
                         converged = True
+                        termination = "linear_force"
                         break
-                if it == s.max_iter or not np.isfinite(rel) or rel > 1e8:
+                if not np.isfinite(rel) or rel > 1e8:
+                    termination = "nonfinite_or_divergent"
+                    break
+                if it == s.max_iter:
                     break
                 # stagnation / divergence: give up early and cut the step
                 if it >= 6 and rel > 0.8 * res_hist[it - 4] and rel > s.tol_force:
+                    termination = "stagnation"
                     break
                 # ---- tangent / factorisation
                 if s.method == "hybrid" and it >= 2 and rel > s.hybrid_ratio * prev_rel:
@@ -197,18 +215,30 @@ def solve_stage(
                         ddu = _line_search(prob, du - du_total, ddu, Rf, lam_t, f_ext, f0, free)
                 du[free] += ddu
                 prev_rel = rel
-        except SingularSystemError:
+        except (SingularSystemError, MaterialIntegrationError) as exc:
             if linear:
                 raise
             converged = False
-        hist.steps.append(StepRecord(lam_t, it, res_hist, converged))
+            termination = (
+                "material_return"
+                if isinstance(exc, MaterialIntegrationError)
+                else "singular_tangent"
+            )
+            detail = str(exc)
+        hist.steps.append(
+            StepRecord(
+                lam_t, it, res_hist, converged, termination, force_norms, energy_ratios, detail
+            )
+        )
         if not converged:
             if linear:
-                raise NonConvergence(lam, f"linear stage did not converge (rel={res_hist[-1]:.2e})")
+                raise NonConvergence(
+                    lam, f"linear stage did not converge (rel={res_hist[-1]:.2e})", history=hist
+                )
             dlam *= 0.5
             log.debug("step to lam=%.4f failed after %d its; dlam -> %.3g", lam_t, it, dlam)
             if dlam < s.dlam_min:
-                raise NonConvergence(lam)
+                raise NonConvergence(lam, history=hist)
             continue
         du_total = du
         last_trial = trial

@@ -5,16 +5,19 @@ c'/(gamma H) = 0.05, phi' = 20°, psi = 0, gamma = 20 kN/m3, E = 1e5 kPa, nu = 0
 Reference: simplified Bishop with a circular-slip search (computed here; Griffiths &
 Lane quote 1.38 from the Bishop & Morgenstern charts). Criterion: FS within 3 %.
 
-FE mesh convergence (T6, NR, bisection tol 0.01): h = 2.0 → 1.416, 1.5 → 1.396,
-1.0 → 1.377, 0.7 → 1.367 — within 1 % of Bishop (1.378) on the finer meshes.
+Historical FE factors are not qualified: the local-return guard exposes a constitutive
+failure in the upper SRF bracket. This benchmark remains a strict expected failure
+until that issue is resolved without counting a failed material return as collapse.
 """
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from scipy.optimize import minimize
 
 from slipsurface.fe2d import api
+from slipsurface.fe2d.core.errors import MaterialIntegrationError
 from slipsurface.fe2d.fem.srf import strength_reduction
 from slipsurface.fe2d.mesh import Domain, unstructured_mesh
 
@@ -69,6 +72,11 @@ def test_bishop_reference():
     assert abs(bishop_min() - 1.38) < 0.01
 
 
+@pytest.mark.xfail(
+    strict=True,
+    raises=MaterialIntegrationError,
+    reason="P4 reopened: local MC return failure cannot define an SRF collapse bracket",
+)
 def test_slope_factor_of_safety():
     d = Domain().add_polygon(
         [(0, 0), (RUN * H + CREST, 0), (RUN * H + CREST, H), (RUN * H, H)],
@@ -93,3 +101,4 @@ def test_slope_factor_of_safety():
     u = np.linalg.norm(np.nan_to_num(res.u_failed), axis=1)
     x_max = mesh.coords[np.argmax(u), 0]
     assert 0.0 <= x_max <= RUN * H + 2.0
+

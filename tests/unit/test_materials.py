@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from scipy.optimize import minimize
 
+from slipsurface.fe2d.core.errors import MaterialIntegrationError
 from slipsurface.fe2d.fem.materials import DruckerPrager, MohrCoulomb, VonMises
 from slipsurface.fe2d.fem.materials.drucker_prager import DPYield
 from slipsurface.fe2d.fem.materials.substep import SubstepSettings, batch, integrate_substep
@@ -20,6 +21,34 @@ MC_CASES = [
     (5.0, 0.0, 0.0, None),
     (0.0, 35.0, 35.0, None),
 ]
+
+
+@pytest.mark.parametrize("strain", [1e-9, 1e-5, 1e-2])
+def test_zero_dilation_apex_failure_never_returns_elastic_trial(strain):
+    """Isochoric shear potentials cannot remove positive hydrostatic trial stress.
+
+    Previously this returned flag 255 with f_MC > 0, which global equilibrium
+    could accept. A local failure must reject the entire batch, without mutation.
+    """
+    mc = MohrCoulomb(3e4, 0.3, 0, 30, 0)
+    sig_n, q_n = np.zeros((2, 4)), np.zeros((2, 1))
+    deps = np.array([[-strain, -strain, -strain, 0.0], [strain, strain, strain, 0.0]])
+    before = [a.copy() for a in (sig_n, deps, q_n)]
+    with pytest.raises(MaterialIntegrationError, match=r"batch indices \[1\]"):
+        mc.integrate(sig_n, deps, q_n)
+    for a, b in zip((sig_n, deps, q_n), before):
+        np.testing.assert_array_equal(a, b)
+
+
+def test_zero_dilation_compressive_shear_still_has_admissible_return():
+    mc = MohrCoulomb(3e4, 0.3, 0, 30, 0)
+    sig, _, _, flag = mc.integrate(
+        np.array([[-100.0, -100.0, -100.0, 0.0]]),
+        np.array([[0.0, 0.0, 0.0, 0.02]]),
+        np.zeros((1, 1)),
+    )
+    assert flag[0] == 1
+    assert mc.yield_function(sig)[0] < 1e-8
 
 
 def _fd_tangent(model, sig_n, deps, q_n, h=1e-7):

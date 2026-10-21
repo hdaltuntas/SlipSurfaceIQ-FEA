@@ -5,7 +5,11 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Status: Faz 3 devam ediyor — Kapı 1/2 geçmiş doğrulamaları mevcut; Kapı 3 açık.**
+**Status: Faz 3 devam ediyor — P4/Kapı 2 doğrulaması yeniden açıldı; Kapı 3 açık.**
+
+Mohr–Coulomb yerel dönüş hatasının elastik deneme gerilmesiyle gizlenmesi düzeltildi.
+P4'te bu hata SRF göçme sınırı olarak kullanılamıyor; önceki P4 geçişi geri çekildi.
+[Bulgular, düzeltme ve tanı komutları](docs/nonlinear-diagnostics.md).
 
 Aktif küme/kazı, yapısal elemanlar ve aşama bazlı su uygulaması mevcut. HDF5 sonuç
 kaydı, aşama bazlı okuma ve `.ssproj` konteyneri eklendi. S1 (no-slip) ve ara yüz

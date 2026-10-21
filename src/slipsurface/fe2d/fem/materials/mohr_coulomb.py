@@ -32,6 +32,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ...core.enums import PlasticFlag
+from ...core.errors import MaterialIntegrationError
 from .._jit import njit, prange
 from .elastic import LinearElastic
 
@@ -298,7 +299,9 @@ def _return_principal(
             for j in range(3):
                 C_out[c, j] = 1e-8 * D[c, j]  # corner: (almost) zero stiffness
         return flag
-    # should not happen: fall back to the apex/elastic trial (flagged as apex)
+    # No admissible return for these potentials (e.g. a zero-dilation tensile
+    # trial at a cohesionless apex). The Python wrapper must reject flag 255;
+    # the elastic trial is diagnostic scratch data, never a constitutive result.
     for c in range(3):
         s_out[c] = s_tr[c]
         for j in range(3):
@@ -457,6 +460,12 @@ class MohrCoulomb(LinearElastic):
         st = self.st if self.has_t else 0.0
         _mc_batch(sig_tr, self._lam, self.G, self.k, self.m, self.sc, st,
                   self.has_apex, self.has_t, sig, D, flag)  # fmt: skip
+        invalid = np.flatnonzero(flag == 255)
+        if invalid.size:
+            raise MaterialIntegrationError(
+                f"Mohr-Coulomb: no admissible return at {invalid.size} Gauss point(s); "
+                f"batch indices {invalid[:8].tolist()} (c={self.c}, phi={self.phi}, psi={self.psi})"
+            )
         q = q_n.copy()
         pl = flag != 0
         if np.any(pl):
@@ -470,3 +479,4 @@ def equivalent_plastic_strain(dep: NDArray[np.float64]) -> NDArray[np.float64]:
     ev = dep[:, :3].sum(axis=1) / 3.0
     d = dep[:, :3] - ev[:, None]
     return np.asarray(np.sqrt(2.0 / 3.0 * ((d * d).sum(axis=1) + 0.5 * dep[:, 3] ** 2)))
+

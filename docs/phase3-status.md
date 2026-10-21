@@ -10,7 +10,8 @@ Referans: *SlipSurface 2D — Teknik Mimari ve Yol Haritası*, Faz 3 ve Ek A.
 | Goodman ara yüzü | Tanımlı kapsamda doğrulandı | Akma/çekme/birleşik dönüş, tanjant, iki taraflı düğüm ayrılması, su kuvveti ve durum korunması |
 | Aşama bazlı piezometrik su, malzeme değişimi | Mevcut | Su ve statik birim testleri |
 | HDF5 ve .ssproj | Mevcut, kayıt testleri var | Aşama bazlı okuma, karma eleman/plastik çıktı gidiş-dönüşü, atomik kayıt |
-| S4 konsol palplanş | **Ön yapısal kontroller geçti; tam doğrulama açık** | Bağımsız Timoshenko/Winkler ve idealize Rankine diyagramı geçti; zeminli örnek 0.50 m ağda çözülüyor, 0.25 m ağda λ=0.8938’de yakınsamıyor; bağımsız araç karşılaştırması eksik |
+| S4 konsol palplanş | **Ön yapısal kontroller geçti; tam doğrulama açık** | Bağımsız Timoshenko/Winkler ve Rankine kontrolleri geçti; yerel MC dönüş korumasıyla ağ/integrasyon karşılaştırmaları yenilendi, tam doğrulama yok |
+| P4 / Kapı 2 | **Yeniden açık** | Yerel MC dönüş hatası SRF göçme sınırı sayılamıyor; eski P4 FE faktörlerinin doğrulaması geri çekildi |
 | Kapı 3 | **Açık** | Tam S4 geçmeden Faz 4'e geçme |
 | T3+Q4 / T6+Q8 karma ağ | Deneysel | Patch, konsol, plastik basınç, aşama, su, ara yüz ve kayıt kontrolleri geçti; nonlinear palplanş integrasyon/ağ duyarlılığı açık |
 
@@ -18,6 +19,7 @@ Yöntem, referans bağlantıları, sayısal hata tabloları ve sınırlar:
 [phase3-verification.md](phase3-verification.md).
 Proje/sonuç API'si: [project-files.md](project-files.md).
 Karma ağ API'si ve aynı palplanş modeliyle karşılaştırma: [mixed-mesh.md](mixed-mesh.md).
+Yerel malzeme hatası ve tanı API'si: [nonlinear-diagnostics.md](nonlinear-diagnostics.md).
 
 ## Düzeltilen hatalar
 
@@ -36,13 +38,14 @@ Karma ağ API'si ve aynı palplanş modeliyle karşılaştırma: [mixed-mesh.md]
   kullanılması: tam sistem anahtarına bağlı önbellek.
 - Ayrı bir eleman bloğunun bütünüyle kaldırılmasında boş DOF dizisinin yeniden
   şekillendirilmesi ve tanjant anahtarının bulunamaması: boş blok desteği düzeltildi.
+- MC dönüşünün bulunamamasında `255` bayraklı elastik denemenin kabul edilmesi:
+  artık yerel hata, geri alma ve adım küçültme; SRF'de bu hata göçme sayılmıyor.
 
 ## Sıradaki iş
 
-Önce ince ağ ve integrasyon duyarlılığının nedenini bağımsız kontrollerle ayır:
-default ile 0.25 m T6 λ=0.8938, T6+Q8 λ=0.9961'de duruyor;
-high ile karma 0.50 m ağ da kazıyı tamamlamıyor. Karma ağda daha yüksek λ,
-tek başına doğrulama veya güvenilirlik kanıtı değildir.
+Önce başarısız yerel dönüşlerin yük yolları için çekme/apex davranışını açıkça
+tanımlayıp bağımsız yerel kontrollerle doğrula. P4 ve zeminli palplanşın ağ/integrasyon
+karşılaştırmalarını yeniden geçir. Tolerans veya malzeme parametresi gevşetilmedi.
 Ardından bağımsız palplanş aracıyla aynı geometri, sınır koşulu, zemin, su ve kazı aşamalarını
 kullanan sürekli ortam FEM senaryosunu karşılaştır. Maksimum moment farkını %10 içinde
 ve ağ yakınsamasıyla doğrula; ardından S1–S4 ve aşama bölme değişmezliğiyle Kapı 3'ü kapat.
@@ -52,13 +55,13 @@ GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışın
 
 ## Son doğrulama
 
-- Linux / Python 3.12: benchmark dışı tam koşuda **220 geçti**, PyVista eksikliği
+- Linux / Python 3.12: benchmark dışı tam koşuda **233 geçti**, **P4 1 strict xfail**;
+  bu beklenen başarısızlık geçiş olarak sayılmıyor. PyVista eksikliği
   nedeniyle görüntüleyici modülü **1 atlandı**, performans testleri **2 hariç**.
-- NumPy 2.2.6 / SciPy 1.15.3 ile malzeme, ara yüz, S1, S4 ön kontrolleri ve değişen
-  aktif kümelerin hedefli koşusunda **46 geçti** (ana toplamla örtüşür).
-- Aynı NumPy/SciPy sürümleriyle karma ağ, karma patch/aşama ve E2 konsol
-  dosyalarında **39 geçti** (ana toplamla örtüşür).
+- NumPy 2.2.6 / SciPy 1.15.3 ile güncel malzeme, Newton tanısı, sonuç kaydı,
+  Newton yakınsaması ve P4 dosyalarında **49 geçti, P4 1 strict xfail**
+  (ana toplamla örtüşür).
 - Ruff, `git diff --check`, wheel derlemesi ve ayrı klasöre kurulu wheel'den API/topoloji
   import kontrolü başarılı.
-- Zeminli örneğin ince ağdaki başarısızlığı bu test toplamlarına başarı olarak eklenmedi;
+- Zeminli örneğin başarısızlıkları bu test toplamlarına başarı olarak eklenmedi;
   yukarıda ve doğrulama raporunda açık sorun olarak tutuldu.
