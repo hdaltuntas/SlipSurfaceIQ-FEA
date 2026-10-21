@@ -103,6 +103,11 @@ def test_local_return_failure_can_recover_by_cutback():
     assert du[0] == pytest.approx(1.0)
     assert any(s.termination == "material_return" for s in hist.steps)
     assert hist.steps[-1].converged
+    accepted = np.array([s.lam for s in hist.steps if s.converged])
+    increments = np.diff(np.r_[0.0, accepted])
+    assert hist.steps[0].lam == 0.5 and not hist.steps[0].converged
+    assert increments[0] == 0.125  # two halvings before the first accepted step
+    assert increments[1] == pytest.approx(1.5 * increments[0])  # fast step grows again
 
 
 def test_zero_committed_tangent_uses_elastic_predictor_for_unloading():

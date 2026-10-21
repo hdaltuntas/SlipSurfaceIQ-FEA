@@ -22,6 +22,8 @@ Proje/sonuç API'si: [project-files.md](project-files.md).
 Karma ağ API'si ve aynı palplanş modeliyle karşılaştırma: [mixed-mesh.md](mixed-mesh.md).
 Yerel malzeme hatası ve tanı API'si: [nonlinear-diagnostics.md](nonlinear-diagnostics.md).
 Çakışan çekme/apex davranışı: [coincident-tension-cutoff.md](coincident-tension-cutoff.md).
+Geometri, koşullanma ve Newton yöntemlerinin aynı yükte karşılaştırması:
+[convergence-audit.md](convergence-audit.md).
 
 ## Düzeltilen hatalar
 
@@ -63,11 +65,13 @@ GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışın
 
 ## Son doğrulama
 
-- Linux / Python 3.12: benchmark dışı tam koşuda **250 geçti**, **P4 1 strict xfail**;
+- Linux / Python 3.12: benchmark dışı tam koşuda **262 geçti**, **P4 1 strict xfail**;
   bu beklenen başarısızlık geçiş olarak sayılmıyor. PyVista eksikliği
   nedeniyle görüntüleyici modülü **1 atlandı**, performans testleri **2 hariç**.
 - NumPy 2.2.6 / SciPy 1.15.3 ile güncel malzeme, ortak apex, Newton tanısı,
   analitik yük yolu, Newton yakınsaması ve P4 dosyalarında **50 geçti, P4 1 strict xfail**
+  (ana toplamla örtüşür).
+- Ek tanı/matris/geri alma kontrolleri aynı eski NumPy/SciPy ortamında **23 geçti**
   (ana toplamla örtüşür).
 - Ruff, `git diff --check`, wheel derlemesi ve ayrı klasöre kurulu wheel'den API/topoloji
   import kontrolü başarılı.

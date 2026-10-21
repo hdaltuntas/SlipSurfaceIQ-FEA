@@ -71,3 +71,7 @@ korunuyor, sabit köşe tanjantı tam sıfır ve boşaltma tahmini kontrol edili
 `--soil-tension 0` parametresi tanı aracında da kullanılabilir.
 [Yöntem, sınırlar ve yeni palplanş koşuları](coincident-tension-cutoff.md).
 Kesmesiz P4/S4 için yukarıdaki açık doğrulama durumu korunur.
+
+`--audit`, `--excavation-factor`, `--method`, `--max-iterations` ve
+`--elastic-interfaces` seçenekleriyle aynı yükte yöntem/koşullanma ve elastik köşe
+referansı incelenebilir. [Sayısal bulgular ve sınırlar](convergence-audit.md).
