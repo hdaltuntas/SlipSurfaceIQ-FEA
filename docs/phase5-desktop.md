@@ -55,20 +55,16 @@ Ana dal ve PR #1 farklı HDF5/.ssproj şemaları geliştirmişti. İkisi de koru
 `open_project_results` eski manifestli `.ssproj` formatına aittir. Yeni formatta
 `load_project` kullanılır. Sonuçsuz dosyalar da açılır.
 
-## Kapı 5 için kalanlar
+## Faz 5 kapanış teslimi
 
-1. İlk QGraphicsView CAD/Domain/ağ bağlantısı tamamlandı: [sınırlar](phase5-cad.md).
-   Kalanlar: DWG, yay/spline/blok DXF, katman sınırını kesen boşluklar, yeniden
-   ağlama sırasında mevcut FE atamalarını koruma.
-2. Malzeme/bölge, liner/bolt, başlangıç, yük/su ve aşama ekleme/kopyalama/silme/
-   sıralama tamamlandı: [Faz 5.3](phase5-model-editors.md). Kalanlar: ara yüz
-   oluşturma, mevcut ağın mekanik sınır/yer değiştirme düzenleyicisi, grafik zaman çizelgesi.
-3. Asal gerilme okları, tek tek plastik noktalar, sorgu çizgileri; işaret ve eksenleri
-   açık liner N–V–M **grafikleri**. Mevcut CSV, grafik tamamlanmış sayılmaz.
-4. Özgün dört aşamalı tünelin (başlangıç → %40 gevşeme → shotcrete → bolt/tam kazı)
-   GUI'de baştan kodsuz kurulması; aynı modelin API sonuçlarıyla eşitlik testi.
-5. PyInstaller Windows portable, temiz Windows kurulum testi ve sürüm raporu;
-   yayınlama ve PyPI sürümü bundan sonra. Bu teslimde paket/yayın yapılmadı.
+[Faz 5 sürüm kaydı](phase5-release.md): zaman çizelgesi, mekanik sınır ve yer değiştirme
+formları, ara yüz oluşturma/özellik/silme, asal oklar ve plastik GP, sorgu çizgileri,
+liner N–V–M grafikleri ve dört aşamalı tünelin boş GUI'den API eşitlik kabulü eklendi.
+Windows portable, temiz makine smoke testi ve wheel/sdist iş akışı vardır; yayın
+ve gerçek CI sonucu sürüm kaydında tutulur.
+
+İleri CAD (DWG, eğri/blok DXF, katman sınırını kesen boşluk, yeniden ağda mevcut FE
+atamalarını taşıma) v1'in desteklenen çizgisel CAD kapsamının dışındadır.
 
 `tests/unit/test_desktop.py` gerçek Qt event loop ve worker ile motor eşitliğini,
 proje açma/kaydetmeyi, iptali, hata sonrasında kontrolleri ve aşama düzenlemesini test eder.

@@ -224,8 +224,10 @@ class LinerSpec:
     unit_weight: float = 0.0
 
     def __post_init__(self) -> None:
-        if not all(math.isfinite(v) and v > 0 for v in (self.E, self.A, self.I, self.As)):
-            raise ModelError(f"liner '{self.name}': E, A, I and As must be finite and positive")
+        if not all(math.isfinite(v) and v > 0 for v in (self.E, self.A, self.I)):
+            raise ModelError(f"liner '{self.name}': E, A and I must be finite and positive")
+        if not math.isfinite(self.As) or self.As < 0:
+            raise ModelError(f"liner '{self.name}': As must be finite and nonnegative")
         if not -1 < self.nu < 0.5 or not math.isfinite(self.unit_weight) or self.unit_weight < 0:
             raise ModelError(f"liner '{self.name}': invalid nu or unit weight")
 
@@ -249,6 +251,9 @@ class InterfaceSpec:
     sig_t: float = 0.0
 
     def __post_init__(self) -> None:
+        if not all(math.isfinite(v) for v in
+                   (self.kn, self.ks, self.c, self.phi, self.psi, self.sig_t)):
+            raise ModelError(f"interface '{self.name}': properties must be finite")
         if self.kn <= 0 or self.ks < 0:
             raise ModelError(f"interface '{self.name}': need kn > 0, ks >= 0")
         if not (0.0 <= self.psi <= self.phi < 90.0) or self.c < 0 or self.sig_t < 0:

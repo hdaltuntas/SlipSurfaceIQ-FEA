@@ -32,13 +32,16 @@ Bu depo Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** projesidir.
   Yerel malzeme reddi SRF göçme üst sınırı olamaz.
 - Sayısal yakınsamama tek başına fiziksel göçme kanıtı değildir. Açık Rankine-apex
   akışı farklı bir bünye seçeneğidir; varsayılana gizlice eklenmez.
-- Kapı 5/v1.0 tamamlanmadı; Windows portable ve PyPI yayını yapılmadı.
+- Faz 5 işlevsel GUI/API kabulü geçti. Paket ve PyPI yayın durumu
+  [sürüm kaydında](phase5-release.md) ayrı tutulur. S4/P4 istisnaları gizlenmez.
 
-## Sıradaki iş
+## Faz 5 kapanışı
 
-Sırada özgün dört aşamalı tünelin kodsuz kurulması ve API karşılaştırması var.
-Ara yüz ile mevcut ağın mekanik sınır/yer değiştirme düzenleyicileri ve sonuç
-grafikleri de açık. Ayrıntılı sıra [Faz 5 kapsamı](phase5-desktop.md) içinde.
+Mekanik sınırlar, aşama yer değiştirmeleri, ara yüz kütüphanesi, zaman çizelgesi,
+plastik GP/asal oklar, sorgu çizgisi ve liner N–V–M eklendi. Boş GUI'den dört aşamalı
+tünel kabulü API ile birebir eşleşti. Windows portable ve temiz makine smoke CI'sı,
+wheel/sdist ve PyPI Trusted Publisher iş akışı hazır. Kesin test/yayın sonuçları
+[phase5-release.md](phase5-release.md) içinde güncellenecek.
 
 Önceki Faz 3 ölçümleri `phase3-status.md`, `s4-comparison.md` ve `docs/data/s4/`
 altında tarihsel kanıt olarak korunur; yeni tümleşik dalın test sonucu inceleme

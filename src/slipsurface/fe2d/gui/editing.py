@@ -134,3 +134,66 @@ def parse_regions(text):
 
 def parse_tags(text):
     return frozenset(n.strip() for n in text.split(",") if n.strip())
+
+
+def put_interface(model, spec, edge_set, side="left"):
+    """Split a named edge transactionally; preserve the model's activation policy."""
+    from ..mesh.structures import insert_interface
+
+    if not spec.name.strip() or "," in spec.name or spec.name == "auto":
+        raise ValueError("Ara yüz etiketi boş, virgüllü veya auto olamaz.")
+    mesh = insert_interface(model.mesh, edge_set, spec.name, side)
+    return validate_edit(
+        replace(model, mesh=mesh, interfaces={**model.interfaces, spec.name: spec})
+    )
+
+
+def remove_interface(model, tag):
+    """Weld paired coincident nodes. Refuse to collapse another interface element."""
+    block = model.mesh.block(tag)
+    if model.structure_tags().get(tag) != "interface":
+        raise ValueError("Ara yüz bloğu seçilmeli.")
+    parent = np.arange(model.mesh.nn)
+
+    def root(i):
+        while parent[i] != i:
+            i = parent[i]
+        return i
+
+    half = block.conn.shape[1] // 2
+    for a, b in zip(block.conn[:, :half].ravel(), block.conn[:, half:].ravel()):
+        if np.linalg.norm(model.mesh.coords[a] - model.mesh.coords[b]) > 1e-9:
+            raise ValueError("Çakışmayan ara yüz düğümleri birleştirilemez.")
+        a, b = root(a), root(b)
+        parent[max(a, b)] = min(a, b)
+    remap = np.array([root(i) for i in range(model.mesh.nn)])
+    blocks = []
+    for b in model.mesh.blocks:
+        if b.tag == tag:
+            continue
+        conn = remap[b.conn]
+        if model.structure_tags().get(b.tag) == "interface":
+            n = conn.shape[1] // 2
+            if np.any(np.all(conn[:, :n] == conn[:, n:], axis=1)):
+                raise ValueError("Silme başka ara yüz elemanını kapatır; önce onu kaldırın.")
+        blocks.append(replace(b, conn=conn))
+    mesh = api.Mesh(
+        model.mesh.coords,
+        tuple(blocks),
+        {k: np.unique(remap[v]) for k, v in model.mesh.node_sets.items()},
+        {k: remap[v] for k, v in model.mesh.edge_sets.items()},
+    )
+    initial = model.initial
+    if initial.active_structures is not None:
+        initial = replace(initial, active_structures=initial.active_structures - {tag})
+    return validate_edit(
+        replace(
+            model,
+            mesh=mesh,
+            initial=initial,
+            interfaces={k: v for k, v in model.interfaces.items() if k != tag},
+            stages=[
+                replace(s, active_structures=s.active_structures - {tag}) for s in model.stages
+            ],
+        )
+    )

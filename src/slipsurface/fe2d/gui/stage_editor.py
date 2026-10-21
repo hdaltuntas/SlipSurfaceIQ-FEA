@@ -17,9 +17,11 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api
+from .boundary_editor import DisplacementEditor
 from .condition_editor import LoadEditor, WaterEditor
 from .editing import parse_regions, parse_tags, regions_text, validate_edit
 from .form_helpers import EditorDialog, table, toolbar
+from .timeline import StageTimeline
 
 
 class StageDetailDialog(EditorDialog):
@@ -37,6 +39,7 @@ class StageDetailDialog(EditorDialog):
         tabs = QTabWidget()
         self.loads = LoadEditor(model.mesh, stage.loads)
         self.water = WaterEditor(model.mesh, stage.water)
+        self.displacements = DisplacementEditor(model.mesh, stage.displacements)
         self.overrides = table(["Bölge", "Bu aşamada malzeme"])
         self.regions = sorted(model.mesh.regions())
         self.overrides.setRowCount(len(self.regions))
@@ -53,6 +56,7 @@ class StageDetailDialog(EditorDialog):
         tabs.addTab(self.loads, "Yükler")
         tabs.addTab(self.water, "Su")
         tabs.addTab(self.overrides, "Malzeme değişimi")
+        tabs.addTab(self.displacements, "Yer değiştirme")
         self.root.addWidget(tabs)
         self.finish_layout(self.apply)
 
@@ -61,6 +65,7 @@ class StageDetailDialog(EditorDialog):
             stage = replace(
                 self.model.stages[self.index],
                 loads=self.loads.values(),
+                displacements=self.displacements.values(),
                 water=self.water.value(),
                 material_override={
                     r: self.overrides.cellWidget(i, 1).currentData()
@@ -196,10 +201,23 @@ class StageDialog(EditorDialog):
         self.root.addWidget(
             QLabel("Mevcut yapı etiketleri: " + (", ".join(model.structure_tags()) or "—"))
         )
+        self.timeline = StageTimeline()
+        self.timeline.selected.connect(
+            lambda i: self.table.selectRow(i - 1) if i else self.edit_initial()
+        )
+        self.root.addWidget(self.timeline)
         self.refresh()
+        self.table.itemChanged.connect(self.update_timeline)
         self.finish_layout(self.apply)
 
+    def update_timeline(self, *_):
+        try:
+            self.timeline.set_stages(self.read_stages(), self.model.initial)
+        except (ValueError, AttributeError):
+            pass  # incomplete table edits remain editable until Apply
+
     def refresh(self, selected=0):
+        self.table.blockSignals(True)
         self.table.setRowCount(len(self.items))
         for i, stage in enumerate(self.items):
             values = [
@@ -218,6 +236,9 @@ class StageDialog(EditorDialog):
                 item.setCheckState(Qt.CheckState.Checked if value else Qt.CheckState.Unchecked)
         if self.items:
             self.table.selectRow(min(max(0, selected), len(self.items) - 1))
+
+        self.table.blockSignals(False)
+        self.update_timeline()
 
     def read_stages(self):
         return [
@@ -290,6 +311,7 @@ class StageDialog(EditorDialog):
             dialog = InitialDialog(replace(self.model, stages=self.items), self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.model = replace(self.model, initial=dialog.updated)
+                self.update_timeline()
 
     def apply(self):
         if self.sync():

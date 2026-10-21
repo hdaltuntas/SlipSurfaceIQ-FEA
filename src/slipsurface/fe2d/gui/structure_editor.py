@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api
-from .editing import put_structure, remove_structure, validate_edit
+from .editing import put_interface, put_structure, remove_interface, remove_structure, validate_edit
 from .form_helpers import EditorDialog, toolbar
 
 
@@ -125,8 +125,8 @@ class StructureDialog(EditorDialog):
         self.model = model
         self.resize(760, 440)
         note = QLabel(
-            "Liner ve bolt oluşturma / özellik düzenleme. Kenar adları CAD çiziminden "
-            "veya mevcut ağdan gelir. Ara yüz ekleme/silme bu formda desteklenmiyor."
+            "Liner, bolt ve ara yüzler. Kenar adları CAD çiziminden veya mevcut ağdan gelir. "
+            "Ara yüz silme eş düğümleri birleştirir; başlangıç auto ise yeni ara yüz aktiftir."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
@@ -135,7 +135,8 @@ class StructureDialog(EditorDialog):
         toolbar(
             self.root,
             [
-                ("Yeni", self.add_structure),
+                ("Liner / bolt ekle", self.add_structure),
+                ("Ara yüz ekle", self.add_interface),
                 ("Özellikler", self.edit_structure),
                 ("Sil", self.delete_structure),
             ],
@@ -162,14 +163,22 @@ class StructureDialog(EditorDialog):
             self.model = dialog.updated
             self.refresh()
 
+    def add_interface(self):
+        dialog = InterfaceDialog(self.model, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.model = dialog.updated
+            self.refresh()
+
     def edit_structure(self, *_):
         tag = self.selected()
         if tag is None:
             return
-        if self.model.structure_tags()[tag] == "interface":
-            self.error("Ara yüz özellikleri mevcut proje/API üzerinden düzenlenir.")
-            return
-        dialog = StructureSpecDialog(self.model, tag, self)
+        cls = (
+            InterfaceDialog
+            if self.model.structure_tags()[tag] == "interface"
+            else StructureSpecDialog
+        )
+        dialog = cls(self.model, tag, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.model = dialog.updated
             self.refresh()
@@ -178,7 +187,12 @@ class StructureDialog(EditorDialog):
         tag = self.selected()
         if tag is not None:
             try:
-                self.model = remove_structure(self.model, tag)
+                operation = (
+                    remove_interface
+                    if self.model.structure_tags()[tag] == "interface"
+                    else remove_structure
+                )
+                self.model = operation(self.model, tag)
                 self.refresh()
             except Exception as exc:
                 self.error(exc)
@@ -186,6 +200,65 @@ class StructureDialog(EditorDialog):
     def apply(self):
         try:
             self.updated = validate_edit(self.model)
+        except Exception as exc:
+            self.error(exc)
+            return
+        self.accept()
+
+
+class InterfaceDialog(EditorDialog):
+    def __init__(self, model, tag=None, parent=None):
+        super().__init__("Ara yüz", parent)
+        self.model, self.tag = model, tag
+        self.resize(640, 530)
+        form = QFormLayout()
+        self.name = QLineEdit(tag or "joint")
+        self.name.setEnabled(tag is None)
+        self.edge, self.side = QComboBox(), QComboBox()
+        self.edge.addItems(sorted(model.mesh.edge_sets))
+        self.side.addItems(["left", "right"])
+        self.edge.setEnabled(tag is None)
+        self.side.setEnabled(tag is None)
+        form.addRow("Etiket", self.name)
+        form.addRow("Kenar kümesi", self.edge)
+        form.addRow("Düğümleri ayrılacak taraf", self.side)
+        self.fields = {}
+        spec = model.interfaces.get(tag)
+        for key, title, default in [
+            ("kn", "kn (kPa/m)", 1e6),
+            ("ks", "ks (kPa/m)", 1e5),
+            ("c", "c (kPa)", 0),
+            ("phi", "φ (°)", 20),
+            ("psi", "ψ (°)", 0),
+            ("sig_t", "Çekme sınırı (kPa)", 0),
+        ]:
+            edit = QLineEdit(str(getattr(spec, key, default)))
+            self.fields[key] = edit
+            form.addRow(title, edit)
+        self.root.addLayout(form)
+        note = QLabel(
+            "Sol/sağ, CAD çizgisinin giriş yönüne göredir. Ara yüz eklemek düğüm "
+            "topolojisini değiştirir. Önce liner, ardından ara yüzleri, en son boltları "
+            "kurun. Pasif ara yüzün iki yüzü mekanik olarak bağlanır. Sonuçlar silinir."
+        )
+        note.setWordWrap(True)
+        self.root.addWidget(note)
+        self.finish_layout(self.apply)
+
+    def apply(self):
+        try:
+            spec = api.InterfaceSpec(
+                self.name.text().strip(), **{k: float(w.text()) for k, w in self.fields.items()}
+            )
+            self.updated = (
+                validate_edit(
+                    replace(self.model, interfaces={**self.model.interfaces, self.tag: spec})
+                )
+                if self.tag
+                else put_interface(
+                    self.model, spec, self.edge.currentText(), self.side.currentText()
+                )
+            )
         except Exception as exc:
             self.error(exc)
             return
