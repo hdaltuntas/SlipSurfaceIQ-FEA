@@ -1,0 +1,90 @@
+name: portable
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Isolated build environment
+        shell: pwsh
+        run: |
+          python -m venv .portable-env
+          & .\.portable-env\Scripts\python.exe -m pip install --upgrade pip
+          & .\.portable-env\Scripts\python.exe -m pip install '.[desktop]' 'pyinstaller>=6.12,<7' build
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+      - name: Build wheel, source distribution and native onedir app
+        shell: pwsh
+        run: |
+          & .\.portable-env\Scripts\python.exe -m build --outdir python-dist
+          if ($LASTEXITCODE -ne 0) { throw 'Python package build failed' }
+          & .\.portable-env\Scripts\python.exe scripts/check_distributions.py python-dist
+          if ($LASTEXITCODE -ne 0) { throw 'Distribution content check failed' }
+          & .\.portable-env\Scripts\python.exe -m PyInstaller --noconfirm packaging/SlipSurfaceIQ-FEA.spec
+          if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
+          & .\.portable-env\Scripts\python.exe scripts/third_party_licenses.py dist/SlipSurfaceIQ-FEA
+          Copy-Item docs/PORTABLE-README.txt dist/SlipSurfaceIQ-FEA/README.txt
+          Copy-Item docs/phase5-release.md dist/SlipSurfaceIQ-FEA/RELEASE-NOTES.md
+          Copy-Item docs/images dist/SlipSurfaceIQ-FEA/images -Recurse
+          Compress-Archive -Path dist/SlipSurfaceIQ-FEA -DestinationPath SlipSurfaceIQ-FEA-Windows-x64.zip
+          (Get-FileHash SlipSurfaceIQ-FEA-Windows-x64.zip -Algorithm SHA256).Hash.ToLower() + '  SlipSurfaceIQ-FEA-Windows-x64.zip' | Out-File SHA256SUMS.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: |
+            SlipSurfaceIQ-FEA-Windows-x64.zip
+            SHA256SUMS.txt
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: python-dist/*
+          retention-days: 90
+
+  clean-windows-smoke:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-portable
+          path: download
+      - name: Run the ZIP on a separate runner without checkout or Python setup
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $expected = (Get-Content download/SHA256SUMS.txt).Split(' ')[0]
+          if ((Get-FileHash download/SlipSurfaceIQ-FEA-Windows-x64.zip -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'Checksum mismatch' }
+          Expand-Archive download/SlipSurfaceIQ-FEA-Windows-x64.zip -DestinationPath 'portable test'
+          $exe = (Resolve-Path 'portable test/SlipSurfaceIQ-FEA/SlipSurfaceIQ-FEA.exe').Path
+          $output = Join-Path $env:RUNNER_TEMP 'slipsurface smoke results'
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test', "`"$output`"" -PassThru
+          if (-not $process.WaitForExit(240000)) { Stop-Process -Id $process.Id -Force; throw 'Portable smoke timed out' }
+          if ($process.ExitCode -ne 0) { Get-Content "$output/smoke-result.json"; throw "Portable exit $($process.ExitCode)" }
+          $report = Get-Content "$output/smoke-result.json" | ConvertFrom-Json
+          if (-not $report.success -or -not $report.frozen) { throw 'Not a successful frozen run' }
+          Get-Content "$output/smoke-result.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clean-windows-smoke-evidence
+          path: ${{ runner.temp }}/slipsurface smoke results
+          retention-days: 90

@@ -1,0 +1,266 @@
+"""Serializable CAD input, topology validation and an explicit fresh-model builder.
+
+All coordinates are metres. Nested regions override their parent; partial overlaps
+are rejected. A hole is an initially empty void, not a staged excavation region.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+
+import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
+from shapely.geometry import LineString, Polygon
+from shapely.ops import unary_union
+from shapely.validation import explain_validity
+
+from .. import api
+from ..mesh import Domain, unstructured_mesh
+
+
+@dataclass(frozen=True)
+class Entity:
+    name: str
+    kind: str  # region, hole, line
+    points: tuple[tuple[float, float], ...]
+    region: int = 1
+
+    def __post_init__(self):
+        p = tuple(tuple(float(v) for v in xy) for xy in self.points)
+        if self.kind != "line" and len(p) > 1 and p[0] == p[-1]:
+            p = p[:-1]
+        object.__setattr__(self, "points", p)
+        if not self.name.strip() or ":" in self.name or self.name in {"boundary", "all"}:
+            raise ValueError("Geometri adı boş, ayrılmış bir ad veya ':' içeren bir ad olamaz.")
+        if self.kind not in {"region", "hole", "line"}:
+            raise ValueError("Geometri türü region, hole veya line olmalıdır.")
+        if len(p) < (2 if self.kind == "line" else 3):
+            raise ValueError("Çizgi en az 2, kapalı bölge en az 3 nokta gerektirir.")
+        xy = np.asarray(p)
+        if xy.ndim != 2 or xy.shape[1] != 2 or not np.isfinite(xy).all():
+            raise ValueError("Koordinatlar sonlu (x, y) çiftleri olmalıdır.")
+        if isinstance(self.region, bool) or int(self.region) != self.region or self.region < 1:
+            raise ValueError("Bölge numarası pozitif tamsayı olmalıdır.")
+        if len(set(p)) != len(p):
+            raise ValueError(f"{self.name}: tekrarlanan nokta var.")
+        shape = self.shape()
+        if not shape.is_valid or not shape.is_simple:
+            raise ValueError(
+                f"{self.name}: geçersiz/kendini kesen geometri: {explain_validity(shape)}"
+            )
+        if self.kind != "line" and shape.area <= 1e-12:
+            raise ValueError(f"{self.name}: sıfır veya çok küçük alan.")
+        if any(np.linalg.norm(np.subtract(a, b)) <= 1e-9 for a, b in self.segments()):
+            raise ValueError(f"{self.name}: sıfır veya çok kısa kenar.")
+
+    def shape(self):
+        return LineString(self.points) if self.kind == "line" else Polygon(self.points)
+
+    def segments(self):
+        p = self.points if self.kind == "line" else (*self.points, self.points[0])
+        return list(zip(p[:-1], p[1:]))
+
+    def edge_names(self):
+        return [f"{self.name}:{i + 1}" for i in range(len(self.segments()))]
+
+
+@dataclass(frozen=True)
+class BoundaryRule:
+    edge: str
+    ux: bool = False
+    uy: bool = False
+    pressure: float = 0.0
+
+    def __post_init__(self):
+        if not isinstance(self.ux, bool) or not isinstance(self.uy, bool):
+            raise ValueError("Mesnet değerleri true/false olmalıdır.")
+        if not np.isfinite(self.pressure):
+            raise ValueError("Basınç sonlu olmalıdır.")
+
+
+@dataclass(frozen=True)
+class Drawing:
+    entities: tuple[Entity, ...] = ()
+    rules: tuple[BoundaryRule, ...] = ()
+    h: float = 1.0
+    E: float = 20000.0
+    nu: float = 0.3
+
+    def __post_init__(self):
+        if not np.isfinite([self.h, self.E, self.nu]).all():
+            raise ValueError("Ağ ve malzeme değerleri sonlu olmalıdır.")
+        if self.h <= 0 or self.E <= 0 or not 0 <= self.nu < 0.5:
+            raise ValueError("h ve E pozitif, 0 ≤ ν < 0.5 olmalıdır.")
+
+    def to_dict(self):
+        return {"version": 1, **asdict(self)}
+
+    @classmethod
+    def from_dict(cls, data):
+        if data.get("version") != 1:
+            raise ValueError("Desteklenmeyen CAD dosya sürümü.")
+        return cls(
+            tuple(Entity(**e) for e in data["entities"]),
+            tuple(BoundaryRule(**r) for r in data.get("rules", [])),
+            float(data["h"]),
+            float(data["E"]),
+            float(data["nu"]),
+        )
+
+    @classmethod
+    def example(cls):
+        return cls(
+            (Entity("Zemin", "region", ((0, 0), (12, 0), (12, 6), (0, 6))),),
+            (
+                BoundaryRule("Zemin:1", True, True),
+                BoundaryRule("Zemin:2", True),
+                BoundaryRule("Zemin:3", pressure=50),
+                BoundaryRule("Zemin:4", True),
+            ),
+        )
+
+    def validate(self):
+        names = [e.name for e in self.entities]
+        if len(set(names)) != len(names):
+            raise ValueError("Geometri adları benzersiz olmalıdır.")
+        regions = [e for e in self.entities if e.kind == "region"]
+        holes = [e for e in self.entities if e.kind == "hole"]
+        if not regions:
+            raise ValueError("En az bir kapalı malzeme bölgesi çizilmelidir.")
+        polys = [e.shape() for e in regions]
+        for i, a in enumerate(polys):
+            for b in polys[i + 1 :]:
+                if a.equals(b) or (
+                    a.intersection(b).area > 1e-12 and not (a.covers(b) or b.covers(a))
+                ):
+                    raise ValueError(
+                        "Bölgeler kısmen çakışıyor. Ortak kenar veya iç içe bölgeler kullanın."
+                    )
+        outer = unary_union(polys)
+        voids = [e.shape() for e in holes]
+        for i, hole in enumerate(voids):
+            if not outer.contains(hole) or outer.boundary.intersects(hole):
+                raise ValueError("Boşluk tamamen zemin içinde olmalı; dış sınıra değemez.")
+            if any(hole.intersects(b) for b in voids[i + 1 :]):
+                raise ValueError("Boşluklar kesişemez veya iç içe olamaz.")
+            # Domain uses the innermost polygon: crossing layers/islands would be ambiguous.
+            if any(hole.intersection(p).area > 1e-12 and not p.covers(hole) for p in polys):
+                raise ValueError("Boşluk bir bölge sınırını kesemez veya bölge içeremez.")
+        soil = outer.difference(unary_union(voids))
+        for e in self.entities:
+            if e.kind == "line" and not soil.covers(e.shape()):
+                raise ValueError(f"{e.name}: çizgi zemin dışında veya boşluk içinde.")
+        edge_names = {n for e in self.entities for n in e.edge_names()}
+        seen = set()
+        for rule in self.rules:
+            if rule.edge not in edge_names or rule.edge in seen:
+                raise ValueError(f"Geçersiz veya yinelenen kenar koşulu: {rule.edge}")
+            seen.add(rule.edge)
+            if not np.isfinite(rule.pressure):
+                raise ValueError("Basınç sonlu olmalıdır.")
+        return soil
+
+    def domain(self):
+        self.validate()
+        d = Domain()
+        for e in self.entities:
+            if e.kind == "line":
+                d.add_line(e.points, name=e.name)
+                for name, segment in zip(e.edge_names(), e.segments()):
+                    d.add_line(segment, name=name)
+            else:
+                d.add_polygon(
+                    e.points,
+                    region=e.region,
+                    hole=e.kind == "hole",
+                    name=e.name,
+                    edge_names=e.edge_names(),
+                )
+        return d
+
+    def build_model(self, checkpoint=None):
+        """Create a fresh weightless elastic model; never remap existing FE definitions."""
+        mesh = unstructured_mesh(self.domain(), h=self.h, max_points=100000, checkpoint=checkpoint)
+        if checkpoint:
+            checkpoint()
+        boundary = {tuple(sorted(e[:2])) for e in mesh.edge_sets["boundary"]}
+        loads, fixities = [], []
+        loaded = set()
+        for r in self.rules:
+            edges = mesh.edge_sets[r.edge]
+            if (r.ux or r.uy or r.pressure) and edges.size == 0:
+                raise ValueError(f"{r.edge}: koşul için ağ kenarı bulunamadı.")
+            if r.ux or r.uy:
+                fixities.append(api.Fixity(r.edge, r.ux, r.uy))
+            if r.pressure:
+                keys = {tuple(sorted(e[:2])) for e in edges}
+                if not keys <= boundary:
+                    raise ValueError(f"{r.edge}: basınç yalnız dış/boşluk sınırına atanabilir.")
+                if keys & loaded:
+                    raise ValueError(f"{r.edge}: aynı ağ kenarına iki basınç atanmış.")
+                loaded.update(keys)
+                loads.append(api.EdgeLoad(r.edge, qn=r.pressure))
+        _check_supports(mesh, fixities)
+        model = api.Model(
+            api.Analysis.PLANE_STRAIN,
+            mesh,
+            {"soil": api.MaterialSpec.elastic("soil", self.E, self.nu)},
+            {r: "soil" for r in mesh.regions()},
+            fixities=tuple(fixities),
+            initial=api.InitialStress("none"),
+            stages=[api.Stage("CAD yükleme", loads=tuple(loads))],
+            geometry=self.to_dict(),
+        )
+        model.validate()
+        return model
+
+
+def _check_supports(mesh, fixities):
+    """Reject rigid translations/rotation separately in each mesh component."""
+    c = mesh.blocks[0].conn
+    n = c.shape[1]
+    rows, cols = np.repeat(c, n, axis=1).ravel(), np.tile(c, (1, n)).ravel()
+    graph = coo_matrix((np.ones(rows.size), (rows, cols)), shape=(mesh.nn, mesh.nn))
+    count, labels = connected_components(graph, directed=False)
+    ux, uy = set(), set()
+    for bc in fixities:
+        if bc.ux:
+            ux.update(mesh.node_sets[bc.node_set])
+        if bc.uy:
+            uy.update(mesh.node_sets[bc.node_set])
+    for k in range(count):
+        nodes = np.flatnonzero(labels == k)
+        xy = mesh.coords[nodes]
+        center = xy.mean(axis=0)
+        scale = max(float(np.ptp(xy, axis=0).max()), 1e-12)
+        rows = []
+        for i in nodes:
+            x, y = (mesh.coords[i] - center) / scale
+            if i in ux:
+                rows.append([1, 0, -y])
+            if i in uy:
+                rows.append([0, 1, x])
+        if not rows or np.linalg.matrix_rank(np.asarray(rows)) < 3:
+            raise ValueError(
+                f"Zemin parçası {k + 1}: mesnetler rijit hareketi önlemiyor. "
+                "Kenar tablosunda ux/uy mesnetlerini tamamlayın."
+            )
+
+
+def snap_point(point, entities, tolerance, grid=0.0):
+    """Endpoint/midpoint snap takes priority over a user-enabled metric grid."""
+    p = np.asarray(point, dtype=float)
+    candidates = []
+    for e in entities:
+        candidates.extend(e.points)
+        candidates.extend((np.asarray(a) + b) / 2 for a, b in e.segments())
+    if candidates:
+        q = np.asarray(candidates)
+        distance = np.linalg.norm(q - p, axis=1)
+        j = int(distance.argmin())
+        if distance[j] <= tolerance:
+            return tuple(q[j]), "Nokta/orta nokta"
+    if grid > 0:
+        return tuple(np.round(p / grid) * grid), "Izgara"
+    return tuple(p), "Serbest"

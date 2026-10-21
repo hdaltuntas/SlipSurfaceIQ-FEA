@@ -12,16 +12,15 @@ import pytest
 
 pytest.importorskip("PySide6")
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
 
 from slipsurface.fe2d import api
 from slipsurface.fe2d.gui.app import MainWindow
 from slipsurface.fe2d.gui.dialogs import StageDialog, sample_model
 
 
-@pytest.fixture(scope="module")
-def application():
-    return QApplication.instance() or QApplication([])
+@pytest.fixture
+def application(qt_app):
+    return qt_app
 
 
 def finish(window, application, timeout=30):

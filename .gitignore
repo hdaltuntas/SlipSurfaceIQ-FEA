@@ -10,3 +10,5 @@ dist/
 *.vtu
 *.h5
 *.ssproj
+.portable-env/
+python-dist/

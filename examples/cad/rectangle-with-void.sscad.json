@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "entities": [
+    {
+      "name": "Zemin",
+      "kind": "region",
+      "points": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          12.0,
+          0.0
+        ],
+        [
+          12.0,
+          6.0
+        ],
+        [
+          0.0,
+          6.0
+        ]
+      ],
+      "region": 1
+    },
+    {
+      "name": "Bosluk",
+      "kind": "hole",
+      "points": [
+        [
+          5.0,
+          2.0
+        ],
+        [
+          7.0,
+          2.0
+        ],
+        [
+          7.0,
+          4.0
+        ],
+        [
+          5.0,
+          4.0
+        ]
+      ],
+      "region": 1
+    }
+  ],
+  "rules": [
+    {
+      "edge": "Zemin:1",
+      "ux": true,
+      "uy": true,
+      "pressure": 0.0
+    },
+    {
+      "edge": "Zemin:2",
+      "ux": true,
+      "uy": false,
+      "pressure": 0.0
+    },
+    {
+      "edge": "Zemin:3",
+      "ux": false,
+      "uy": false,
+      "pressure": 50
+    },
+    {
+      "edge": "Zemin:4",
+      "ux": true,
+      "uy": false,
+      "pressure": 0.0
+    }
+  ],
+  "h": 1.0,
+  "E": 20000.0,
+  "nu": 0.3
+}

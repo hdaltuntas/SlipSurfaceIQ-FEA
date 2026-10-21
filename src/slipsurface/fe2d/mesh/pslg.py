@@ -108,7 +108,7 @@ class Domain:
         along the boundary; ``max_area`` limits triangle area inside the polygon.
         """
         p = _as_points(points)
-        if p.shape[0] >= 2 and np.allclose(p[0], p[-1]):
+        if p.shape[0] >= 2 and np.array_equal(p[0], p[-1]):
             p = p[:-1]
         if p.shape[0] < 3:
             raise MeshError("a polygon needs at least 3 distinct vertices")
@@ -249,7 +249,9 @@ def _as_points(points: ArrayLike2) -> NDArray[np.float64]:
 
 
 def _signed_area(p: NDArray[np.float64]) -> float:
-    x, y = p[:, 0], p[:, 1]
+    # Translation prevents catastrophic cancellation for survey/world coordinates.
+    local = p - p[0]
+    x, y = local[:, 0], local[:, 1]
     return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(np.roll(x, -1), y))
 
 

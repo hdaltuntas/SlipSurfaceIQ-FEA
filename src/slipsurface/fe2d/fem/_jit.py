@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -11,7 +12,8 @@ try:  # pragma: no cover - exercised implicitly
     HAVE_NUMBA = True
 
     def njit(*args: Any, **kw: Any) -> Any:
-        kw.setdefault("cache", True)
+        # Frozen PYZ functions have no source locator for the on-disk Numba cache.
+        kw.setdefault("cache", not getattr(sys, "frozen", False))
         kw.setdefault("fastmath", False)
         return _nb.njit(*args, **kw)
 

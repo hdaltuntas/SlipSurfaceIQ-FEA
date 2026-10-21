@@ -85,7 +85,11 @@ class WaterCondition:
             p = np.atleast_2d(np.asarray(self.piezo_polyline, dtype=float))
             if p.shape[1] != 2 or p.shape[0] < 1:
                 raise ValueError("piezo_polyline must have shape (n, 2)")
+            if not np.isfinite(p).all():
+                raise ValueError("piezo_polyline must be finite")
             order = np.argsort(p[:, 0], kind="stable")
+            if np.any(np.diff(p[order, 0]) <= 0):
+                raise ValueError("piezo_polyline x coordinates must be distinct")
             object.__setattr__(self, "piezo_polyline", p[order])
         if self.mode == "piezo_line" and self.piezo_polyline is None:
             raise ValueError("mode 'piezo_line' needs piezo_polyline")
@@ -94,6 +98,10 @@ class WaterCondition:
         object.__setattr__(self, "head_bcs", tuple(self.head_bcs))
         object.__setattr__(self, "flux_bcs", tuple(self.flux_bcs))
         object.__setattr__(self, "seepage_faces", tuple(self.seepage_faces))
+        if not all(np.isfinite(h.head) for h in self.head_bcs):
+            raise ValueError("prescribed heads must be finite")
+        if not all(np.isfinite(f.q) for f in self.flux_bcs):
+            raise ValueError("prescribed fluxes must be finite")
         if self.mode == "seepage" and not (self.head_bcs or self.seepage_faces):
             raise ValueError("mode 'seepage' needs head_bcs or seepage_faces")
 

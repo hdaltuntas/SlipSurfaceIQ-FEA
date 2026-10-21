@@ -10,6 +10,7 @@ from PySide6.QtCore import Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
@@ -30,8 +31,10 @@ from PySide6.QtWidgets import (
 
 from .. import api
 from ..io.report import export_beam_csv, export_csv, export_html
+from .boundary_editor import BoundaryDialog
 from .canvas import ConvergencePlot, MeshCanvas
 from .dialogs import MaterialDialog, NewModelDialog, StageDialog, sample_model
+from .structure_editor import StructureDialog
 from .worker import SolveWorker
 
 _STYLE = """
@@ -107,6 +110,11 @@ class MainWindow(QMainWindow):
         selectors.addWidget(self.fields)
         selectors.addWidget(QLabel("Deformasyon ×"))
         selectors.addWidget(self.deform)
+        self.principal = QCheckBox("Asal oklar")
+        self.plastic_points = QCheckBox("Plastik noktalar")
+        for checkbox in [self.principal, self.plastic_points]:
+            checkbox.toggled.connect(self.draw)
+            selectors.addWidget(checkbox)
         selectors.addStretch()
         right.addLayout(selectors)
         self.canvas = MeshCanvas()
@@ -158,7 +166,13 @@ class MainWindow(QMainWindow):
             file_menu.addAction(a)
             self.edit_actions.append(a)
         toolbar.addSeparator()
-        for title, slot in [("Malzemeler", self.edit_materials), ("Aşamalar", self.edit_stages)]:
+        for title, slot in [
+            ("Geometri / CAD", self.edit_geometry),
+            ("Malzemeler", self.edit_materials),
+            ("Yapılar", self.edit_structures),
+            ("Sınırlar", self.edit_boundaries),
+            ("Aşamalar", self.edit_stages),
+        ]:
             a = action(title, slot)
             toolbar.addAction(a)
             self.edit_actions.append(a)
@@ -169,6 +183,18 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.run_action)
         toolbar.addAction(self.stop_action)
         toolbar.addAction(action("Görünüme sığdır", lambda: self.canvas.fit_model()))
+        examples_menu = self.menuBar().addMenu("Örnekler")
+        demo_action = action("Dört aşamalı tünel", self.open_tunnel_example)
+        examples_menu.addAction(demo_action)
+        self.edit_actions.append(demo_action)
+        result_menu = self.menuBar().addMenu("Sonuç incele")
+        for title, slot in [
+            ("Sorgu çizgisi", self.query_line),
+            ("Liner N–V–M", self.beam_diagrams),
+        ]:
+            a = action(title, slot)
+            result_menu.addAction(a)
+            self.export_actions.append(a)
         export_menu = self.menuBar().addMenu("Sonuç aktar")
         for title, kind in [
             ("VTU / ParaView", "vtu"),
@@ -209,8 +235,9 @@ class MainWindow(QMainWindow):
         if result is not None:
             for snapshot in [result.initial, *result.stages]:
                 if snapshot.history:
-                    self.plot.values.extend(r for step in snapshot.history.steps
-                                            for r in step.residuals)
+                    self.plot.values.extend(
+                        r for step in snapshot.history.steps for r in step.residuals
+                    )
             self.plot.update()
             self.progress.setValue(100)
         else:
@@ -227,10 +254,33 @@ class MainWindow(QMainWindow):
         if self.model is None:
             return
         st = self.selected_stage()
-        self.canvas.show_model(self.model, st, self.fields.currentText(), self.deform.value())
+        self.canvas.show_model(
+            self.model,
+            st,
+            self.fields.currentText(),
+            self.deform.value(),
+            result=self.result,
+            principal=self.principal.isChecked(),
+            plastic_points=self.plastic_points.isChecked(),
+        )
         self.legend.setText(self.canvas.legend)
         if st is not None:
             self.statusBar().showMessage(f"{st.name} · kabul edilen λ={st.lam:.6g}")
+
+    def query_line(self):
+        if self.result is not None:
+            from .result_tools import QueryDialog
+
+            dialog = QueryDialog(self.result, self.selected_stage(), self)
+            dialog.line_changed.connect(self.canvas.show_query_line)
+            dialog.query()
+            dialog.exec()
+
+    def beam_diagrams(self):
+        if self.result is not None:
+            from .result_tools import BeamDiagramDialog
+
+            BeamDiagramDialog(self.result, self.selected_stage(), self).exec()
 
     def discard_changes(self):
         if not self.dirty:
@@ -289,12 +339,49 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self.show_error(str(exc))
 
+    def open_tunnel_example(self):
+        if self.busy or not self.discard_changes():
+            return
+        from .demo import tunnel_model
+
+        self.set_model(tunnel_model(), dirty=True)
+
+    def edit_boundaries(self):
+        if self.busy:
+            return
+        dialog = BoundaryDialog(self.model, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.set_model(dialog.updated, path=self.path, dirty=True)
+
     def edit_materials(self):
+        if self.busy:
+            return
         dialog = MaterialDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)
 
+    def edit_geometry(self):
+        if self.busy or not self.discard_changes():
+            return
+        try:
+            from .cad import CadDialog
+
+            dialog = CadDialog(self.model, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.set_model(dialog.updated, dirty=True)
+        except Exception as exc:
+            self.show_error(str(exc))
+
+    def edit_structures(self):
+        if self.busy:
+            return
+        dialog = StructureDialog(self.model, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.set_model(dialog.updated, path=self.path, dirty=True)
+
     def edit_stages(self):
+        if self.busy:
+            return
         dialog = StageDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)
@@ -414,9 +501,16 @@ class MainWindow(QMainWindow):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="SlipSurfaceIQ native desktop")
     parser.add_argument("project", nargs="?", help=".ssproj or model JSON")
+    parser.add_argument(
+        "--smoke-test", metavar="DIRECTORY", help="run installed application checks"
+    )
     args = parser.parse_args(argv)
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("SlipSurfaceIQ-FEA")
+    if args.smoke_test:
+        from .smoke import smoke_check
+
+        return smoke_check(app, args.smoke_test)
     window = MainWindow()
     if args.project:
         try:
