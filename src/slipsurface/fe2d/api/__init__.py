@@ -28,7 +28,9 @@ import numpy as np
 from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
 from ..fem.srf import SRFResult, strength_reduction
 from ..fem.static import SolveResult, StageResult, solve
+from ..io.project import Project, load_project, save_project
 from ..io.project_json import load_model, save_model
+from ..io.results_h5 import ResultsReader, load_results, save_results
 from ..io.vtk_export import write_vtu
 from ..model import (
     BoltSpec,
@@ -100,8 +102,17 @@ def export_vtu(
             0.0, nodal_average(mesh, {k: v[..., :1] for k, v in st.q.items()})[:, 0]
         )
     if st.plastic:
-        blocks = [b for b in mesh.continuum_blocks() if b.tag in st.plastic]
-        cd["plastic"] = np.concatenate([(st.plastic[b.tag] > 0).mean(axis=1) for b in blocks])
+        values = []
+        for b in mesh.blocks:
+            if b.etype in (ElemType.IFACE4, ElemType.IFACE6):
+                continue  # zero-thickness joints are not VTU volume/line cells
+            if b.tag in st.plastic:
+                value = (st.plastic[b.tag] > 0).mean(axis=1)
+            else:
+                value = np.full(b.ne, np.nan)
+            value = np.where(st.active.get(b.tag, np.ones(b.ne, dtype=bool)), value, np.nan)
+            values.append(value)
+        cd["plastic"] = np.concatenate(values)
     return write_vtu(path, mesh, pd, cd)
 
 
@@ -123,6 +134,8 @@ __all__ = [
     "Model",
     "PlasticFlag",
     "PointLoad",
+    "Project",
+    "ResultsReader",
     "SRFResult",
     "SolveResult",
     "SolverSettings",
@@ -130,8 +143,13 @@ __all__ = [
     "StageResult",
     "export_vtu",
     "load_model",
+    "load_project",
+    "load_results",
     "nodal_stress",
     "run",
     "save_model",
+    "save_project",
+    "save_results",
     "strength_reduction",
 ]
+

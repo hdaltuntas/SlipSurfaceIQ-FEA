@@ -65,12 +65,24 @@ def _enc(obj: Any) -> Any:
     return obj
 
 
-def model_to_dict(model: Model) -> dict:
+def model_to_dict(model: Model, *, include_mesh: bool = True) -> dict:
     m = model.mesh
-    return {
+    doc = {
         "schema_version": SCHEMA_VERSION,
         "analysis": model.analysis.value,
-        "mesh": {
+        "materials": _enc(model.materials),
+        "region_material": _enc(model.region_material),
+        "fixities": _enc(model.fixities),
+        "displacements": _enc(model.displacements),
+        "initial": _enc(model.initial),
+        "stages": _enc(model.stages),
+        "liners": _enc(model.liners),
+        "bolts": _enc(model.bolts),
+        "settings": _enc(model.settings),
+        "interfaces": _enc(model.interfaces),
+    }
+    if include_mesh:
+        doc["mesh"] = {
             "coords": m.coords.tolist(),
             "blocks": [
                 {
@@ -83,18 +95,8 @@ def model_to_dict(model: Model) -> dict:
             ],
             "node_sets": _enc(m.node_sets),
             "edge_sets": _enc(m.edge_sets),
-        },
-        "materials": _enc(model.materials),
-        "region_material": _enc(model.region_material),
-        "fixities": _enc(model.fixities),
-        "displacements": _enc(model.displacements),
-        "initial": _enc(model.initial),
-        "stages": _enc(model.stages),
-        "liners": _enc(model.liners),
-        "bolts": _enc(model.bolts),
-        "settings": _enc(model.settings),
-        "interfaces": _enc(model.interfaces),
-    }
+        }
+    return doc
 
 
 # ----------------------------------------------------------------------------- decode

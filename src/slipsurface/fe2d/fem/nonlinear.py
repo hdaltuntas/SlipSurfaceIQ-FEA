@@ -140,12 +140,24 @@ def solve_stage(
                     float(np.linalg.norm(fint[driven])) if driven.size else 0.0,
                     1e-10 * f_scale,
                 )
-                rel = float(np.linalg.norm(Rf)) / f_ref
+                residual_norm = float(np.linalg.norm(Rf))
+                rel = residual_norm / f_ref
+                # A held prestressed stage may have zero load change, but assembled
+                # internal forces still cancel only to floating-point precision. Do
+                # not cut steps trying to resolve numerical noise below that scale.
+                roundoff = 64 * np.finfo(float).eps * max(f_scale, float(np.linalg.norm(fint)))
                 res_hist.append(rel)
-                if it == 0 and rel < 1e-3 * s.tol_force and not driven.size:
+                if (
+                    it == 0
+                    and (rel < 1e-3 * s.tol_force or residual_norm <= roundoff)
+                    and not driven.size
+                ):
                     converged = True
                     break
                 if it > 0:
+                    if residual_norm <= roundoff:
+                        converged = True
+                        break
                     e_rel = abs(float(ddu @ Rf)) / max(abs(g0), 1e-300)
                     if rel < s.tol_force and e_rel < s.tol_energy:
                         converged = True

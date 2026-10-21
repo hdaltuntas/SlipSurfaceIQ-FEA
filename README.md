@@ -5,7 +5,12 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Status: Faz 2 (elasto-plastik çözücü) — Kapı 1 ve Kapı 2 geçti.**
+**Status: Faz 3 devam ediyor — Kapı 1/2 geçmiş doğrulamaları mevcut; Kapı 3 açık.**
+
+Aktif küme/kazı, yapısal elemanlar ve aşama bazlı su uygulaması mevcut. HDF5 sonuç
+kaydı, aşama bazlı okuma ve `.ssproj` konteyneri eklendi.
+[Durum ve kalan kapı testleri](docs/phase3-status.md) ·
+[Proje/sonuç dosyası API](docs/project-files.md).
 
 ## Install (development)
 
@@ -100,7 +105,7 @@ points become one-node sets; `boundary` and `all` are always present. See
 | Layer | Package | Depends on |
 |---|---|---|
 | L6 | `api/` (`cli/`, `gui/` later) | L0–L5 |
-| L5 | `io/` — project JSON, VTU | L0–L4 |
+| L5 | `io/` — project JSON, HDF5, .ssproj, VTU | L0–L4 |
 | L4 | `post/` — stress recovery, principal stresses | L0–L3 |
 | L3 | `fem/` — elements, materials, assembly, stage driver | L0–L2 |
 | L2 | `mesh/` — structured + Delaunay/Ruppert mesh generation, size fields, quality | L0–L1 |
@@ -115,3 +120,4 @@ See [`docs/verification.md`](docs/verification.md).
 
 MIT — see [LICENSE](LICENSE). The "SlipSurface" name and logo are not covered by the
 code license.
+
