@@ -29,6 +29,8 @@ from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
 from ..fem.srf import SRFResult, strength_reduction
 from ..fem.static import SolveResult, StageResult, solve
 from ..io.project_json import load_model, save_model
+from ..io.results_h5 import ResultsFile, read_results, write_results
+from ..io.ssproj import load_project, open_project_results, save_project
 from ..io.vtk_export import write_vtu
 from ..model import (
     BoltSpec,
@@ -106,6 +108,8 @@ def export_vtu(
 
 
 __all__ = [
+    "ResultsFile",
+    "write_results",
     "Analysis",
     "Displacement",
     "Drainage",
@@ -130,8 +134,12 @@ __all__ = [
     "StageResult",
     "export_vtu",
     "load_model",
+    "load_project",
+    "open_project_results",
+    "read_results",
     "nodal_stress",
     "run",
     "save_model",
+    "save_project",
     "strength_reduction",
 ]

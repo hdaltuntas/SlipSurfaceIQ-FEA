@@ -9,10 +9,13 @@ from numpy.typing import NDArray
 
 from ..core.enums import Analysis
 from ..core.errors import MeshError
+from ..core.log import get_logger
 from ..model.boundary import EdgeLoad, PointLoad
 from ..model.mesh import Mesh
 from .elements.base import GeomCache
 from .elements.quadrature import gauss_legendre
+
+log = get_logger("loads")
 
 TractionFn = Callable[[NDArray[np.float64], NDArray[np.float64]], NDArray[np.float64]]
 """``traction(x (npt,2), n_out (npt,2)) -> t (npt,2)`` in global axes [kPa]."""
@@ -126,16 +129,26 @@ def assemble_nodal_loads(
                 raise MeshError("load applied to a node without degrees of freedom (inactive?)")
             np.add.at(f, d, fn[..., c].ravel())
 
+    def live_edges(name: str) -> NDArray[np.int64]:
+        """Edges whose nodes all have DOFs; excavated parts of an edge set are skipped."""
+        e = mesh.edges(name)
+        ok = (node_dofs[e, 0] >= 0).all(axis=1)
+        if not ok.any():
+            raise MeshError(f"edge set '{name}' has no active edge (excavated?)")
+        if not ok.all():
+            log.info("edge load on '%s': %d inactive edge(s) skipped", name, int((~ok).sum()))
+        return e[ok]
+
     for ld in loads:
         if isinstance(ld, EdgeLoad):
             nodes, fn = edge_traction_forces(
-                mesh, mesh.edges(ld.edge_set), edge_load_traction(ld), analysis
+                mesh, live_edges(ld.edge_set), edge_load_traction(ld), analysis
             )
             add(nodes, fn)
         elif isinstance(ld, PointLoad):
             add(np.array([ld.node]), np.array([[[ld.fx, ld.fy]]]))
     for name, fn_t in extra_tractions:
-        nodes, fn = edge_traction_forces(mesh, mesh.edges(name), fn_t, analysis)
+        nodes, fn = edge_traction_forces(mesh, live_edges(name), fn_t, analysis)
         add(nodes, fn)
     return f
 

@@ -65,25 +65,30 @@ def _enc(obj: Any) -> Any:
     return obj
 
 
-def model_to_dict(model: Model) -> dict:
-    m = model.mesh
+def mesh_to_dict(m: Mesh) -> dict:
+    return {
+        "coords": m.coords.tolist(),
+        "blocks": [
+            {
+                "etype": b.etype.name,
+                "conn": b.conn.tolist(),
+                "region": b.region.tolist(),
+                "tag": b.tag,
+            }
+            for b in m.blocks
+        ],
+        "node_sets": _enc(m.node_sets),
+        "edge_sets": _enc(m.edge_sets),
+    }
+
+
+def model_to_dict(model: Model, mesh_ref: str | None = None) -> dict:
+    """JSON-ready dict. ``mesh_ref`` (e.g. ``"mesh.h5"``) stores a reference instead of
+    the mesh arrays (used by the ``.ssproj`` container, which keeps the mesh in HDF5)."""
     return {
         "schema_version": SCHEMA_VERSION,
         "analysis": model.analysis.value,
-        "mesh": {
-            "coords": m.coords.tolist(),
-            "blocks": [
-                {
-                    "etype": b.etype.name,
-                    "conn": b.conn.tolist(),
-                    "region": b.region.tolist(),
-                    "tag": b.tag,
-                }
-                for b in m.blocks
-            ],
-            "node_sets": _enc(m.node_sets),
-            "edge_sets": _enc(m.edge_sets),
-        },
+        "mesh": {"$ref": mesh_ref} if mesh_ref else mesh_to_dict(model.mesh),
         "materials": _enc(model.materials),
         "region_material": _enc(model.region_material),
         "fixities": _enc(model.fixities),
@@ -124,18 +129,8 @@ def _initial(d: dict) -> InitialStress:
     return InitialStress(**d)
 
 
-def model_from_dict(doc: dict) -> Model:
-    ver = int(doc.get("schema_version", 0))
-    while ver < SCHEMA_VERSION:
-        if ver not in MIGRATIONS:
-            raise ModelError(f"cannot migrate project schema v{ver}")
-        doc = MIGRATIONS[ver](doc)
-        ver = int(doc["schema_version"])
-    if ver > SCHEMA_VERSION:
-        raise ModelError(f"project schema v{ver} is newer than this library (v{SCHEMA_VERSION})")
-
-    md = doc["mesh"]
-    mesh = Mesh(
+def mesh_from_dict(md: dict) -> Mesh:
+    return Mesh(
         np.asarray(md["coords"], dtype=float),
         tuple(
             ElementBlock(
@@ -146,6 +141,26 @@ def model_from_dict(doc: dict) -> Model:
         {k: np.asarray(v, dtype=np.int64) for k, v in md["node_sets"].items()},
         {k: np.asarray(v, dtype=np.int64) for k, v in md["edge_sets"].items()},
     )
+
+
+def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
+    """Inverse of :func:`model_to_dict`; ``mesh`` is required if the document only holds
+    a ``{"$ref": ...}`` to an external mesh."""
+    ver = int(doc.get("schema_version", 0))
+    while ver < SCHEMA_VERSION:
+        if ver not in MIGRATIONS:
+            raise ModelError(f"cannot migrate project schema v{ver}")
+        doc = MIGRATIONS[ver](doc)
+        ver = int(doc["schema_version"])
+    if ver > SCHEMA_VERSION:
+        raise ModelError(f"project schema v{ver} is newer than this library (v{SCHEMA_VERSION})")
+
+    md = doc["mesh"]
+    if "$ref" in md:
+        if mesh is None:
+            raise ModelError(f"model refers to an external mesh '{md['$ref']}'")
+    else:
+        mesh = mesh_from_dict(md)
     mats = {
         k: MaterialSpec(
             name=v["name"],
