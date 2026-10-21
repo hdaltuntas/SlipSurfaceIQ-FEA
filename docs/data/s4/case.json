@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "case": "S4-dry-cantilever-rankine-apex-v1",
+  "units": {
+    "length": "m",
+    "force": "kN/m",
+    "moment": "kN m/m",
+    "stress": "kPa"
+  },
+  "coordinates": "x right, y up; depth=-y; unit width out of plane",
+  "geometry": {
+    "domain": [
+      [
+        -20,
+        -20
+      ],
+      [
+        20,
+        -20
+      ],
+      [
+        20,
+        0
+      ],
+      [
+        -20,
+        0
+      ]
+    ],
+    "excavation": [
+      [
+        0,
+        -5
+      ],
+      [
+        20,
+        -5
+      ],
+      [
+        20,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "wall": [
+      [
+        0,
+        -10.5
+      ],
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  "wall_soil_shared_points_m": [
+    [
+      0.0,
+      -10.5
+    ]
+  ],
+  "closed_interface_points_m": {
+    "pile_left": [
+      [
+        0.0,
+        -10.5
+      ]
+    ],
+    "pile_right": [
+      [
+        0.0,
+        -10.5
+      ]
+    ]
+  },
+  "analysis": "plane_strain",
+  "materials": {
+    "sand": {
+      "name": "sand",
+      "model": "mohr_coulomb",
+      "params": {
+        "E": 30000.0,
+        "nu": 0.3,
+        "c": 0.0,
+        "phi": 30.0,
+        "psi": 0.0,
+        "rankine_at_apex": true
+      },
+      "gamma_unsat": 18,
+      "gamma_sat": 18,
+      "drainage": "drained",
+      "k_sat": [
+        1e-07,
+        1e-07
+      ]
+    }
+  },
+  "region_material": {
+    "1": "sand",
+    "2": "sand"
+  },
+  "fixities": [
+    {
+      "node_set": "bottom",
+      "ux": true,
+      "uy": true,
+      "rz": false
+    },
+    {
+      "node_set": "left",
+      "ux": true,
+      "uy": false,
+      "rz": false
+    },
+    {
+      "node_set": "right",
+      "ux": true,
+      "uy": false,
+      "rz": false
+    }
+  ],
+  "displacements": [],
+  "initial": {
+    "mode": "k0_field",
+    "k0": 0.5,
+    "surface_y": null,
+    "field": null,
+    "gravity": false,
+    "active_regions": null,
+    "active_structures": null,
+    "water": {
+      "mode": "none",
+      "piezo_polyline": null,
+      "head_bcs": [],
+      "flux_bcs": []
+    }
+  },
+  "liners": {
+    "pile": {
+      "name": "pile",
+      "E": 200000000.0,
+      "nu": 0,
+      "A": 0.1,
+      "I": 0.001,
+      "As": 0.08,
+      "unit_weight": 0.0
+    }
+  },
+  "bolts": {},
+  "interfaces": {
+    "pile_left": {
+      "name": "pile_left",
+      "kn": 403846.1538461538,
+      "ks": 115384.61538461536,
+      "c": 0,
+      "phi": 29.999999999999996,
+      "psi": 0.0,
+      "sig_t": 0.0
+    },
+    "pile_right": {
+      "name": "pile_right",
+      "kn": 403846.1538461538,
+      "ks": 115384.61538461536,
+      "c": 0,
+      "phi": 29.999999999999996,
+      "psi": 0.0,
+      "sig_t": 0.0
+    }
+  },
+  "stages": [
+    {
+      "active_regions": null,
+      "active_structures": [
+        "pile",
+        "pile_left",
+        "pile_right"
+      ],
+      "material_override": {},
+      "loads": [],
+      "water": {
+        "mode": "none",
+        "piezo_polyline": null,
+        "head_bcs": [],
+        "flux_bcs": []
+      },
+      "reset_displacements": false,
+      "displacements": []
+    },
+    {
+      "active_regions": [
+        1
+      ],
+      "active_structures": [
+        "pile",
+        "pile_left",
+        "pile_right"
+      ],
+      "material_override": {},
+      "loads": [],
+      "water": {
+        "mode": "none",
+        "piezo_polyline": null,
+        "head_bcs": [],
+        "flux_bcs": []
+      },
+      "reset_displacements": false,
+      "displacements": []
+    }
+  ],
+  "physical_sequence": [
+    "K0 initial stress; interfaces initially present, wall absent",
+    "activate stress-free wall with both interfaces; no installation disturbance",
+    "remove right-hand region 2 to y=-5 m; fully release excavation imbalance"
+  ],
+  "apex_flow": "MC psi=0 plus associated Rankine flow at c*cot(phi)=0 kPa",
+  "wall_signs": "raw local end sections: -T*f at end 0, +T*f at end 1; local axial direction node0->node1, transverse=(-s,c), N tension positive; for this vertical wall M_up=local_s*M uses a common upward axis"
+}

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 import numpy as np
 from numpy.typing import NDArray
@@ -41,8 +42,9 @@ def _array(name: str, arr: NDArray, ncomp: int | None = None) -> str:
     arr = np.asarray(arr)
     vt = _VTK_TYPE[arr.dtype.type]
     nc = ncomp if ncomp is not None else (1 if arr.ndim == 1 else arr.shape[1])
+    escaped_name = escape(name, {chr(34): "&quot;"})
     return (
-        f'<DataArray type="{vt}" Name="{name}" NumberOfComponents="{nc}" '
+        f'<DataArray type="{vt}" Name="{escaped_name}" NumberOfComponents="{nc}" '
         f'format="binary">{_b64(arr)}</DataArray>'
     )
 
@@ -53,7 +55,10 @@ def write_vtu(
     point_data: dict[str, NDArray] | None = None,
     cell_data: dict[str, NDArray] | None = None,
 ) -> Path:
-    """Write the continuum blocks of ``mesh``. Cell data arrays are ordered block by block."""
+    """Write continuum, beam and bar cells (interfaces omitted).
+
+    Cell data must cover every exported cell, ordered block by block.
+    """
     path = Path(path)
     blocks = [b for b in mesh.blocks if b.etype in _VTK_CELL]
     conn = np.concatenate([b.conn.ravel() for b in blocks]).astype(np.int64)
@@ -68,12 +73,17 @@ def write_vtu(
     pd = []
     for k, v in (point_data or {}).items():
         v = np.asarray(v, dtype=np.float64)
+        if v.ndim not in (1, 2) or v.shape[0] != mesh.nn:
+            raise ValueError(f"point data '{k}' must have {mesh.nn} rows")
         if v.ndim == 2 and v.shape[1] == 2:  # 2D vectors -> 3D for ParaView glyphs
             v = np.column_stack([v, np.zeros(v.shape[0])])
-        pd.append(_array(k, np.nan_to_num(v)))
+        pd.append(_array(k, v))
     cd = [_array("region", region)]
     for k, v in (cell_data or {}).items():
-        cd.append(_array(k, np.asarray(v)))
+        v = np.asarray(v)
+        if v.ndim not in (1, 2) or v.shape[0] != ncell:
+            raise ValueError(f"cell data '{k}' must have {ncell} rows")
+        cd.append(_array(k, v))
 
     xml = (
         '<?xml version="1.0"?>\n'

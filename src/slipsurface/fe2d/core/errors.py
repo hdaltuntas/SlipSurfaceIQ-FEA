@@ -23,16 +23,25 @@ class SingularSystemError(SolverError):
     """Global stiffness is singular — usually an under-constrained model (rigid body mode)."""
 
 
-class NonConvergence(SolverError):
-    """Nonlinear iteration did not converge; ``lam`` is the last converged load factor."""
+class MaterialIntegrationError(SolverError):
+    """A local constitutive return failed; its trial state must not be committed."""
 
-    def __init__(self, lam: float, message: str | None = None, history: object = None) -> None:
+    def __init__(self, message: str, *, details: dict | None = None) -> None:
+        self.details = details
+        super().__init__(message)
+
+
+class NonConvergence(SolverError):
+    """Nonlinear failure; ``lam`` is last committed, ``history`` holds attempts if available."""
+
+    def __init__(
+        self, lam: float, message: str | None = None, *, history: object | None = None
+    ) -> None:
         self.lam = lam
-        self.history = history  # StageHistory of the failed stage (step records)
+        # The nonlinear layer supplies StageHistory; L0 must not import L3.
+        self.history = history
         super().__init__(message or f"no convergence; last converged load factor = {lam:.4f}")
 
 
-class LocalIntegrationError(SolverError):
-    """A constitutive update failed for the given strain increment (e.g. the local Newton
-    of an implicit return diverged). The global solver treats the iterate as divergent and
-    backtracks / cuts the load step."""
+class LocalIntegrationError(MaterialIntegrationError):
+    """Implicit constitutive integration failed; reject the trial and cut the step."""

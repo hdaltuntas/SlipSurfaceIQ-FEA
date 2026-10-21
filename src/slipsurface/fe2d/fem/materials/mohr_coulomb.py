@@ -32,14 +32,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ...core.enums import PlasticFlag
+from ...core.errors import MaterialIntegrationError
 from .._jit import njit, prange
 from .elastic import LinearElastic
-
-APEX_TANGENT = 1e-3
-"""Tangent at corner returns (apex, tension corners) as a fraction of D. The consistent
-value is zero; a small positive floor keeps nodes that are held only by such points from
-making the Newton system singular (it only affects the convergence path, not the
-converged state)."""
 
 _EL, _SH, _TE, _AP = (
     int(PlasticFlag.ELASTIC),
@@ -177,6 +172,19 @@ def _return_principal(
                 C_out[i, j] = D[i, j]
         return _EL
 
+    # Explicit associated Rankine flow completes the zero-dilation MC apex.
+    # Mean stress alone is NOT an apex classifier for general dilatant MC or
+    # a lower tensile cut-off. Keep the cone/KKT check, including all 9 normals.
+    if has_apex and has_t and m == 1.0 and np.mean(s_tr) >= st:
+        apex_scale = max(abs((k - 1.0) * st), abs(sc), 1e-300)
+        coincident = abs((k - 1.0) * st - sc) <= 64 * np.finfo(np.float64).eps * apex_scale
+        if coincident and _in_cone(s_tr - st, DBv, np.arange(9), 9, 1e-10):
+            for i in range(3):
+                s_out[i] = st
+                for j in range(3):
+                    C_out[i, j] = 0.0
+            return _TE
+
     sets = np.full((6, 2), -1, dtype=np.int64)
     nset = np.zeros(6, dtype=np.int64)
     sets[0, 0] = 0
@@ -251,7 +259,7 @@ def _return_principal(
         return _TE if uses_t else _SH
 
     # ---- corner points: three constraints fix the stress
-    idx = np.zeros(6, dtype=np.int64)
+    idx = np.zeros(9, dtype=np.int64)
     x = np.zeros(3)
     for pt in range(4):
         if pt == 0:  # MC apex
@@ -267,6 +275,14 @@ def _return_principal(
             rows = (3, 4, 5)
             nv = 3
             idx[0], idx[1], idx[2] = 3, 4, 5
+            # At a coincident MC/Rankine apex all six MC potentials and all
+            # three Rankine potentials are active. Using only the Rankine cone
+            # would miss mixed shear/tension correctors (especially psi=0).
+            apex_scale = max(abs((k - 1.0) * st), abs(sc), 1e-300)
+            if abs((k - 1.0) * st - sc) <= 64 * np.finfo(np.float64).eps * apex_scale:
+                nv = 9
+                for j in range(9):
+                    idx[j] = j
             flag = _TE
         elif pt == 2:  # s1 = s2 = st, s3 on MC
             if not has_t:
@@ -302,59 +318,12 @@ def _return_principal(
         for c in range(3):
             s_out[c] = s[c]
             for j in range(3):
-                C_out[c, j] = APEX_TANGENT * D[c, j]  # corner: (almost) zero stiffness
+                C_out[c, j] = 0.0  # a fixed corner has exactly zero derivative
         return flag
-    # non-associated flow (psi < phi): the trial can lie beyond the apex in a direction no
-    # combination of flow vectors reaches (e.g. psi = 0 is isochoric). As in Clausen's
-    # region scheme the apex region is "everything else": return to the admissible corner
-    # point closest to the trial in the energy norm.
-    Dinv = np.empty((3, 3))
-    _inv(D, 3, Dinv)
-    best = -1
-    best_e = 1e300
-    sb = np.zeros(3)
-    for pt in range(4):
-        if pt == 0 and not has_apex:
-            continue
-        if pt > 0 and not has_t:
-            continue
-        if pt == 0:
-            rows = (0, 1, 2)
-        elif pt == 1:
-            rows = (3, 4, 5)
-        elif pt == 2:
-            rows = (0, 3, 4)
-        else:
-            rows = (0, 2, 3)
-        for a in range(3):
-            for c in range(3):
-                M[a, c] = A[rows[a], c]
-        if not _inv(M, 3, Mi):
-            continue
-        for c in range(3):
-            s[c] = Mi[c, 0] * rhs[rows[0]] + Mi[c, 1] * rhs[rows[1]] + Mi[c, 2] * rhs[rows[2]]
-        smax = max(s[0], s[1], s[2])
-        smin = min(s[0], s[1], s[2])
-        if k * smax - smin - sc > tolf * 10:
-            continue
-        if has_t and smax - st > tolf * 10:
-            continue
-        e = 0.0
-        for a in range(3):
-            for c in range(3):
-                e += (s_tr[a] - s[a]) * Dinv[a, c] * (s_tr[c] - s[c])
-        if e < best_e:
-            best_e = e
-            best = pt
-            for c in range(3):
-                sb[c] = s[c]
-    if best >= 0:
-        for c in range(3):
-            s_out[c] = sb[c]
-            for j in range(3):
-                C_out[c, j] = APEX_TANGENT * D[c, j]
-        return _AP if best == 0 else _TE
-    for c in range(3):  # should not happen
+    # No admissible return for these potentials (e.g. a zero-dilation tensile
+    # trial at a cohesionless apex). The Python wrapper must reject flag 255;
+    # the elastic trial is diagnostic scratch data, never a constitutive result.
+    for c in range(3):
         s_out[c] = s_tr[c]
         for j in range(3):
             C_out[c, j] = D[c, j]
@@ -398,6 +367,10 @@ def from_principal(
 ) -> None:
     """Rotate the returned sorted principal stress ``rs`` and its 3x3 tangent ``Cs`` back
     to x-y (writes ``sig`` and the 4x4 ``Dalg``, including the in-plane spin term)."""
+    if rs[0] == rs[1] == rs[2] and np.all(Cs == 0.0):
+        sig[0], sig[1], sig[2], sig[3] = rs[0], rs[0], rs[0], 0.0
+        Dalg[:, :] = 0.0
+        return
     q = np.empty(3)
     for i in range(3):
         q[i] = rs[pos[i]]
@@ -475,6 +448,10 @@ class MohrCoulomb(LinearElastic):
 
     Parameters: E, nu, c [kPa], phi, psi [deg], sig_t (tensile strength, ``None`` →
     no cut-off: the MC apex ``c cot(phi)`` limits tension).
+    An explicit cut-off at the MC apex retains its associated Rankine potential;
+    it is not equivalent to omitting the cut-off for non-associated MC flow.
+    ``rankine_at_apex=True`` places that cut-off at the current MC apex exactly,
+    including after strength reduction. It is an explicit additional flow rule.
     Internal variable q[0]: accumulated equivalent plastic strain.
     """
 
@@ -489,6 +466,8 @@ class MohrCoulomb(LinearElastic):
         phi: float,
         psi: float = 0.0,
         sig_t: float | None = None,
+        *,
+        rankine_at_apex: bool = False,
     ) -> None:
         super().__init__(E, nu, phi)
         if not 0.0 <= phi < 90.0 or not 0.0 <= psi <= phi:
@@ -503,7 +482,14 @@ class MohrCoulomb(LinearElastic):
         self.has_apex = phi > 0.0
         apex = self.sc / (self.k - 1.0) if self.has_apex else math.inf
         self.apex = apex
-        if sig_t is None or sig_t >= apex:
+        if rankine_at_apex not in (False, True):
+            raise ValueError("rankine_at_apex must be boolean")
+        if rankine_at_apex:
+            if sig_t is not None or not self.has_apex:
+                raise ValueError("rankine_at_apex needs phi > 0 and no explicit sig_t")
+            sig_t = apex
+        self.rankine_at_apex = bool(rankine_at_apex)
+        if sig_t is None or sig_t > apex:
             self.has_t, self.st = False, math.inf
         else:
             if sig_t < 0:
@@ -537,6 +523,58 @@ class MohrCoulomb(LinearElastic):
         st = self.st if self.has_t else 0.0
         _mc_batch(sig_tr, self._lam, self.G, self.k, self.m, self.sc, st,
                   self.has_apex, self.has_t, sig, D, flag)  # fmt: skip
+        invalid = np.flatnonzero(flag == 255)
+        if invalid.size:
+            points = []
+            for i in invalid[:8]:
+                mean = float(np.mean(sig_tr[i, :3]))
+                # At psi=0 every MC potential is traceless. Isotropic elasticity
+                # then preserves mean stress during return, while MC admissibility
+                # requires mean <= apex. This is a sufficient obstruction only;
+                # other failures must not be labelled as having no local solution.
+                tol = 1e-10 * max(
+                    1.0, float(np.max(np.abs(sig_tr[i]))), abs(self.apex) if self.has_apex else 0.0
+                )
+                obstructed = (
+                    self.psi == 0.0 and not self.has_t and self.has_apex and mean > self.apex + tol
+                )
+                points.append(
+                    {
+                        "batch_index": int(i),
+                        "reason": (
+                            "zero_dilation_trial_above_apex"
+                            if obstructed
+                            else "active_set_not_found"
+                        ),
+                        "sig_n": sig_n[i].tolist(),
+                        "deps": deps[i].tolist(),
+                        "q_n": q_n[i].tolist(),
+                        "sig_trial": sig_tr[i].tolist(),
+                        "trial_mean": mean,
+                        "trial_yield": float(self.yield_function(sig_tr[i : i + 1])[0]),
+                        "mean_apex_tolerance": tol,
+                    }
+                )
+            raise MaterialIntegrationError(
+                f"Mohr-Coulomb: no admissible return at {invalid.size} Gauss point(s); "
+                f"batch indices {invalid[:8].tolist()} "
+                f"(c={self.c}, phi={self.phi}, psi={self.psi})",
+                details={
+                    "model": "MohrCoulomb",
+                    "params": {
+                        "E": self.E,
+                        "nu": self.nu,
+                        "c": self.c,
+                        "phi": self.phi,
+                        "psi": self.psi,
+                        "sig_t": self.st if self.has_t and not self.rankine_at_apex else None,
+                        "rankine_at_apex": self.rankine_at_apex,
+                    },
+                    "apex": self.apex if self.has_apex else None,
+                    "failed_count": int(invalid.size),
+                    "points": points,
+                },
+            )
         q = q_n.copy()
         pl = flag != 0
         if np.any(pl):

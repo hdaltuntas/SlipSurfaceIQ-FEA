@@ -18,7 +18,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 from numpy.typing import NDArray
 
-from ..core.errors import ModelError, NonConvergence, SolverError
+from ..core.errors import MaterialIntegrationError, ModelError, NonConvergence, SolverError
 from ..core.log import get_logger
 from ..model.model import Model
 from .static import SolveResult, StageResult, StaticSolver
@@ -98,7 +98,20 @@ def strength_reduction(
             )
             ok, lam = True, 1.0
         except NonConvergence as exc:
+            if (
+                exc.history is not None
+                and exc.history.steps
+                and exc.history.steps[-1].termination == "material_return"
+            ):
+                raise MaterialIntegrationError(
+                    f"SRF F={F:.6g}: local constitutive return failed; "
+                    "cannot use this trial as a collapse bracket. "
+                    + exc.history.steps[-1].detail,
+                    details=exc.history.steps[-1].material_failure,
+                ) from exc
             ok, lam = False, exc.lam
+        except MaterialIntegrationError:
+            raise
         except SolverError:
             ok, lam = False, 0.0
         du = state.u[:, :2] - base_state.u[:, :2]

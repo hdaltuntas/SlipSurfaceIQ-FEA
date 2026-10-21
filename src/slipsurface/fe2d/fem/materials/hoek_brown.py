@@ -19,7 +19,7 @@ with ``u = b`` (main surface) or ``u = (b_a + b_b)/2`` and a fixed ``v`` on the 
 (s1 = s2: surfaces (1,3), (2,3); s2 = s3: surfaces (1,3), (1,2)), where the edge
 condition fixes the difference of the two multipliers. The remaining scalar equation
 ``f(sigma(t)) = 0`` is monotone in t and solved by safeguarded Newton (bracketing). If no
-non-negative edge solution exists the stress returns to the apex.
+admissible active set exists the entire batch is rejected.
 
 Consistent tangent (exact for a linear potential): ``D - D B (A^T D B)^-1 A^T D`` in the
 principal frame, with A the yield gradients at the returned stress, plus the in-plane
@@ -34,9 +34,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ...core.enums import PlasticFlag
+from ...core.errors import MaterialIntegrationError
 from .._jit import njit, prange
 from .elastic import LinearElastic
-from .mohr_coulomb import APEX_TANGENT, equivalent_plastic_strain, from_principal, principal_frame
+from .mohr_coulomb import _in_cone, equivalent_plastic_strain, from_principal, principal_frame
 
 _EL, _SH, _AP = int(PlasticFlag.ELASTIC), int(PlasticFlag.SHEAR), int(PlasticFlag.APEX)
 
@@ -135,13 +136,13 @@ def _tangent(Dp: NDArray, A: NDArray, B: NDArray, nact: int, C: NDArray) -> None
         Mi[0, 0] = 1.0 / det if det != 0.0 else 0.0
     else:
         det = M[0, 0] * M[1, 1] - M[0, 1] * M[1, 0]
-        Mi = np.empty((2, 2))
+        Mi = np.zeros((2, 2))
         if det != 0.0:
             Mi[0, 0], Mi[1, 1] = M[1, 1] / det, M[0, 0] / det
             Mi[0, 1], Mi[1, 0] = -M[0, 1] / det, -M[1, 0] / det
     C[:, :] = Dp - DB @ Mi @ AD
     if det == 0.0 or not np.all(np.isfinite(C)):
-        C[:, :] = APEX_TANGENT * Dp
+        C[:, :] = np.nan
 
 
 @njit
@@ -166,18 +167,20 @@ def _hb_principal(
         rs[:] = ps
         Cs[:, :] = Dp
         return _EL
-    # ---- apex region: the trial point lies in the cone of the plastic correctors of
-    # the three surfaces meeting there (psi = 0: no volume change, so a mean stress
-    # above the tensile strength cannot be returned anywhere else)
-    if m - 1.0 < 1e-12:
-        at_apex = (ps[0] + ps[1] + ps[2]) / 3.0 >= st - tol
-    else:
-        B3 = np.array([[m, 0.0, m], [0.0, m, -1.0], [-1.0, -1.0, 0.0]])
-        dl3 = np.linalg.solve(Dp @ B3, ps - st)
-        at_apex = dl3.min() >= -1e-12 * max(np.abs(dl3).max(), 1e-300)
-    if at_apex:
+    # At the apex all six permutations of g = m*s_i - s_j are active.
+    # For psi=0 these directions are traceless: hydrostatic tension above st
+    # has no admissible return without a separate tensile plastic potential.
+    Bv = np.zeros((6, 3))
+    k = 0
+    for i in range(3):
+        for j in range(3):
+            if i != j:
+                Bv[k, i], Bv[k, j] = m, -1.0
+                k += 1
+    DBv = Bv @ Dp.T
+    if _in_cone(ps - st, DBv, np.arange(6), 6, 1e-10):
         rs[:] = st
-        Cs[:, :] = APEX_TANGENT * Dp
+        Cs[:, :] = 0.0
         return _AP
     A = np.zeros((3, 2))
     B = np.zeros((3, 2))
@@ -226,10 +229,10 @@ def _hb_principal(
         B[:, 0], B[:, 1] = ba, bb
         _tangent(Dp, A, B, 2, Cs)
         return _SH
-    # ---- apex
-    rs[:] = st
-    Cs[:, :] = APEX_TANGENT * Dp
-    return _AP
+    # No admissible active set; never invent an apex flow.
+    rs[:] = ps
+    Cs[:, :] = Dp
+    return 255
 
 
 @njit
@@ -326,6 +329,16 @@ class HoekBrown(LinearElastic):
         flag = np.empty(n, dtype=np.uint8)
         _hb_batch(sig_tr, self._lam, self.G, self.sci, self.mb, self.s, self.a, self.m,
                   sig, D, flag)  # fmt: skip
+        invalid = np.flatnonzero((flag == 255) | ~np.isfinite(D).all(axis=(1, 2))
+                                 | ~np.isfinite(sig).all(axis=1))
+        if invalid.size:
+            raise MaterialIntegrationError(
+                f"Hoek-Brown: no admissible return at {invalid.size} Gauss point(s)",
+                details={"model": "HoekBrown", "failed_count": int(invalid.size),
+                         "points": [{"batch_index": int(i), "sig_trial": sig_tr[i].tolist(),
+                                     "sig_n": sig_n[i].tolist(), "deps": deps[i].tolist(),
+                                     "q_n": q_n[i].tolist()} for i in invalid[:8]]},
+            )
         q = q_n.copy()
         pl = flag != 0
         if np.any(pl):

@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from slipsurface.fe2d import api
-from slipsurface.fe2d.core.errors import ModelError, SingularSystemError
+from slipsurface.fe2d.core.errors import MaterialIntegrationError, ModelError, SingularSystemError
+from slipsurface.fe2d.fem.static import StaticSolver
 from slipsurface.fe2d.mesh import layered_box, rectangle
 from slipsurface.fe2d.post import nodal_average
 
@@ -129,3 +130,40 @@ def test_validation_errors():
     m = column_model(stages=[api.Stage("exc", active_regions=frozenset())])
     with pytest.raises(ModelError):
         api.run(m)
+
+
+@pytest.mark.parametrize("etype", [api.ElemType.T3, api.ElemType.T6, api.ElemType.Q8])
+def test_material_failure_reports_physical_location_and_replay_inputs(etype):
+    mesh = rectangle(2.0, 1.0, 4, 2, etype)
+    # Alternate strong/zero-cohesion materials to exercise noncontiguous groups.
+    block = mesh.blocks[0]
+    block.region[::2] = 2
+    model = api.Model(
+        analysis=api.Analysis.PLANE_STRAIN,
+        mesh=mesh,
+        materials={
+            "weak": api.MaterialSpec.mohr_coulomb("weak", 3e4, 0.3, 0, 30, 0),
+            "strong": api.MaterialSpec.mohr_coulomb("strong", 3e4, 0.3, 1e6, 30, 0),
+        },
+        region_material={1: "weak", 2: "strong"},
+        fixities=(api.Fixity("bottom", True, True),),
+        initial=api.InitialStress("none"),
+    )
+    solver = StaticSolver(model)
+    state, _ = solver.initial_state()
+    sysm, lay = solver.system, solver._layout
+    u = np.zeros_like(state.u)
+    u[:, :2] = mesh.coords * 1e-4
+    du = np.zeros(sysm.dm.ndof)
+    present = sysm.dm.node_dofs >= 0
+    du[sysm.dm.node_dofs[present]] = u[present]
+    with pytest.raises(MaterialIntegrationError) as caught:
+        solver.integrate(state, du, sysm, lay)
+    data = caught.value.details
+    assert data["block"] == block.tag
+    for point in data["points"]:
+        elem, gp = point["element_id"], point["gauss_point"]
+        assert block.region[elem] == 1
+        np.testing.assert_allclose(point["coordinates"], solver.geom[block.tag].xg[elem, gp])
+        np.testing.assert_allclose(point["deps"], [1e-4, 1e-4, 0, 0], atol=1e-18)
+    assert all(np.count_nonzero(s) == 0 for s in state.sig.values())

@@ -82,10 +82,12 @@ def mesh_to_dict(m: Mesh) -> dict:
     }
 
 
-def model_to_dict(model: Model, mesh_ref: str | None = None) -> dict:
+def model_to_dict(
+    model: Model, mesh_ref: str | None = None, *, include_mesh: bool = True
+) -> dict:
     """JSON-ready dict. ``mesh_ref`` (e.g. ``"mesh.h5"``) stores a reference instead of
     the mesh arrays (used by the ``.ssproj`` container, which keeps the mesh in HDF5)."""
-    return {
+    doc = {
         "schema_version": SCHEMA_VERSION,
         "analysis": model.analysis.value,
         "mesh": {"$ref": mesh_ref} if mesh_ref else mesh_to_dict(model.mesh),
@@ -100,6 +102,10 @@ def model_to_dict(model: Model, mesh_ref: str | None = None) -> dict:
         "settings": _enc(model.settings),
         "interfaces": _enc(model.interfaces),
     }
+
+    if not include_mesh:
+        doc.pop("mesh")
+    return doc
 
 
 # ----------------------------------------------------------------------------- decode

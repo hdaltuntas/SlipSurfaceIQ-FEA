@@ -1,5 +1,10 @@
 # Doğrulama — Kapı 1 (Faz 1), Kapı 2 (Faz 2), Kapı 3 (Faz 3) ve Kapı 4 (Faz 4)
 
+**Güncel inceleme:** [Faz 4 düzeltmeleri](phase4-review.md),
+[Faz 5.1](phase5-desktop.md). S4 dış karşılaştırması ertelendi; Kapı 5 açık.
+Aşağıdaki sayısal tablolar önceki koşuların kayıtlarıdır; güncel regresyon sonucu
+inceleme kaydındadır.
+
 Tüm testler `tests/verification/` altında pytest olarak koşar; performans ölçütü
 `tests/benchmarks/` altındadır (`pytest -m benchmark`).
 
@@ -48,6 +53,14 @@ hata durumları.
 
 ## Ek birim testleri
 
+### Aynı dereceli karma ağlar (deneysel)
+
+T3+Q4 ve T6+Q8 geçişleri ortak düğümlerle kontrol edilir. Çarpık ağda düzlem ve
+eksenel simetrik patch testleri, default/high integrasyonla çekme ve E2 konsol
+çözümü geçer. Plastik Tresca basınç, kazı/geri dolgu, liner/ara yüz, su ve kayıt
+testlerinin kapsamı ile nonlinear palplanşta kalan başarısızlıklar
+[mixed-mesh.md](mixed-mesh.md) içinde açıklanır. Bu ek, Kapı 3'ü kapatmaz.
+
 `tests/unit/` — şekil fonksiyonu türevleri (sonlu farkla), kuadratür tamlığı, eleman
 rijitliğinin simetrisi ve tam olarak 3 rijit cisim modu, ağ geometrisi (delikli levhada
 alan, katman bölgeleri), ağırlık analizi ile K₀ alanının yanal olarak tutulu kolonda
@@ -62,12 +75,17 @@ dönüş ve VTU geçerliliği.
 | P1 | Rijit düzgün şerit temel, drenajsız (φ = 0), yer değiştirme kontrollü, ağırlıksız | Prandtl, q_ult = (2 + π) su | < %3 | %0.97 (h_min = 0.05); %1.35 / %0.53 (0.1 / 0.025) — yukarıdan yakınsıyor |
 | P2 | Kalın cidarlı silindir, iç basınç, Tresca, εz = 0 | Hill (1950): p(r_c), u_b = 2(1−ν²)k r_c²/(E b) | Basınç–genişleme < %2 | T6 %0.004, Q8 ve Q4 (B-bar) de %2 içinde; plastik yarıçap GP bayraklarıyla |
 | P3 | Hidrostatik gerilmede dairesel tünel, MC, ψ = 0 / 15° / 30° | Salençon (1969) plastik yarıçap; çeper deplasmanı akış kuralı ODE'si | < %3 | u_a %0.43–0.57, R_pl %0.4 |
-| P4 | Homojen şev 2:1, c/γH = 0.05, φ = 20°, ψ = 0, SRF | Griffiths & Lane (1999) Örn. 1; Bishop (testte dairesel arama: 1.378) | FS farkı < %3 | h = 1.5: 1.396 (%1.3); ağ yakınsaması 1.416 / 1.396 / 1.377 / 1.367 (h = 2 / 1.5 / 1 / 0.7) |
+| P4 | Homojen şev 2:1, c/γH = 0.05, φ = 20°, ψ = 0, SRF; açık Rankine-apex akışı | Griffiths & Lane (1999) Örn. 1; Bishop (testte dairesel arama: 1.378) | FS farkı < %3 | Açık model tamamlamasıyla geçti: h=1.5 F=1.396484, h=1.0 F=1.376953; eski kesmesiz model ayrı strict xfail |
 | P5 | Tek eleman (eksenel simetrik) üç eksenli basınç, çekme yolu, çekme kesmesi; MC ψ ≠ φ | Kapalı form gerilme izi ve hacimsel davranış | < %0.1 | yuvarlama hatası düzeyinde |
 | — | Tam NR kuadratik yakınsama (Tresca ilişkili; MC ilişkisiz → simetrik olmayan LU) | log r_{i+1} – log r_i eğimi ≈ 2 | eğim > 1.6 | ✔ (ör. 1.8e-2 → 8.8e-7 → 3e-13); mNR doğrusal (eğim ≈ 1) |
 
 Ek: NR, mNR, hibrit, başlangıç rijitliği ve NR + line search aynı çözüme 1e-5 göreli
 farkla ulaşır (`test_newton_convergence.py`).
+
+P4'ün %3 ölçütü ve mekanizma kontrolü açık Rankine-apex modelinde korunur. Eski
+kesmesiz modele yalnızca yerel malzeme hatası için strict xfail uygulanır; bu bir
+geçiş değildir. Genel Kapı 2 kapsamındaki bu sınır korunur. Yöntem, tam/ yaklaşık
+tanjant ayrımı ve karşılaştırma: [coincident-tension-cutoff.md](coincident-tension-cutoff.md).
 
 ### Bünye modeli birim testleri (`tests/unit/test_materials.py`)
 
@@ -94,6 +112,10 @@ hibrit yöntem sınırda onu kullanır.
 | S2 | Ön germeli uç ankrajlı bolt, elastik blok, düzlem dışı aralık s = 1, 2 | Seri yay dengesi N = T₀/s · k_s/(k_s + k_b) | < %0.5 | 1e-9 (doğrusal yaylar için kesin); akma sınırı ve pasifleştirme |
 | S3 | Elastik tabakada 3 kademeli kazı; load split α = 0.25 / 0.4 / 0.9 + tamamlama | Tek aşamalı eşdeğer çözüm | Fark < 10⁻⁸ | 5e-15 (çok aşama), 2e-15 – 6e-15 (load split); ilk aşama α·u |
 | S4 | Kumda konsol palplanş (H = 4 m, D = 6 m, iki kademe kazı, iki yüzde R = 0.67 ara yüz) | Kendi kiriş-yay (Winkler, K₀ → Ka/Kp Lancellotta 2002, kademeli) ve LE (Blum, serbest uç) | M_max < %10 | SEY 71.8 / 72.2 / 73.8 kNm/m (h = 0.5 / 0.35 / 0.25), kiriş-yay 78.5, LE 78.2 → %6–9; M_max derinliği 5.1 m (kiriş-yay 5.2 m); tepe deplasmanı −30 mm (kiriş-yay −32 mm) |
+
+S4 satırındaki Winkler/LE modeli bir **iç karşılaştırmadır**; ertelenen RS2/PLAXIS
+dış doğrulaması olarak kabul edilmez. Farklı palplanş girdileri
+[önceki S4 kaydından](s4-comparison.md) ayrı tutulur.
 
 **Aşama bölme değişmezliği** (Kapı 3 ek şartı): S3'te tek aşama = n aşama ve tek aşama
 = load split + tamamlama, elastik malzemede yuvarlama hatası düzeyinde.
@@ -123,7 +145,8 @@ düzeyinde aynı; `.ssproj`'dan yüklenen model analizi 1e-12 içinde tekrarlar.
   kullanılmalı; aksi halde rijitlik R² ile ölçeklenir ve R = 0.01'de duvar zeminde yüzer.
 * Plastik kazı aşamaları tam NR'de adım başına 5–8 iterasyon gerektirebiliyor;
   `SolverSettings(line_search=True)` belirgin biçimde hızlandırıyor (S4: 44 s → 22 s).
-* Göçme yükü takibi (arc-length) v2'de; v1'de göçme = adım alt sınırında yakınsamama.
+* Arc-length uygulanmadı. Adım alt sınırında yakınsamama yalnız sayısal bir
+  başarısızlıktır; tek başına fiziksel göçme kanıtı değildir.
 
 ## Kapı 4 — sızma, drenajsız analiz ve ileri bünye modelleri (Faz 4)
 
@@ -159,7 +182,8 @@ mertebe zaman integrasyonu hatasıdır (adım yarıya inince yarıya iner). C3't
 ### Faz 4 bilinen sınırlamalar
 
 * Drenajsız MCC'de yüzeye yakın, p′ ≈ 0 olan zeminde drenajsız dayanım da ≈ 0'dır; yüzey
-  temeli küçük yüklerde göçer (gerçek davranış). Logaritmik elastisitedeki küçük kayma
+  temeli küçük yüklerde yakınsamayabilir; fiziksel göçme ayrı kanıt gerektirir.
+  Logaritmik elastisitedeki küçük kayma
   `p_min` (varsayılan 1 kPa) yalnızca p′ = 0'da sonlu rijitlik sağlar.
 * SRF (mukavemet azaltma) MC/DP ve ara yüzlere uygulanır; Hoek–Brown ve MCC azaltılmaz.
 * Konsolidasyon (zamana bağlı) v2 kapsamında; v1'de drenajsız → `drained=True` aşaması

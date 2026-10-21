@@ -25,6 +25,8 @@ its line with :func:`~slipsurface.fe2d.mesh.structures.insert_interface`).
 
 from __future__ import annotations
 
+import warnings
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -127,6 +129,7 @@ def solve_seepage(
     tol: float = 1e-7,
     max_iter: int = 200,
     damping: float = 0.5,
+    checkpoint: Callable[[], None] | None = None,
 ) -> SeepageResult:
     """Solve steady seepage on ``blocks``.
 
@@ -134,10 +137,18 @@ def solve_seepage(
     ``flux_bcs``: ``(edges, q)`` normal inflow [m/s] on edges ``(m, 2|3)``.
     ``seepage_faces``: ``(name, nodes)`` potential seepage nodes.
     """
+    if not np.isfinite(tol) or tol <= 0 or max_iter < 1 or not 0 < damping <= 1:
+        raise ModelError("seepage: need tol > 0, max_iter >= 1 and 0 < damping <= 1")
     X = mesh.coords
     nn = mesh.nn
     used = np.zeros(nn, dtype=bool)
     for b in blocks:
+        if not np.all(np.isfinite(b.k)) or np.any(b.k <= 0):
+            raise ModelError("seepage: active conductivity must be finite and positive")
+        if (not np.all(np.isfinite(b.vg)) or np.any(b.vg[:, 0] <= 0)
+                or np.any(b.vg[:, 1] <= 1) or np.any(b.vg[:, 2] <= 0)
+                or np.any(b.vg[:, 2] > 1)):
+            raise ModelError("seepage: invalid van Genuchten parameters")
         used[b.conn.ravel()] = True
     if not used.any():
         raise ModelError("seepage: no active element")
@@ -163,6 +174,8 @@ def solve_seepage(
     inv = inv.ravel()
     Ki, Kj = uk // ndof, uk % ndof
     offs = np.cumsum([0] + [r.size for r in rows])
+    graph = sp.csr_matrix((np.ones(Ki.size), (Ki, Kj)), shape=(ndof, ndof))
+    component_count, component = sp.csgraph.connected_components(graph, directed=False)
 
     def assemble(kr_list: list[NDArray[np.float64]]) -> sp.csr_matrix:
         data = np.zeros(uk.size)
@@ -178,6 +191,8 @@ def solve_seepage(
     # ---- flux BCs (constant normal inflow)
     f = np.zeros(ndof)
     for edges, q in flux_bcs:
+        if not np.isfinite(q):
+            raise ModelError("seepage: flux must be finite")
         edges = np.atleast_2d(edges)
         if np.any(dof[edges] < 0):
             edges = edges[(dof[edges] >= 0).all(axis=1)]
@@ -199,7 +214,12 @@ def solve_seepage(
     for name, nodes, val in head_bcs:
         nodes = np.asarray(nodes, dtype=np.int64)
         vals = np.broadcast_to(np.asarray(val, dtype=float), nodes.shape)
+        if not np.all(np.isfinite(vals)):
+            raise ModelError("seepage: prescribed heads must be finite")
         m = used[nodes]
+        previous = h_fix[nodes[m]]
+        if np.any(np.isfinite(previous) & ~np.isclose(previous, vals[m], rtol=0, atol=1e-12)):
+            raise ModelError("seepage: conflicting prescribed heads at a shared node")
         h_fix[nodes[m]] = vals[m]
         for n_ in nodes[m].tolist():
             owner[n_] = name
@@ -215,6 +235,8 @@ def solve_seepage(
     converged = False
     it = 0
     for it in range(1, max_iter + 1):
+        if checkpoint is not None:
+            checkpoint()
         K = assemble(kr_list)
         fixed = np.isfinite(h_fix)
         hv = h_fix.copy()
@@ -223,6 +245,8 @@ def solve_seepage(
             hv[sf_nodes[sf_on]] = X[sf_nodes[sf_on], 1]
         fd = dof[fixed & used]
         fv = hv[fixed & used]
+        if np.unique(component[fd]).size != component_count:
+            raise SolverError("seepage: a connected region has no prescribed head")
         is_free = np.ones(ndof, dtype=bool)
         is_free[fd] = False
         fr = np.flatnonzero(is_free)
@@ -232,9 +256,13 @@ def solve_seepage(
             Kff = K[fr][:, fr].tocsc()
             rhs = f[fr] - K[fr][:, fd] @ fv
             try:
-                h[fr] = spla.spsolve(Kff, rhs)
-            except RuntimeError as exc:  # pragma: no cover
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", spla.MatrixRankWarning)
+                    h[fr] = spla.spsolve(Kff, rhs)
+            except (RuntimeError, spla.MatrixRankWarning) as exc:
                 raise SolverError("seepage system is singular (isolated region?)") from exc
+        if not np.all(np.isfinite(h)):
+            raise SolverError("seepage produced non-finite heads")
         h_new = np.full(nn, np.nan)
         h_new[used] = h[dof[used]]
         r = K @ h - f  # inflow at constrained dofs
@@ -260,11 +288,12 @@ def solve_seepage(
             kr_new.append((1 - damping) * kr_old + damping * target)
         dkr = max(np.abs(a - b_).max() for a, b_ in zip(kr_new, kr_list))
         h_nodal = h_new
-        kr_list = kr_new
         href = max(np.nanmax(np.abs(h_new)), 1.0)
         if not changed and dh < tol * href and dkr < 1e3 * tol:
             converged = True
             break
+        if it < max_iter:
+            kr_list = kr_new
     if not converged:
         log.warning("seepage: Picard did not converge in %d iterations", max_iter)
 

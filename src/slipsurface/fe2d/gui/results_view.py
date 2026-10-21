@@ -15,7 +15,8 @@ import numpy as np
 
 from ..core.enums import ElemType
 from ..fem.static import SolveResult
-from ..post.recovery import nodal_average, principal_stresses, spr
+from ..post.recovery import nodal_average, principal_stresses
+from ..post.result_fields import active_mesh, active_values, recovered_stress, stage_result
 
 _VTK = {ElemType.T3: 5, ElemType.T6: 22, ElemType.Q4: 9, ElemType.Q8: 23}
 
@@ -34,17 +35,18 @@ def to_pyvista(result: SolveResult, stage: str | int | None = None, deform: floa
     """``pyvista.UnstructuredGrid`` with point fields (u, stresses, s1, s3, q, eps_p) and
     cell field ``plastic`` (fraction of yielding Gauss points)."""
     pv = _pv()
-    st = result.last if stage is None else result.stage(stage)
-    mesh = result.model.mesh
+    st = stage_result(result, stage)
+    original_mesh = result.model.mesh
+    mesh = active_mesh(original_mesh, st)
     blocks = [b for b in mesh.continuum_blocks() if b.etype in _VTK]
     cells = np.concatenate(
         [np.hstack([np.full((b.ne, 1), b.etype.nen), b.conn]).ravel() for b in blocks]
     )
     types = np.concatenate([np.full(b.ne, _VTK[b.etype], dtype=np.uint8) for b in blocks])
-    u = np.nan_to_num(st.u)
-    pts = np.column_stack([mesh.coords + deform * u, np.zeros(mesh.nn)])
+    u = st.u.copy()
+    pts = np.column_stack([mesh.coords + deform * np.nan_to_num(u), np.zeros(mesh.nn)])
     grid = pv.UnstructuredGrid(cells, types, pts)
-    s = spr(mesh, st.sig, {k: g.xg for k, g in result.geom.items()})
+    s = recovered_stress(result, st)
     p = principal_stresses(s)
     grid.point_data["u"] = np.column_stack([u, np.zeros(mesh.nn)])
     grid.point_data["|u|"] = np.linalg.norm(u, axis=1)
@@ -54,11 +56,12 @@ def to_pyvista(result: SolveResult, stage: str | int | None = None, deform: floa
         grid.point_data[name] = p[name]
     if st.q:
         grid.point_data["eps_p"] = np.maximum(
-            0.0, nodal_average(mesh, {k: v[..., :1] for k, v in st.q.items()})[:, 0]
+            0.0, nodal_average(mesh, active_values(original_mesh, st,
+                              {k: v[..., :1] for k, v in st.q.items()}))[:, 0]
         )
     if st.plastic:
         grid.cell_data["plastic"] = np.concatenate(
-            [(st.plastic[b.tag] > 0).mean(axis=1) for b in blocks]
+            [(active_values(original_mesh, st, st.plastic)[b.tag] > 0).mean(axis=1) for b in blocks]
         )
     return grid
 
