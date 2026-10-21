@@ -99,3 +99,23 @@ def test_displacement_patch_axisymmetric(etype):
     assert np.max(np.abs(sig - sig_exact)) < 1e-10 * np.max(np.abs(sig_exact))
     ur = res.last.u[:, 0]
     assert np.max(np.abs(ur - c * mesh.coords[:, 0])) < 1e-10 * c * 3.0
+
+
+@pytest.mark.parametrize("etype", [ElemType.T3, ElemType.T6])
+def test_displacement_patch_unstructured(etype):
+    """Constant strain on a Delaunay/Ruppert mesh with an embedded line and a hole."""
+    from slipsurface.fe2d.mesh import Domain, circle, unstructured_mesh
+
+    d = Domain().add_polygon([(0, 0), (3, 0), (3, 2), (0, 2)], name="outer")
+    d.add_polygon(circle(1.2, 1.0, 0.4, 16), hole=True, name="hole")
+    d.add_line([(2.2, 0.3), (2.7, 1.7)], name="line")
+    mesh = unstructured_mesh(d, etype=etype, h=0.35)
+    boundary = np.unique(np.concatenate([mesh.nodes("outer"), mesh.nodes("hole")]))
+    mesh, bcs = per_node_displacements(mesh, boundary, linear_field)
+    st = api.run(_model(mesh, api.Analysis.PLANE_STRAIN, bcs)).last
+    exact_u = np.array([linear_field(*p) for p in mesh.coords])
+    assert np.max(np.abs(st.u - exact_u)) < 1e-10 * np.max(np.abs(exact_u))
+    eps = np.array([A[0, 0], A[1, 1], 0.0, A[0, 1] + A[1, 0]])
+    sig_exact = isotropic_D(E, NU) @ eps
+    sig = st.sig["soil"].reshape(-1, 4)
+    assert np.max(np.abs(sig - sig_exact)) < 1e-10 * np.max(np.abs(sig_exact))

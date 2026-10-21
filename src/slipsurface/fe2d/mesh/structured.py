@@ -1,8 +1,7 @@
 """Structured (mapped) mesh generators.
 
-These cover the verification problems and simple layered boxes. The general unstructured
-Delaunay/Ruppert mesher (bölge etiketleri, gömülü çizgiler, ara yüz düğüm çoğaltma) is a
-separate module.
+These cover the verification problems and simple layered boxes. General geometries use
+the unstructured Delaunay/Ruppert mesher in :mod:`slipsurface.fe2d.mesh.mesher`.
 
 All generators build a ``(2*nx+1) x (2*ny+1)`` lattice from a mapping ``f(s, t) -> (x, y)``
 on the unit square; T6 mid-side nodes are taken from the odd lattice points, so curved

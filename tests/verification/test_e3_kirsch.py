@@ -81,3 +81,42 @@ def test_kirsch_hoop_stress(etype, nr, nt):
     assert np.max(np.abs(fe - ex)) / np.max(np.abs(stt_ex)) < (
         0.01 if etype is ElemType.T6 else 0.05
     )
+
+
+def test_kirsch_unstructured_t6():
+    """Same problem on a Delaunay/Ruppert mesh graded towards the hole (48 chords)."""
+    from slipsurface.fe2d.mesh import DistanceSize, Domain, arc, unstructured_mesh
+
+    L, nseg = 5.0, 48
+    ring = arc(0.0, 0.0, A_HOLE, 0.0, np.pi / 2, nseg)
+    poly = np.vstack([[[L, 0.0], [L, L], [0.0, L]], ring[::-1]])
+    names = ["outer_x", "outer_y", "y_sym"] + ["hole"] * nseg + ["x_sym"]
+    mesh = unstructured_mesh(
+        Domain().add_polygon(poly, edge_names=names),
+        etype=ElemType.T6,
+        h=DistanceSize(0.06, 0.6, 1.25, lines=[ring]),
+    )
+    model = api.Model(
+        analysis=api.Analysis.PLANE_STRAIN,
+        mesh=mesh,
+        materials={"rock": api.MaterialSpec.elastic("rock", 1.0e4, 0.25)},
+        region_material={1: "rock"},
+        fixities=(api.Fixity("x_sym", False, True), api.Fixity("y_sym", True, False)),
+        initial=api.InitialStress("none"),
+        stages=[api.Stage("remote")],
+    )
+    res = StaticSolver(
+        model, extra_tractions={"remote": (("outer_x", traction), ("outer_y", traction))}
+    ).run()
+    s = nodal_average(mesh, res.last.sig)
+    hole = mesh.nodes("hole")
+    x, y = mesh.coords[hole].T
+    th = np.arctan2(y, x)
+    stt_fe = (
+        s[hole, 0] * np.sin(th) ** 2
+        + s[hole, 1] * np.cos(th) ** 2
+        - 2 * s[hole, 3] * np.sin(th) * np.cos(th)
+    )
+    stt_ex = SX * (1 - 2 * np.cos(2 * th)) + SY * (1 + 2 * np.cos(2 * th))
+    err = np.max(np.abs(stt_fe - stt_ex)) / np.max(np.abs(stt_ex))
+    assert err < 0.01, f"hoop stress error {err:.3%}"

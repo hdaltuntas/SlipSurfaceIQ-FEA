@@ -36,6 +36,27 @@ res = api.run(model)                  # gravity initial stress + stages
 api.export_vtu(res, "surcharge.vtu")  # open in ParaView
 ```
 
+### Unstructured mesh (Delaunay + Ruppert)
+
+```python
+from slipsurface.fe2d.mesh import Domain, DistanceSize, circle, unstructured_mesh, mesh_quality
+
+ring = circle(0.0, -15.0, 4.0, 64)
+d = Domain()
+d.add_polygon([(-40, -50), (40, -50), (40, 0), (-40, 0)], region=2,
+              edge_names=["bottom", "right", "top", "left"])
+d.add_polygon([(-40, -6), (40, -6), (40, 0), (-40, 0)], region=1)   # upper layer
+d.add_polygon(ring, hole=True, name="tunnel")                        # opening
+d.add_line([(-10, 0), (-10, -12)], name="wall")                      # embedded line
+mesh = unstructured_mesh(d, h=DistanceSize(0.4, 4.0, 1.25, lines=[ring], closed=[True]))
+print(mesh_quality(mesh))   # min angle ≥ 28° (default target) except at small input angles
+```
+
+Regions need no seed points: each patch takes the region of the innermost polygon that
+contains it. Every named polygon edge, polygon or line becomes an edge/node set; named
+points become one-node sets; `boundary` and `all` are always present. See
+`examples/tunnel_unstructured_elastic.py`.
+
 ## Conventions
 
 * Units: kN, m, kPa, s. Axisymmetric quantities are **per radian** (x = r, y = z).
@@ -52,7 +73,7 @@ api.export_vtu(res, "surcharge.vtu")  # open in ParaView
 | L5 | `io/` — project JSON, VTU | L0–L4 |
 | L4 | `post/` — stress recovery, principal stresses | L0–L3 |
 | L3 | `fem/` — elements, materials, assembly, stage driver | L0–L2 |
-| L2 | `mesh/` — mesh generation | L0–L1 |
+| L2 | `mesh/` — structured + Delaunay/Ruppert mesh generation, size fields, quality | L0–L1 |
 | L1 | `model/` — immutable model definition | L0 |
 | L0 | `core/` — units, enums, errors, logging | NumPy |
 

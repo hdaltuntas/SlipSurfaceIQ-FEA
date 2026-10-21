@@ -10,6 +10,15 @@ Tüm testler `tests/verification/` altında pytest olarak koşar; performans öl
 | E3 | Dairesel boşluklu levha, iki eksenli uzak gerilme (σx = 1, σy = 0.4) | Kirsch; dış sınıra kesin çekme uygulanır | Çeperde σθ < %1 | %0.27 | %2.1 (ölçüt T3 için %3) |
 | E4 | Kalın cidarlı silindir, iç basınç, eksenel simetrik, εz = 0 | Lamé | σr, σθ < %1 | %0.03 | %0.01 |
 | — | 50k düğümlü T6 elastik model (ağırlık + yük aşaması) | — | < 5 s | 1.9 s | — |
+| — | Yapısal olmayan ağ: tünel kesiti, 55k düğümlü T6 (ağ üretimi + çözüm) | — | çözüm < 5 s | ağ 2.8 s, çözüm 3.2 s | — |
+
+### Yapısal olmayan (Delaunay + Ruppert) ağlarda tekrar
+
+| Kod | Ağ | Sonuç |
+|---|---|---|
+| E1 | Delikli, gömülü çizgili alan; T3 ve T6 | makine hassasiyeti |
+| E3 | Çeyrek levha, 48 kirişli delik, deliğe doğru kademeli boyut alanı; T6 | σθ hatası %0.20 |
+| E4 | Halka kesit, h = 0.1; T6 | %1 içinde, u_r < %0.5 |
 
 Ölçüm ortamı: Linux x86-64, Python 3.13, NumPy 2.5, SciPy 1.18 (SuperLU). `pypardiso`
 kuruluysa çözücü otomatik olarak PARDISO'ya geçer.
@@ -26,6 +35,16 @@ kuruluysa çözücü otomatik olarak PARDISO'ya geçer.
   düğüm değerlerini iyileştirecektir.
 * **E4:** Gauss noktalarında σr, σθ, σz ve düğümlerde u_r karşılaştırılır; düşey
   reaksiyonların toplamı sıfırdır.
+
+## Ağ üreteci (Delaunay + Ruppert) birim testleri
+
+`tests/unit/test_unstructured_mesh.py` — alanın girdi poligonuyla birebir eşleşmesi,
+minimum açı hedefi (28–30°), boyut alanına uyum ve kademelendirme, T6 orta düğümleri,
+bölge etiketleme (iç içe poligonlar, delik, tohumla geçersiz kılma, poligon bazlı alan
+sınırı), gömülü çizgilerin eksiksiz kenar zinciri olarak korunması, kesişen çizgilerin
+ortak düğümü, ortak kenarların ad birleşimi, T-kavşak ve çakışan segmentler, dar girdi
+açılarında (3°–4°) sonlanma ve kalitenin yalnızca açı kümesinde düşmesi, determinizm ve
+hata durumları.
 
 ## Ek birim testleri
 

@@ -52,3 +52,32 @@ def test_lame_cylinder(etype, nr):
     assert np.max(np.abs(st.u[:, 0] - ur_exact(rn))) / ur_exact(A_IN) < 0.005
     # reaction per radian balances the internal pressure resultant (p * a * h)
     assert abs(st.reactions[:, 1].sum()) < 1e-8 * P_IN
+
+
+def test_lame_cylinder_unstructured_t6():
+    from slipsurface.fe2d.mesh import Domain, unstructured_mesh
+
+    d = Domain().add_polygon(
+        [(A_IN, 0.0), (B_OUT, 0.0), (B_OUT, 0.5), (A_IN, 0.5)],
+        edge_names=["bottom", "right", "top", "left"],
+    )
+    mesh = unstructured_mesh(d, etype=ElemType.T6, h=0.1)
+    model = api.Model(
+        analysis=api.Analysis.AXISYMMETRIC,
+        mesh=mesh,
+        materials={"steel": api.MaterialSpec.elastic("steel", E, NU)},
+        region_material={1: "steel"},
+        fixities=(api.Fixity("bottom", False, True), api.Fixity("top", False, True)),
+        initial=api.InitialStress("none"),
+        stages=[api.Stage("pressure", loads=(api.EdgeLoad("left", qn=P_IN),))],
+    )
+    res = api.run(model)
+    st = res.last
+    rn = mesh.coords[:, 0]
+    assert np.max(np.abs(st.u[:, 0] - ur_exact(rn))) / ur_exact(A_IN) < 0.005
+    sig = st.sig["soil"].reshape(-1, 4)
+    r = res.geom["soil"].xg[..., 0].ravel()
+    sr, sth = lame(r)
+    scale = np.max(np.abs(sth))
+    assert np.max(np.abs(sig[:, 0] - sr)) / scale < 0.01
+    assert np.max(np.abs(sig[:, 2] - sth)) / scale < 0.01
