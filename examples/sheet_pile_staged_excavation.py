@@ -15,7 +15,7 @@ from slipsurface.fe2d.mesh import DistanceSize, Domain, recombine_mesh, unstruct
 from slipsurface.fe2d.mesh.structures import add_beams, insert_interface
 
 
-def model(h=0.5, *, mixed=False, gauss_order=None):
+def model(h=0.5, *, mixed=False, gauss_order=None, soil_tension=None):
     domain = Domain().add_polygon(
         [(-20, -20), (20, -20), (20, 0), (-20, 0)], 1, edge_names=["bottom", "right", "top", "left"]
     )
@@ -28,7 +28,7 @@ def model(h=0.5, *, mixed=False, gauss_order=None):
     mesh = add_beams(mesh, "wall", "pile")
     mesh = insert_interface(mesh, "wall", "pile_left", "left")
     mesh = insert_interface(mesh, "wall", "pile_right", "right")
-    soil = api.MaterialSpec.mohr_coulomb("sand", 3e4, 0.3, 0, 30, 0, gamma=18)
+    soil = api.MaterialSpec.mohr_coulomb("sand", 3e4, 0.3, 0, 30, 0, sig_t=soil_tension, gamma=18)
     return api.Model(
         analysis=api.Analysis.PLANE_STRAIN,
         mesh=mesh,
@@ -72,10 +72,22 @@ def main():
     parser.add_argument("--output", type=Path, help="optional .ssproj output path")
     parser.add_argument("--mixed", action="store_true", help="recombine suitable T6 pairs to Q8")
     parser.add_argument("--gauss-order", choices=["default", "high"], default=None)
+    parser.add_argument(
+        "--soil-tension",
+        type=float,
+        default=None,
+        help="explicit soil tensile strength [kPa]; omitted means no Rankine flow",
+    )
     args = parser.parse_args()
-    if args.size <= 0:
+    if not np.isfinite(args.size) or args.size <= 0:
         parser.error("--size must be positive")
-    m = model(args.size, mixed=args.mixed, gauss_order=args.gauss_order)
+    if args.soil_tension is not None and (
+        not np.isfinite(args.soil_tension) or args.soil_tension < 0
+    ):
+        parser.error("--soil-tension must be finite and nonnegative")
+    m = model(
+        args.size, mixed=args.mixed, gauss_order=args.gauss_order, soil_tension=args.soil_tension
+    )
     print(f"Nodes: {m.mesh.nn}")
     result = api.run(m)
     moment = np.nanmax(np.abs(result.last.beams["pile"][:, :, 2]))

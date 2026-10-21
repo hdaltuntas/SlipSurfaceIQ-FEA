@@ -105,6 +105,69 @@ def test_local_return_failure_can_recover_by_cutback():
     assert hist.steps[-1].converged
 
 
+def test_zero_committed_tangent_uses_elastic_predictor_for_unloading():
+    kinds = []
+
+    class Factor:
+        Kfp = np.zeros((1, 0))
+
+        def solve(self, rhs):
+            return rhs / 2.0
+
+    def factor(kind, trial):
+        kinds.append(kind)
+        if kind == "committed":
+            raise SingularSystemError("perfectly plastic corner")
+        return Factor()
+
+    p = Problem(
+        1,
+        np.array([0]),
+        np.array([], dtype=int),
+        lambda du: (du.copy(), 2 * du),
+        factor,
+        lambda trial, total: None,
+    )
+    _, du, hist = solve_stage(
+        p, -np.ones(1), np.zeros(1), np.zeros(0), SolverSettings(dlam0=1.0), False
+    )
+    np.testing.assert_allclose(du, [-0.5])
+    assert kinds == ["committed", "elastic"]
+    assert hist.steps[-1].converged
+
+
+def test_elastic_fallback_is_not_used_for_a_singular_newton_tangent():
+    kinds = []
+
+    class Factor:
+        Kfp = np.zeros((1, 0))
+
+        def solve(self, rhs):
+            return rhs
+
+    def factor(kind, trial):
+        kinds.append(kind)
+        if kind == "tangent":
+            raise SingularSystemError("actual tangent singular")
+        return Factor()
+
+    p = Problem(
+        1,
+        np.array([0]),
+        np.array([], dtype=int),
+        lambda du: (du.copy(), 3 * du),
+        factor,
+        lambda trial, total: None,
+    )
+    with pytest.raises(NonConvergence) as caught:
+        solve_stage(
+            p, np.ones(1), np.zeros(1), np.zeros(0), SolverSettings(dlam0=1.0, dlam_min=0.1), False
+        )
+    assert caught.value.history.steps[-1].termination == "singular_tangent"
+    assert "tangent" in kinds
+    assert "elastic" not in kinds
+
+
 def test_linear_failure_keeps_diagnostic_history():
     class Factor:
         def solve(self, rhs):

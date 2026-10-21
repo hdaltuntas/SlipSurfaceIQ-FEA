@@ -10,6 +10,7 @@ MIT-licensed Python package. The roadmap and architecture are described in
 Mohr–Coulomb yerel dönüş hatasının elastik deneme gerilmesiyle gizlenmesi düzeltildi.
 P4'te bu hata SRF göçme sınırı olarak kullanılamıyor; önceki P4 geçişi geri çekildi.
 [Bulgular, düzeltme ve tanı komutları](docs/nonlinear-diagnostics.md).
+[Açık sıfır çekme kesmesi ve apex kontrolleri](docs/coincident-tension-cutoff.md).
 
 Aktif küme/kazı, yapısal elemanlar ve aşama bazlı su uygulaması mevcut. HDF5 sonuç
 kaydı, aşama bazlı okuma ve `.ssproj` konteyneri eklendi. S1 (no-slip) ve ara yüz

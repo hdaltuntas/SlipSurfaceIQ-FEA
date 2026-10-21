@@ -197,7 +197,15 @@ def solve_stage(
                     fact = initial_fact
                 elif it == 0 or (fact is None and not use_nr):
                     # predictor (and mNR): tangent of the last converged state
-                    fact = prob.factor("committed", None)
+                    try:
+                        fact = prob.factor("committed", None)
+                    except SingularSystemError:
+                        if it != 0:
+                            raise
+                        # A perfectly plastic corner can have exactly zero tangent.
+                        # An elastic predictor permits unloading from it; subsequent
+                        # NR iterations still use the actual constitutive tangent.
+                        fact = prob.factor("elastic", None)
                 elif use_nr:
                     fact = prob.factor("tangent", trial)
                 if it == 0:

@@ -65,3 +65,9 @@ istisna olarak bildirilir.
 Sıradaki iş: bu yük yolları için fiziksel olarak tanımlı çekme/apex davranışını
 belirleyip bağımsız yerel gerilme/tanjant kontrolleriyle doğrulamak; sonra P4 ve
 palplanş ağ/integrasyon karşılaştırmalarını yeniden çalıştırmak.
+
+Bu adımın ilk eklemesi tamamlandı: açıkça verilen Rankine kesmesi ortak MC apex'inde
+korunuyor, sabit köşe tanjantı tam sıfır ve boşaltma tahmini kontrol ediliyor.
+`--soil-tension 0` parametresi tanı aracında da kullanılabilir.
+[Yöntem, sınırlar ve yeni palplanş koşuları](coincident-tension-cutoff.md).
+Kesmesiz P4/S4 için yukarıdaki açık doğrulama durumu korunur.

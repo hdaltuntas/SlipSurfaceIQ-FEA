@@ -246,7 +246,7 @@ def _return_principal(
         return _TE if uses_t else _SH
 
     # ---- corner points: three constraints fix the stress
-    idx = np.zeros(6, dtype=np.int64)
+    idx = np.zeros(9, dtype=np.int64)
     x = np.zeros(3)
     for pt in range(4):
         if pt == 0:  # MC apex
@@ -262,6 +262,14 @@ def _return_principal(
             rows = (3, 4, 5)
             nv = 3
             idx[0], idx[1], idx[2] = 3, 4, 5
+            # At a coincident MC/Rankine apex all six MC potentials and all
+            # three Rankine potentials are active. Using only the Rankine cone
+            # would miss mixed shear/tension correctors (especially psi=0).
+            apex_scale = max(abs((k - 1.0) * st), abs(sc), 1e-300)
+            if abs((k - 1.0) * st - sc) <= 64 * np.finfo(np.float64).eps * apex_scale:
+                nv = 9
+                for j in range(9):
+                    idx[j] = j
             flag = _TE
         elif pt == 2:  # s1 = s2 = st, s3 on MC
             if not has_t:
@@ -297,7 +305,7 @@ def _return_principal(
         for c in range(3):
             s_out[c] = s[c]
             for j in range(3):
-                C_out[c, j] = 1e-8 * D[c, j]  # corner: (almost) zero stiffness
+                C_out[c, j] = 0.0  # a fixed corner has exactly zero derivative
         return flag
     # No admissible return for these potentials (e.g. a zero-dilation tensile
     # trial at a cohesionless apex). The Python wrapper must reject flag 255;
@@ -398,6 +406,8 @@ class MohrCoulomb(LinearElastic):
 
     Parameters: E, nu, c [kPa], phi, psi [deg], sig_t (tensile strength, ``None`` →
     no cut-off: the MC apex ``c cot(phi)`` limits tension).
+    An explicit cut-off at the MC apex retains its associated Rankine potential;
+    it is not equivalent to omitting the cut-off for non-associated MC flow.
     Internal variable q[0]: accumulated equivalent plastic strain.
     """
 
@@ -426,7 +436,7 @@ class MohrCoulomb(LinearElastic):
         self.has_apex = phi > 0.0
         apex = self.sc / (self.k - 1.0) if self.has_apex else math.inf
         self.apex = apex
-        if sig_t is None or sig_t >= apex:
+        if sig_t is None or sig_t > apex:
             self.has_t, self.st = False, math.inf
         else:
             if sig_t < 0:

@@ -66,8 +66,8 @@ momenti/yer değiştirmesi üretilmez.
 `default`: T6 3 GP, Q8 2×2 azaltılmış integrasyon; `high`: T6 6 GP, Q8 3×3.
 Kaba ağda düğüm sayısı %5.94, default GP sayısı %8.42 azalır. Bu, hızlanma veya
 nonlinear yakınsama garantisi değildir. Yerel MC dönüşünün başarısızlığını `255`
-bayraklı elastik denemeyle gizleyen hata düzeltildikten sonra aynı sekiz koşu tekrar
-çalıştırıldı; aşağıdaki değerler bu korumalı kod içindir.
+bayraklı elastik denemeyle gizleyen hatanın ilk düzeltmesinde (`b5dfcbe`) aynı sekiz
+koşu tekrar çalıştırıldı; aşağıdaki kayıtlar çekme kesmesi seçilmemiş o kod içindir.
 
 | h (m) | Ağ | Integrasyon | Kazı son yük çarpanı | Tamamlandı mı? |
 |---|---|---|---:|---|
@@ -91,3 +91,7 @@ koşusu tamamlandı. Yerel hata, P4'e etkisi ve tanı komutları:
 [nonlinear-diagnostics.md](nonlinear-diagnostics.md).
 Toleranslar ve fiziksel malzeme parametreleri bu karşılaştırmada değiştirilmedi.
 İnce ağ yakınsaması, P4 ve bağımsız S4 referansı çözülmeden kapılar açık kalır.
+
+Açık `--soil-tension 0` seçimiyle güncel high integrasyon koşullarının dördü de
+tamamlanır; bu farklı çekme akışının tanımı, yerel testler ve yeni sonuç tablosu
+[coincident-tension-cutoff.md](coincident-tension-cutoff.md) içindedir.

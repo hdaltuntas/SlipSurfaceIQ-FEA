@@ -88,11 +88,23 @@ def main():
         "--elastic-soil", action="store_true", help="isolate interface nonlinearity"
     )
     parser.add_argument("--no-line-search", action="store_true")
+    parser.add_argument(
+        "--soil-tension",
+        type=float,
+        default=None,
+        help="explicit soil tensile strength [kPa]; omitted means no Rankine flow",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not np.isfinite(args.size) or args.size <= 0:
         parser.error("--size must be finite and positive")
-    m = model(args.size, mixed=args.mixed, gauss_order=args.gauss_order)
+    if args.soil_tension is not None and (
+        not np.isfinite(args.soil_tension) or args.soil_tension < 0
+    ):
+        parser.error("--soil-tension must be finite and nonnegative")
+    m = model(
+        args.size, mixed=args.mixed, gauss_order=args.gauss_order, soil_tension=args.soil_tension
+    )
     if args.elastic_soil:
         soil = m.materials["sand"]
         m = replace(

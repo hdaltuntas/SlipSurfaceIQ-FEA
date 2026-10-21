@@ -29,17 +29,18 @@ class TracedSolver(StaticSolver):
         return super().solve_stage_ctx(state, ctx, lay, settings)
 
 
-def compare(sizes, gauss_order="high"):
+def compare(sizes, gauss_order="high", soil_tension=None):
     rows = []
     for h in sizes:
         for mixed in (False, True):
             start = time.perf_counter()
-            m = model(h, mixed=mixed, gauss_order=gauss_order)
+            m = model(h, mixed=mixed, gauss_order=gauss_order, soil_tension=soil_tension)
             mesh_time = time.perf_counter() - start
             solver = TracedSolver(m)
             row = {
                 "size": h,
                 "gauss_order": gauss_order,
+                "soil_tension": soil_tension,
                 "mesh": "T6+Q8" if mixed else "T6",
                 "nodes": m.mesh.nn,
                 "T6": sum(b.ne for b in m.mesh.blocks if b.etype is api.ElemType.T6),
@@ -79,10 +80,20 @@ def main():
     parser.add_argument("--sizes", type=float, nargs="+", default=[0.5, 0.25])
     parser.add_argument("--csv", help="optional comparison CSV path")
     parser.add_argument("--gauss-order", choices=["default", "high"], default="high")
+    parser.add_argument(
+        "--soil-tension",
+        type=float,
+        default=None,
+        help="explicit soil tensile strength [kPa]; omitted means no Rankine flow",
+    )
     args = parser.parse_args()
-    if any(h <= 0 for h in args.sizes):
+    if any(not np.isfinite(h) or h <= 0 for h in args.sizes):
         parser.error("sizes must be positive")
-    rows = compare(args.sizes, args.gauss_order)
+    if args.soil_tension is not None and (
+        not np.isfinite(args.soil_tension) or args.soil_tension < 0
+    ):
+        parser.error("--soil-tension must be finite and nonnegative")
+    rows = compare(args.sizes, args.gauss_order, args.soil_tension)
     if args.csv:
         with open(args.csv, "w", newline="", encoding="utf-8") as stream:
             writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
