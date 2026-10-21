@@ -3,7 +3,8 @@
 Faz 4 sonrasındaki ilk Faz 5 teslimidir. Native **PySide6 / Qt Widgets** uygulamasıdır;
 web sunucusu veya tarayıcı arayüzü kullanmaz. **Kapı 5 ve v1.0 tamamlanmış değildir.**
 
-Devam teslimi: [Faz 5.2 CAD, DXF ve çizimden ağ](phase5-cad.md).
+Devam teslimleri: [Faz 5.2 CAD, DXF ve çizimden ağ](phase5-cad.md),
+[Faz 5.3 malzeme/yapı/yük/su ve aşama kurucuları](phase5-model-editors.md).
 
 ## Kurulum ve çalıştırma
 
@@ -59,8 +60,9 @@ Ana dal ve PR #1 farklı HDF5/.ssproj şemaları geliştirmişti. İkisi de koru
 1. İlk QGraphicsView CAD/Domain/ağ bağlantısı tamamlandı: [sınırlar](phase5-cad.md).
    Kalanlar: DWG, yay/spline/blok DXF, katman sınırını kesen boşluklar, yeniden
    ağlama sırasında mevcut FE atamalarını koruma.
-2. Yeni malzeme/yapı oluşturma, yük/su/sınır koşulu düzenleyicileri; aşama ekleme/silme/
-   sıralama ve zaman çizelgesi.
+2. Malzeme/bölge, liner/bolt, başlangıç, yük/su ve aşama ekleme/kopyalama/silme/
+   sıralama tamamlandı: [Faz 5.3](phase5-model-editors.md). Kalanlar: ara yüz
+   oluşturma, mevcut ağın mekanik sınır/yer değiştirme düzenleyicisi, grafik zaman çizelgesi.
 3. Asal gerilme okları, tek tek plastik noktalar, sorgu çizgileri; işaret ve eksenleri
    açık liner N–V–M **grafikleri**. Mevcut CSV, grafik tamamlanmış sayılmaz.
 4. Özgün dört aşamalı tünelin (başlangıç → %40 gevşeme → shotcrete → bolt/tam kazı)

@@ -32,6 +32,7 @@ from .. import api
 from ..io.report import export_beam_csv, export_csv, export_html
 from .canvas import ConvergencePlot, MeshCanvas
 from .dialogs import MaterialDialog, NewModelDialog, StageDialog, sample_model
+from .structure_editor import StructureDialog
 from .worker import SolveWorker
 
 _STYLE = """
@@ -159,7 +160,8 @@ class MainWindow(QMainWindow):
             self.edit_actions.append(a)
         toolbar.addSeparator()
         for title, slot in [("Geometri / CAD", self.edit_geometry),
-                            ("Malzemeler", self.edit_materials), ("Aşamalar", self.edit_stages)]:
+                            ("Malzemeler", self.edit_materials), ("Yapılar", self.edit_structures),
+                            ("Aşamalar", self.edit_stages)]:
             a = action(title, slot)
             toolbar.addAction(a)
             self.edit_actions.append(a)
@@ -291,6 +293,8 @@ class MainWindow(QMainWindow):
                 self.show_error(str(exc))
 
     def edit_materials(self):
+        if self.busy:
+            return
         dialog = MaterialDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)
@@ -307,7 +311,16 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.show_error(str(exc))
 
+    def edit_structures(self):
+        if self.busy:
+            return
+        dialog = StructureDialog(self.model, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.set_model(dialog.updated, path=self.path, dirty=True)
+
     def edit_stages(self):
+        if self.busy:
+            return
         dialog = StageDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)

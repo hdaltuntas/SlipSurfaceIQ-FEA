@@ -101,3 +101,7 @@ Yeni malzeme/bölge atama, liner/bolt ve yük/su kurucuları; aşama ekle/sil/s�
 ve zaman çizelgesi. Ardından özgün dört aşamalı tüneli kodsuz kurma ve API
 karşılaştırması; sonuç grafiklerinin tamamlanması ve Windows portable paketi.
 S4 dış karşılaştırmasının ertelenmiş durumu ve eski P4 strict xfail sınırı değişmez.
+
+Devam teslimi: [Faz 5.3](phase5-model-editors.md) ile ağdan sonra yeni malzemeler,
+bölge atamaları, liner/bolt, yük/su ve aşamalar kurulabilir. Yeniden ağlama sırasında
+bu FE tanımlarının otomatik taşınması bu kapsamda değildir.

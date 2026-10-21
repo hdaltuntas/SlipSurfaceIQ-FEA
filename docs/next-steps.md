@@ -20,6 +20,10 @@ Bu depo Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** projesidir.
   geometri undo/redo, sınırlı ve kayıpsız DXF, kenar mesnet/basınç tablosu, iptal
   edilebilir T6 ağ işçisi, çizim/proje kaydı. [Kapsam ve testler](phase5-cad.md).
 
+- **Faz 5.3 teslimi:** altı bünye formu ve bölge atamaları, liner/bolt kurucuları,
+  başlangıç durumu, yük/su ve aşama malzemesi, aşama ekleme/kopyalama/silme/sıralama.
+  [Kullanım ve kabul kapsamı](phase5-model-editors.md).
+
 ## Korunan sınırlar
 
 - S4 iş kaydı kullanıcı kararıyla kapalıdır; **RS2/PLAXIS bağımsız karşılaştırması
@@ -32,9 +36,9 @@ Bu depo Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** projesidir.
 
 ## Sıradaki iş
 
-Faz 5 devamı: yeni malzeme/bölge atama, yapı/yük/su kurucuları ve aşama ekleme/silme/
-sıralama. Ardından özgün dört aşamalı tünelin kodsuz kurulması ve API
-karşılaştırması. Ayrıntılı sıra [Faz 5 kapsamı](phase5-desktop.md) içinde.
+Sırada özgün dört aşamalı tünelin kodsuz kurulması ve API karşılaştırması var.
+Ara yüz ile mevcut ağın mekanik sınır/yer değiştirme düzenleyicileri ve sonuç
+grafikleri de açık. Ayrıntılı sıra [Faz 5 kapsamı](phase5-desktop.md) içinde.
 
 Önceki Faz 3 ölçümleri `phase3-status.md`, `s4-comparison.md` ve `docs/data/s4/`
 altında tarihsel kanıt olarak korunur; yeni tümleşik dalın test sonucu inceleme

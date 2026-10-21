@@ -2,29 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QHeaderView,
     QLabel,
-    QLineEdit,
-    QMessageBox,
     QSpinBox,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
 )
 
 from .. import api
-from ..core.errors import SlipSurfaceError
 from ..mesh import rectangle
+from .material_editor import MaterialDialog as MaterialDialog
+from .stage_editor import StageDialog as StageDialog
 
 
 def sample_model(width=12.0, height=6.0, nx=12, ny=6, E=20000.0, nu=0.3, load=50.0):
@@ -88,131 +79,3 @@ class NewModelDialog(QDialog):
 
     def model(self):
         return sample_model(**{k: w.value() for k, w in self.fields.items()})
-
-
-class MaterialDialog(QDialog):
-    def __init__(self, model, parent=None):
-        super().__init__(parent)
-        self.model = model
-        self.updated = None
-        self.setWindowTitle("Malzeme özellikleri")
-        layout = QVBoxLayout(self)
-        self.choice = QComboBox()
-        self.choice.addItems(model.materials)
-        layout.addWidget(self.choice)
-        self.form = QFormLayout()
-        layout.addLayout(self.form)
-        self.fields = {}
-        self.choice.currentTextChanged.connect(self.populate)
-        self.populate(self.choice.currentText())
-        buttons(self, layout, self.apply)
-
-    def populate(self, name):
-        while self.form.rowCount():
-            self.form.removeRow(0)
-        self.fields.clear()
-        mat = self.model.materials[name]
-        self.form.addRow("Bünye modeli", QLabel(mat.model))
-        for key, value in mat.params.items():
-            widget = QCheckBox() if isinstance(value, bool) else QLineEdit(str(value))
-            if isinstance(widget, QCheckBox):
-                widget.setChecked(value)
-            self.fields[key] = widget
-            self.form.addRow(key, widget)
-        self.gamma = QLineEdit(str(mat.gamma_unsat))
-        self.gamma_sat = QLineEdit(str(mat.gamma_sat))
-        self.form.addRow("γ (kN/m³)", self.gamma)
-        self.form.addRow("γ doygun (kN/m³)", self.gamma_sat)
-        self.drainage = QComboBox()
-        for d in api.Drainage:
-            self.drainage.addItem(d.value, d)
-        self.drainage.setCurrentIndex(list(api.Drainage).index(mat.drainage))
-        self.form.addRow("Drenaj", self.drainage)
-
-    def apply(self):
-        try:
-            name = self.choice.currentText()
-            mat = self.model.materials[name]
-            params = {
-                k: w.isChecked() if isinstance(w, QCheckBox) else float(w.text())
-                for k, w in self.fields.items()
-            }
-            mat = replace(
-                mat,
-                params=params,
-                gamma_unsat=float(self.gamma.text()),
-                gamma_sat=float(self.gamma_sat.text()),
-                drainage=self.drainage.currentData(),
-            )
-            from ..fem.materials import build
-
-            build(mat)
-            self.updated = replace(self.model, materials={**self.model.materials, name: mat})
-            self.updated.validate()
-        except (ValueError, TypeError, KeyError, SlipSurfaceError) as exc:
-            QMessageBox.warning(self, "Geçersiz malzeme", str(exc))
-            return
-        self.accept()
-
-
-class StageDialog(QDialog):
-    def __init__(self, model, parent=None):
-        super().__init__(parent)
-        self.model, self.updated = model, None
-        self.setWindowTitle("Aşama yöneticisi")
-        self.resize(850, 360)
-        layout = QVBoxLayout(self)
-        layout.addWidget(
-            QLabel(
-                "Aktif bölgeler: boş = tümü; örnek 1,2. Yapılar: etiketler virgülle.\n"
-                "Yükler, su ve yer değiştirme sınırları korunur."
-            )
-        )
-        self.table = QTableWidget(len(model.stages), 5)
-        self.table.setHorizontalHeaderLabels(
-            ["Ad", "Serbest bırakma λ", "Drenajlı", "Aktif bölgeler", "Aktif yapılar"]
-        )
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        for i, stage in enumerate(model.stages):
-            vals = [
-                stage.name,
-                str(stage.load_split),
-                "",
-                ""
-                if stage.active_regions is None
-                else ",".join(map(str, sorted(stage.active_regions))),
-                ",".join(sorted(stage.active_structures)),
-            ]
-            for j, v in enumerate(vals):
-                self.table.setItem(i, j, QTableWidgetItem(v))
-            item = self.table.item(i, 2)
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if stage.drained else Qt.CheckState.Unchecked)
-        layout.addWidget(self.table)
-        buttons(self, layout, self.apply)
-
-    def apply(self):
-        try:
-            stages = []
-            for i, st in enumerate(self.model.stages):
-                text = [self.table.item(i, j).text().strip() for j in range(5)]
-                if not text[0]:
-                    raise ValueError("Aşama adı boş olamaz.")
-                regions = frozenset(int(x.strip()) for x in text[3].split(",")) if text[3] else None
-                structures = frozenset(x.strip() for x in text[4].split(",") if x.strip())
-                stages.append(
-                    replace(
-                        st,
-                        name=text[0],
-                        load_split=float(text[1]),
-                        drained=self.table.item(i, 2).checkState() == Qt.CheckState.Checked,
-                        active_regions=regions,
-                        active_structures=structures,
-                    )
-                )
-            self.updated = replace(self.model, stages=stages)
-            self.updated.validate()
-        except (ValueError, TypeError, KeyError, SlipSurfaceError) as exc:
-            QMessageBox.warning(self, "Geçersiz aşama", str(exc))
-            return
-        self.accept()
