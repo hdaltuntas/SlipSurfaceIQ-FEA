@@ -40,8 +40,9 @@ Bu depo Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** projesidir.
 Mekanik sınırlar, aşama yer değiştirmeleri, ara yüz kütüphanesi, zaman çizelgesi,
 plastik GP/asal oklar, sorgu çizgisi ve liner N–V–M eklendi. Boş GUI'den dört aşamalı
 tünel kabulü API ile birebir eşleşti. Windows portable ve temiz makine smoke CI'sı,
-wheel/sdist ve PyPI Trusted Publisher iş akışı hazır. Kesin test/yayın sonuçları
-[phase5-release.md](phase5-release.md) içinde güncellenecek.
+wheel/sdist ve PyPI Trusted Publisher iş akışı hazır. Linux/Windows CI 10/10 ve
+bağımsız Windows portable testi geçti. Test kanıtı, yayın durumu ve korunan
+istisnalar [phase5-release.md](phase5-release.md) içindedir.
 
 Önceki Faz 3 ölçümleri `phase3-status.md`, `s4-comparison.md` ve `docs/data/s4/`
 altında tarihsel kanıt olarak korunur; yeni tümleşik dalın test sonucu inceleme

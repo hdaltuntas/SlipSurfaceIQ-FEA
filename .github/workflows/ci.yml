@@ -22,11 +22,16 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: ruff check src tests
       - run: pytest -m "not benchmark" -rf --durations=10 --junitxml=test-results.xml
+      - name: Verification report
+        if: always()
+        run: python scripts/verification_report.py test-results.xml verification-report.md
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: tests-${{ matrix.os }}-${{ matrix.python }}
-          path: test-results.xml
+          path: |
+            test-results.xml
+            verification-report.md
       - name: Kapı 1 performance (informative on shared runners)
         run: pytest -m benchmark -s
         continue-on-error: true

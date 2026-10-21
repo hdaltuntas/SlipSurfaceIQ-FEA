@@ -57,3 +57,6 @@ packages = ["slipsurface.fe2d"]
 mypy_path = "src"
 namespace_packages = true
 explicit_package_bases = true
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src", "tests", "docs", "examples", "scripts", "packaging", ".github", "README.md", "LICENSE", "pyproject.toml"]

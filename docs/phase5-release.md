@@ -1,4 +1,4 @@
-# SlipSurfaceIQ-FEA 1.0.0 — Faz 5 sürüm adayı
+# SlipSurfaceIQ-FEA 1.0.0 — Faz 5
 
 Native PySide6 masaüstü: CAD/DXF → T6 ağ; malzeme/bölge, liner/bolt/ara yüz,
 mekanik sınır ve aşama su/yük/yer değiştirme düzenleyicileri; aşama zaman çizelgesi;
@@ -23,6 +23,9 @@ S1–S3 ve diğer mevcut analitik doğrulamalar ayrı CI testleridir.
 
 Yerel tam regresyon: **472 geçti, 1 strict xfail, 2 benchmark hariç** (108.27 s).
 Kaynak smoke kontrolü dört durum, kayıt, DXF, dışa aktarım ve Numba ile başarılı.
+[JUnit'ten üretilen doğrulama dökümü](phase5-verification.md) xfail'i başarı saymaz.
+Linux/Windows, Python 3.10–3.13 ve iki native GUI işi: **10/10 başarılı**
+([CI kanıtı](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/actions/runs/39674914899)).
 
 ## Sayısal ve kullanım sınırları
 
@@ -51,7 +54,16 @@ Python yollarını ortamdan kaldırıp ZIP içindeki EXE'yi test eder; dört dur
 çözüm, kayıt, DXF, grafikler ve plastik bünye derlemesini kontrol eder. CI kanıtı
 ayrı artifact olarak saklanır. Paket imzasızdır.
 
+İlk bağımsız Windows paket testi **başarılı**:
+[`39674915048`](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/actions/runs/39674915048),
+`5c4dcb8`; `frozen=true`, `numba_enabled=true`, 2141 düğüm, dört durum,
+maksimum yer değiştirme 0.02792259577890792 m. Paket içindeki NumPy kullanıldı.
+Yayın öncesi incelemede sdist'e derleme ortamının eklenmesi giderildi; kaynak paket
+beyaz listeyle sınırlandı. Her derleme dosya içeriğini ve 20 MB boyut sınırını denetler.
+
 PyPI iş akışı `publish.yml`, GitHub release yayımlandığında veya elle çalıştırıldığında
 OIDC Trusted Publishing kullanır. PyPI tarafında şu yayıncı tanımlanmış olmalıdır:
 `hdaltuntas / SlipSurfaceIQ-FEA / publish.yml / pypi`, proje `slipsurface-fe2d`.
-Gerçek yayın ve paket test sonuçları tamamlanınca bu kayıt kesinleştirilir.
+PyPI yayını, bu yayıncı tanımı ve yayın işinin başarısına bağlıdır; iş akışının
+hazır olması gerçek PyPI yayını anlamına gelmez. Nihai dağıtımlar ve yayın kanıtı
+[v1.0.0 sürüm sayfasında](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/releases/tag/v1.0.0) tutulur.

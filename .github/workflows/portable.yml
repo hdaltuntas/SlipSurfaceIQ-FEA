@@ -30,11 +30,14 @@ jobs:
         run: |
           & .\.portable-env\Scripts\python.exe -m build --outdir python-dist
           if ($LASTEXITCODE -ne 0) { throw 'Python package build failed' }
+          & .\.portable-env\Scripts\python.exe scripts/check_distributions.py python-dist
+          if ($LASTEXITCODE -ne 0) { throw 'Distribution content check failed' }
           & .\.portable-env\Scripts\python.exe -m PyInstaller --noconfirm packaging/SlipSurfaceIQ-FEA.spec
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
           & .\.portable-env\Scripts\python.exe scripts/third_party_licenses.py dist/SlipSurfaceIQ-FEA
           Copy-Item docs/PORTABLE-README.txt dist/SlipSurfaceIQ-FEA/README.txt
           Copy-Item docs/phase5-release.md dist/SlipSurfaceIQ-FEA/RELEASE-NOTES.md
+          Copy-Item docs/images dist/SlipSurfaceIQ-FEA/images -Recurse
           Compress-Archive -Path dist/SlipSurfaceIQ-FEA -DestinationPath SlipSurfaceIQ-FEA-Windows-x64.zip
           (Get-FileHash SlipSurfaceIQ-FEA-Windows-x64.zip -Algorithm SHA256).Hash.ToLower() + '  SlipSurfaceIQ-FEA-Windows-x64.zip' | Out-File SHA256SUMS.txt -Encoding ascii
       - uses: actions/upload-artifact@v4
