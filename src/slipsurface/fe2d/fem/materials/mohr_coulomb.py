@@ -35,6 +35,12 @@ from ...core.enums import PlasticFlag
 from .._jit import njit, prange
 from .elastic import LinearElastic
 
+APEX_TANGENT = 1e-3
+"""Tangent at corner returns (apex, tension corners) as a fraction of D. The consistent
+value is zero; a small positive floor keeps nodes that are held only by such points from
+making the Newton system singular (it only affects the convergence path, not the
+converged state)."""
+
 _EL, _SH, _TE, _AP = (
     int(PlasticFlag.ELASTIC),
     int(PlasticFlag.SHEAR),
@@ -296,7 +302,7 @@ def _return_principal(
         for c in range(3):
             s_out[c] = s[c]
             for j in range(3):
-                C_out[c, j] = 1e-8 * D[c, j]  # corner: (almost) zero stiffness
+                C_out[c, j] = APEX_TANGENT * D[c, j]  # corner: (almost) zero stiffness
         return flag
     # non-associated flow (psi < phi): the trial can lie beyond the apex in a direction no
     # combination of flow vectors reaches (e.g. psi = 0 is isochoric). As in Clausen's
@@ -346,7 +352,7 @@ def _return_principal(
         for c in range(3):
             s_out[c] = sb[c]
             for j in range(3):
-                C_out[c, j] = 1e-8 * D[c, j]
+                C_out[c, j] = APEX_TANGENT * D[c, j]
         return _AP if best == 0 else _TE
     for c in range(3):  # should not happen
         s_out[c] = s_tr[c]

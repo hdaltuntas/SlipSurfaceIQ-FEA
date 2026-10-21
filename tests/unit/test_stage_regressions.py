@@ -174,3 +174,41 @@ def test_srf_reduces_interface_strength(phi):
     res = strength_reduction(model, tol=0.005)
     fs = math.tan(math.radians(phi)) / math.tan(beta)
     assert abs(res.factor - fs) / fs < 0.02, (res.factor, fs)
+
+
+def test_tie_through_unused_wall_nodes():
+    """Wall with interfaces on both faces, nothing active on the wall line: the two soil
+    copies must be tied through the (unused) original nodes."""
+    d = Domain().add_polygon([(-6, -6), (6, -6), (6, 0), (-6, 0)],
+                             edge_names=["bottom", "right", "top", "left"])  # fmt: skip
+    d.add_line([(0, 0), (0, -6)], name="wall")
+    plain = unstructured_mesh(d, h=0.6)
+    mesh = insert_interface(plain, "wall", "L", side="left")
+    mesh = insert_interface(mesh, "wall", "R", side="right")
+    fix = (
+        api.Fixity("bottom", True, True),
+        api.Fixity("left", True, False),
+        api.Fixity("right", True, False),
+    )
+
+    def run(m, ifs):
+        return api.run(
+            api.Model(
+                analysis=api.Analysis.PLANE_STRAIN,
+                mesh=m,
+                materials={"s": SOIL},
+                region_material={1: "s"},
+                fixities=fix,
+                initial=api.InitialStress("gravity", active_structures=frozenset()),
+                stages=[api.Stage("q", loads=(api.EdgeLoad("top", qn=40.0, qt=10.0),))],
+                interfaces=ifs,
+            )
+        )
+
+    spec = api.InterfaceSpec("x", kn=1e5, ks=1e4)
+    r0 = run(plain, {})
+    r1 = run(mesh, {"L": spec, "R": spec})
+    u0 = r0.last.u
+    u1 = r1.last.u[: plain.nn]
+    used = ~np.isnan(u1[:, 0])
+    assert np.abs(u0[used] - u1[used]).max() < 1e-9 * np.abs(u0).max()

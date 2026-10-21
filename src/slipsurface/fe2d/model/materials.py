@@ -153,13 +153,24 @@ class InterfaceSpec:
 
     @classmethod
     def from_soil(
-        cls, name: str, soil: MaterialSpec, R: float = 0.67, t_v: float = 0.1
+        cls,
+        name: str,
+        soil: MaterialSpec,
+        R: float = 0.67,
+        t_v: float = 0.1,
+        R_stiffness: float | None = None,
     ) -> InterfaceSpec:
+        """Strength from ``R`` (``c_i = R c``, ``tan phi_i = R tan phi``); stiffness from
+        ``E_i = R_s^2 E`` with ``R_s = R_stiffness`` (default ``R``, as in PLAXIS). Use
+        ``R_stiffness=1`` for a smooth wall (``R`` -> 0) that must stay normally stiff."""
         import math
 
         p = soil.params
         E, nu = p["E"], p["nu"]
-        Ei = R * R * E
+        Rs = R if R_stiffness is None else R_stiffness
+        if not (0.0 < R <= 1.0 and 0.0 < Rs <= 1.0):
+            raise ModelError(f"interface '{name}': R and R_stiffness must be in (0, 1]")
+        Ei = Rs * Rs * E
         G = Ei / (2 * (1 + nu))
         Eoed = Ei * (1 - nu) / ((1 + nu) * (1 - 2 * nu))
         phi = math.degrees(math.atan(R * math.tan(math.radians(p.get("phi", 0.0)))))

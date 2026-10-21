@@ -48,7 +48,7 @@ def test_unstructured_50k_node_t6():
     )
     d.add_polygon(ring, 2, name="tunnel")
     t0 = time.perf_counter()
-    mesh = unstructured_mesh(d, h=DistanceSize(0.115, 2.4, 1.1, lines=[ring], closed=[True]))
+    mesh = unstructured_mesh(d, h=DistanceSize(0.12, 2.6, 1.1, lines=[ring], closed=[True]))
     t_mesh = time.perf_counter() - t0
     assert mesh.nn >= 50_000
     model = api.Model(

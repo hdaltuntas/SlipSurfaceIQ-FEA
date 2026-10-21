@@ -23,8 +23,12 @@ Tangent options (``SolverSettings.method``):
 * ``"hybrid"``  mNR, switching to NR inside a step when ``||R_i|| / ||R_i-1|| > ratio``
 * ``"initial"`` elastic stiffness, factorised once per stage
 
-A step is abandoned early when the residual stagnates (no 20 % reduction over four
-iterations) or diverges. Convergence needs both ``||R|| / f_ref < tol_force`` and
+An iterate that increases the residual more than 1000-fold is halved back towards the
+previous one (up to four times, then the load step is cut; after two halvings the step
+continues with the committed tangent). A step is abandoned early when the residual
+stagnates (no 20 % reduction over four iterations) or diverges.
+
+Convergence needs both ``||R|| / f_ref < tol_force`` and
 ``|du_i . R_i| / |du_0 . R_0| < tol_energy``; ``f_ref`` is the norm of the stage's change
 of external force on the free DOFs, of the reaction change, or (displacement-driven
 stages) of the total reaction at the driven DOFs, whichever is largest.
@@ -53,6 +57,7 @@ class StepRecord:
     iterations: int
     residuals: list[float]  # relative force residual per iteration
     converged: bool
+    worst_dofs: NDArray[np.int64] | None = None  # failed step: free DOFs with largest |R|
 
 
 @dataclass
@@ -127,6 +132,8 @@ def solve_stage(
         ddu = np.zeros(free.size)
         trial: object | None = None
         prev_rel = np.inf
+        n_back = 0  # consecutive backtracks
+        Rf: Arr | None = None
         it = 0
         try:
             for it in range(s.max_iter + 1):
@@ -155,6 +162,24 @@ def solve_stage(
                     if linear and rel < 1e-8:
                         converged = True
                         break
+                # residual backtracking: an iterate that blows the residual up by more than
+                # 1e3 (a nearly singular tangent at an apex / fully slipping joint) is
+                # pulled back towards the previous one; after two halvings the step
+                # continues with the tangent of the last converged state. Moderate
+                # temporary increases are normal for piecewise-linear plasticity and are
+                # left to Newton. The residual before the predictor of a
+                # displacement-driven step carries no information: skip that comparison.
+                first_driven = it == 1 and dpres.size > 0 and bool(np.any(dpres != 0.0))
+                if it > 0 and not first_driven and (not np.isfinite(rel) or rel > 1e3 * prev_rel):
+                    if n_back >= 4:
+                        break  # still diverging with a 1/16 step: cut the load step
+                    ddu *= 0.5
+                    du[free] -= ddu
+                    n_back += 1
+                    if n_back >= 2 and s.method != "initial":
+                        use_nr, fact = False, prob.factor("committed", None)
+                    continue
+                n_back = 0
                 if it == s.max_iter or not np.isfinite(rel) or rel > 1e8:
                     break
                 # stagnation / divergence: give up early and cut the step
@@ -167,7 +192,7 @@ def solve_stage(
                     if initial_fact is None:
                         initial_fact = prob.factor("elastic", None)
                     fact = initial_fact
-                elif it == 0 or (fact is None and not use_nr):
+                elif it == 0 or (not use_nr and fact is None):
                     # predictor (and mNR): tangent of the last converged state
                     fact = prob.factor("committed", None)
                 elif use_nr:
@@ -191,7 +216,10 @@ def solve_stage(
             if linear:
                 raise
             converged = False
-        hist.steps.append(StepRecord(lam_t, it, res_hist, converged))
+        worst = None
+        if not converged and Rf is not None:
+            worst = free[np.argsort(-np.abs(Rf))[:8]]
+        hist.steps.append(StepRecord(lam_t, it, res_hist, converged, worst))
         if not converged:
             if linear:
                 raise NonConvergence(lam, f"linear stage did not converge (rel={res_hist[-1]:.2e})")
@@ -204,7 +232,7 @@ def solve_stage(
                 dlam,
             )
             if dlam < s.dlam_min:
-                raise NonConvergence(lam)
+                raise NonConvergence(lam, history=hist)
             continue
         du_total = du
         last_trial = trial

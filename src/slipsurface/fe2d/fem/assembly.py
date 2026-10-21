@@ -52,23 +52,31 @@ class DofMap:
             has_rot[beam_nodes] = True
             has_rot &= used
 
-        # ---- node tying (union-find on used pairs)
+        # ---- node tying: union-find over all pairs (a tie may pass through a node that is
+        # itself unused, e.g. the wall nodes between two interfaces before the wall is
+        # installed); the used nodes of each group then share the DOFs of the smallest one
         rep = np.arange(nn)
         if ties is not None and len(ties):
             t = np.asarray(ties, dtype=np.int64).reshape(-1, 2)
-            t = t[used[t[:, 0]] & used[t[:, 1]] & (t[:, 0] != t[:, 1])]
+            t = t[t[:, 0] != t[:, 1]]
+            root = np.arange(nn)
 
             def find(i: int) -> int:
-                while rep[i] != i:
-                    rep[i] = rep[rep[i]]
-                    i = int(rep[i])
+                while root[i] != i:
+                    root[i] = root[root[i]]
+                    i = int(root[i])
                 return i
 
             for a, b in t.tolist():
                 ra, rb = find(a), find(b)
                 if ra != rb:
-                    rep[max(ra, rb)] = min(ra, rb)
-            rep = np.array([find(i) for i in range(nn)])
+                    root[max(ra, rb)] = min(ra, rb)
+            grp = np.array([find(i) for i in range(nn)])
+            # owner of a group = its smallest used node
+            first_used = np.full(nn, nn, dtype=np.int64)
+            idx = np.flatnonzero(used)
+            np.minimum.at(first_used, grp[idx], idx)
+            rep = np.where(used, first_used[grp], np.arange(nn))
             has_rot_rep = np.zeros(nn, dtype=bool)
             has_rot_rep[rep[has_rot]] = True
             has_rot = has_rot_rep & used

@@ -26,6 +26,7 @@ class SingularSystemError(SolverError):
 class NonConvergence(SolverError):
     """Nonlinear iteration did not converge; ``lam`` is the last converged load factor."""
 
-    def __init__(self, lam: float, message: str | None = None) -> None:
+    def __init__(self, lam: float, message: str | None = None, history: object = None) -> None:
         self.lam = lam
+        self.history = history  # StageHistory of the failed stage (step records)
         super().__init__(message or f"no convergence; last converged load factor = {lam:.4f}")
