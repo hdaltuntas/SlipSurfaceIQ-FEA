@@ -50,6 +50,7 @@ def test_mohr_coulomb_return_and_tangent(c, phi, psi, st, rng):
         assert np.abs(Dfd - D[i]).max() < 1e-5 * np.abs(mc._D).max()
     if psi == phi:  # associated: closest point in the energy norm
         Dinv = np.linalg.inv(mc._D)
+        checked = 0
         for i in np.flatnonzero(fl > 0)[:10]:
             tr = sig_n[i] + mc._D @ deps[i]
 
@@ -57,9 +58,19 @@ def test_mohr_coulomb_return_and_tangent(c, phi, psi, st, rng):
                 return (tr - x) @ Dinv @ (tr - x)
 
             cons = {"type": "ineq", "fun": lambda x: -mc.yield_function(x[None])[0]}
-            r = minimize(obj, sig[i] * 0.9, constraints=[cons], method="SLSQP",
-                         options={"ftol": 1e-14, "maxiter": 500})  # fmt: skip
-            assert obj(sig[i]) <= r.fun * (1 + 1e-4) + 1e-12
+            # reference: best *feasible* SLSQP optimum from several starts (an SLSQP run
+            # that hits its iteration limit may return a point slightly outside the
+            # surface, whose objective is then below the true constrained minimum)
+            best = np.inf
+            for x0 in (sig[i], 0.5 * (sig[i] + tr)):
+                r = minimize(obj, x0, constraints=[cons], method="SLSQP",
+                             options={"ftol": 1e-12, "maxiter": 300})  # fmt: skip
+                if r.success and mc.yield_function(r.x[None])[0] <= 1e-8 * 100:
+                    best = min(best, float(r.fun))
+            if np.isfinite(best):
+                checked += 1
+                assert obj(sig[i]) <= best * (1 + 1e-6) + 1e-10
+        assert checked >= 5
 
 
 @pytest.mark.parametrize(
