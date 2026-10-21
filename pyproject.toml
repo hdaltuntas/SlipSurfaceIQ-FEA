@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slipsurface-fe2d"
+version = "0.1.0.dev0"
+description = "SlipSurface 2D — plane strain / axisymmetric geotechnical finite element core"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Hasan Deniz Altuntaş" }]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+fast = ["pypardiso>=0.4; platform_machine == 'x86_64' or platform_machine == 'AMD64'"]
+dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
+
+[project.urls]
+Homepage = "https://slipsurface.dev"
+Repository = "https://github.com/hdaltuntas/SlipSurfaceIQ-FEA"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slipsurface"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["benchmark: performance acceptance tests (Kapı 1)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+ignore = ["B905", "E741"]  # zip strict noise; I/J/I_ are standard FE names
+
+[tool.mypy]
+python_version = "3.10"
+packages = ["slipsurface.fe2d"]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
