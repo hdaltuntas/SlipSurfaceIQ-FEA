@@ -46,6 +46,11 @@ Bu kapsam, zeminli nonlinear palplanşın doğrulandığı anlamına gelmez.
 
 ## Aynı palplanş modeliyle karşılaştırma
 
+Bu belgedeki palplanş sayısal kayıtları, iki taraflı ara yüzün gömülü uç
+bağlantısı düzeltilmeden önce alındı. Eski model ikinci eklenen tarafta ucu
+ayırıyordu; güncel kod iki tarafta da ucu ortak tutar. Eski değerler tanı
+geçmişidir; güncel model ve tekrarlar [S4 protokolündedir](s4-comparison.md).
+
 ```bash
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/compare_sheet_pile_meshes.py --sizes 0.5 0.25 --gauss-order default --csv /tmp/pile-default.csv
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/compare_sheet_pile_meshes.py --sizes 0.5 0.25 --gauss-order high --csv /tmp/pile-high.csv

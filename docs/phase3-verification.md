@@ -48,6 +48,8 @@ Tanjant aynı aktif kümenin türevinden hesaplanır. Ek testler:
 - Dilatanslı kaymanın çekmedeki bir trial'ı basınçtaki kayma yüzeyine döndürebilmesi.
 - İlişkili akışta bağımsız kısıtlı optimizasyonla en yakın nokta karşılaştırması.
 - Dört malzeme durumunda 1000'er rastgele trial'ın kabul edilebilirliği.
+- İki taraflı ara yüzün sol/sağ eklenme sırasından bağımsız iç uç bağlantısı;
+  T3/T6/Q4/Q8'de tek/çift gömülü uç ve asimetrik elastik zeminde duvar cevabı.
 - ks=0, φ=0, c=0, doğal apeks, çekme sınırının kapatılması ve açılma sonrası kapanma.
 
 Önceki çekme-öncelikli kırpma, dilatanslı kayma dönüşünü yanlış seçebiliyordu.
@@ -56,7 +58,7 @@ teğet yapay rijitlikle değiştirilmez; gerçekten desteksiz yapı fiziksel ola
 olabilir. Ayrıntılı kırılma enerjisi, kalıcı açıklık ve çevrimsel hasar bu elastik–
 mükemmel plastik Goodman modelinin kapsamına eklenmedi.
 
-## S4 — ön doğrulama, tam kapı henüz açık
+## S4 — iş kaydı kapalı, dış karşılaştırma ertelendi
 
 `test_s4_sheet_pile.py` iki ayrı **yapısal** referans kullanır. Sabitlenmiş, yüksüz
 küçük sürekli ortam bloğu, mevcut karma eleman sürücüsünün sürekli ortam bloğu şartını
@@ -99,7 +101,8 @@ kontrol edilir. Bu diyagram Winkler sonucuna uydurulmaz; iki ayrı sınır-değe
 **Tam S4 henüz geçmedi:** bu kontroller, aşamalı kazı + sürekli ortam zemini + iki taraflı
 ara yüz + palplanş modelini kullanıcının bağımsız palplanş aracıyla karşılaştırmaz.
 Kalan %10 maksimum moment ölçütü bu eşdeğer senaryo üzerinde doğrulanmalıdır.
-Bu nedenle Kapı 3 kapatılmadı, Faz 4'e geçilmedi.
+21 Ekim 2026 kullanıcı kararıyla S4 iş kaydı kapatıldı ve bu dış karşılaştırma
+ertelendi. Kapı 3 doğrulama ölçütü geçilmiş sayılmıyor; Faz 4 başlatılmadı.
 
 ## Python 3.10 CI referans testi
 

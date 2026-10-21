@@ -19,10 +19,18 @@ EXCAVATION_POINTS = [(0, -5), (20, -5), (20, 0), (0, 0)]
 WALL_POINTS = [(0, -10.5), (0, 0)]
 
 
-def model(h=0.5, *, mixed=False, gauss_order=None, soil_tension=None, rankine_at_apex=False):
-    domain = Domain().add_polygon(
-        DOMAIN_POINTS, 1, edge_names=["bottom", "right", "top", "left"]
-    )
+def model(
+    h=0.5,
+    *,
+    mixed=False,
+    gauss_order=None,
+    soil_tension=None,
+    rankine_at_apex=False,
+    interface_order=("left", "right"),
+):
+    if tuple(interface_order) not in (("left", "right"), ("right", "left")):
+        raise ValueError("interface_order must contain left and right exactly once")
+    domain = Domain().add_polygon(DOMAIN_POINTS, 1, edge_names=["bottom", "right", "top", "left"])
     domain.add_polygon(EXCAVATION_POINTS, 2)
     line = np.asarray(WALL_POINTS, dtype=float)
     domain.add_line(line, name="wall")
@@ -30,8 +38,8 @@ def model(h=0.5, *, mixed=False, gauss_order=None, soil_tension=None, rankine_at
     if mixed:
         mesh = recombine_mesh(mesh, where=lambda x: np.abs(x[:, 0]) < 4)
     mesh = add_beams(mesh, "wall", "pile")
-    mesh = insert_interface(mesh, "wall", "pile_left", "left")
-    mesh = insert_interface(mesh, "wall", "pile_right", "right")
+    for side in interface_order:
+        mesh = insert_interface(mesh, "wall", f"pile_{side}", side)
     soil = api.MaterialSpec.mohr_coulomb(
         "sand",
         3e4,

@@ -69,7 +69,12 @@
         -10.5
       ]
     ],
-    "pile_right": []
+    "pile_right": [
+      [
+        0.0,
+        -10.5
+      ]
+    ]
   },
   "analysis": "plane_strain",
   "materials": {

@@ -5,17 +5,22 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Status: Faz 3 devam ediyor — P4/Kapı 2 doğrulaması yeniden açıldı; Kapı 3 açık.**
+**Durum (21 Ekim 2026): Faz 3 sonuçları kaydedildi; Faz 4 başlatılmadı.**
+
+S4 iş kaydı kullanıcı kararıyla kapatıldı; bağımsız RS2/PLAXIS karşılaştırması
+sonraya ertelendi. Bu karar, dış doğrulamanın geçtiği anlamına gelmez.
+[Son durum](docs/phase3-status.md) · [İleride yapılacaklar](docs/next-steps.md).
 
 Mohr–Coulomb yerel dönüş hatasının elastik deneme gerilmesiyle gizlenmesi düzeltildi.
-P4'te bu hata SRF göçme sınırı olarak kullanılamıyor; önceki P4 geçişi geri çekildi.
+P4'te bu hata SRF göçme sınırı olarak kullanılamıyor. Açık Rankine-apex modeli
+Bishop karşılaştırmasını geçti; eski kesmesiz model ayrı strict xfail olarak korunuyor.
 [Bulgular, düzeltme ve tanı komutları](docs/nonlinear-diagnostics.md).
 [Açık sıfır çekme kesmesi ve apex kontrolleri](docs/coincident-tension-cutoff.md).
 [Geometri, matris koşullanması ve Newton yöntemleri tanısı](docs/convergence-audit.md).
 
 Aktif küme/kazı, yapısal elemanlar ve aşama bazlı su uygulaması mevcut. HDF5 sonuç
 kaydı, aşama bazlı okuma ve `.ssproj` konteyneri eklendi. S1 (no-slip) ve ara yüz
-doğrulamaları tamamlandı; S4 yapısal ön kontrolleri geçti, tam zeminli S4 karşılaştırması açık.
+doğrulamaları tamamlandı; S4 yapısal ön kontrolleri geçti, tam zeminli S4 dış karşılaştırması ertelendi.
 [Durum ve kalan kapı testleri](docs/phase3-status.md) ·
 [Proje/sonuç dosyası API](docs/project-files.md).
 
@@ -61,7 +66,7 @@ d = Domain().add_polygon([(0, 0), (40, 0), (40, 10), (20, 10)],
                          edge_names=["base", "right", "crest", "face"])
 mesh = unstructured_mesh(d, h=1.0)
 soil = api.MaterialSpec.mohr_coulomb("soil", E=1e5, nu=0.3, c=10.0, phi=20.0, psi=0.0,
-                                     sig_t=None, gamma=20.0)
+                                     gamma=20.0, rankine_at_apex=True)
 model = api.Model(
     analysis=api.Analysis.PLANE_STRAIN, mesh=mesh,
     materials={"soil": soil}, region_material={1: "soil"},
@@ -70,7 +75,7 @@ model = api.Model(
     settings=api.SolverSettings(method="NR"),      # "NR" | "mNR" | "hybrid" | "initial"
 )
 fs = api.strength_reduction(model)                 # SRF by bisection
-print(fs.factor)                                   # ≈ 1.38 (Bishop: 1.378)
+print(fs.factor)                                   # this model's accepted SRF factor
 ```
 
 Materials: `elastic`, `mohr_coulomb` (+ tension cut-off, non-associated flow; implicit

@@ -1,7 +1,9 @@
 # S4 — sürekli ortam palplanş karşılaştırması
 
 Bu protokol açık `rankine_at_apex=True` modeli için aynı girdilerle bağımsız çözüm
-alınmasını sağlar. **Bağımsız referans sonucu henüz yok; S4 ve Kapı 3 açık.**
+alınmasını sağlar. **21 Ekim 2026: S4 iş kaydı kullanıcı kararıyla kapatıldı;
+bağımsız dış karşılaştırma sonraya ertelendi.** S4/Kapı 3 dış doğrulama ölçütü
+henüz geçmedi. Faz 4 başlatılmadı.
 Paket içindeki SlipSurfaceIQ-FEA koşuları dış referans olarak kullanılamaz.
 
 ## Sabit fiziksel problem
@@ -28,10 +30,23 @@ Bu model Timoshenko kiriş–Winkler ve ideal Rankine basınç testlerinden fark
 
 Mevcut ağdaki uç davranışı ayrıca eşleştirilmelidir: (0, −10.5) m'de duvar ile
 zemin aynı öteleme düğümünü kullanır; `pile_left` ara yüzünün iki yüzü o noktada
-birleşir. İkinci eklenen `pile_right` yüzünde uç düğümü ayrıdır. Bu, zemine bağlanan
+birleşir. `pile_right` ara yüzü de aynı uç düğümünde kapanır. Bu, zemine bağlanan
 uç ötelemesi demektir; ankastre veya bütünüyle bağımsız serbest uç değildir.
 `case.json` ortak noktaları ve kapanan ara yüz uçlarını gerçek bağlantı dizilerinden
 çıkarır. Dış programda başka uç idealizasyonu seçilirse aynı problem çözülmüş olmaz.
+
+Önceki kod ilk ara yüz kesitini dış sınır gibi sayıyor, ikinci eklemede iç ucu
+ayırıyordu. `boundary_nodes(..., join_interfaces=True)` artık yalnız mevcut ara yüz
+elemanlarında açıkça eşleştirilmiş düğümleri sınır sorgusu için özdeş kabul eder.
+Hesap düğümleri birleştirilmez; yalnız dış sınır/iç uç sınıflaması düzeltilir.
+Gerilme toparlama için kullanılan varsayılan sınır sorgusu ara yüz yüzlerini ayrı
+tutmaya devam eder. Sol→sağ ve sağ→sol ekleme aynı iç uç bağlantısını üretir.
+
+Bu hatayı gösteren 10 yeni test önceki kodda başarısızdı; düzeltmeyle geçer.
+Sekiz test T3/T6/Q4/Q8 ve tek/çift iç ucu, iki test farklı rijitlikli iki zemin
+yanında deplasman, duvar kesit kuvvetleri ve reaksiyon dengesini kontrol eder.
+Önceki asimetrik uçlu sayısal kayıtlar [5f0c4eb](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/tree/5f0c4eba64b1ad72ad01f9d8db52eace9f31446f/docs/data/s4)
+commit'inde korunur; aşağıdaki güncel değerlerle aynı uç bağlantısına sahip değildir.
 
 ## Tekrar ve aktarım
 
@@ -39,6 +54,7 @@ uç ötelemesi demektir; ankastre veya bütünüyle bağımsız serbest uç değ
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/verify_sheet_pile.py --mixed --study --output /tmp/s4-study
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/verify_sheet_pile.py --mixed --size 0.25 --output /tmp/s4-h025
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/verify_sheet_pile.py --mixed --size 0.125 --output /tmp/s4-h0125
+PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/verify_sheet_pile.py --mixed --reverse-interface-order --output /tmp/s4-right-first
 ```
 
 Araç her koşu için yeni bir dizin ister; başarısız tekrar eski başarılı dosyaları
@@ -78,12 +94,12 @@ girdiler [data/s4/case.json](data/s4/case.json) içinde; bu kayıtlar bağımsı
 
 | Yerel h (m), T6+Q8 | Düğüm | Maks. \|M\| (kN·m/m) | Moment derinliği (m) | Duvar üstü ux (mm) | Tüm ağ maks. \|u\| (mm) |
 |---|---:|---:|---:|---:|---:|
-| 0.50 | 3658 | 163.801169 | 6.437500 | 31.544781 | 39.653270 |
-| 0.25 | 4917 | 167.943773 | 6.546875 | 32.756506 | 41.995565 |
-| 0.125 | 7404 | 169.190435 | 6.546875 | 33.414091 | 43.272016 |
+| 0.50 | 3657 | 163.729759 | 6.437500 | 31.624986 | 39.747635 |
+| 0.25 | 4916 | 168.058175 | 6.546875 | 32.793317 | 42.044490 |
+| 0.125 | 7403 | 168.911600 | 6.546875 | 33.391392 | 43.230226 |
 
-Ardışık tepe moment değişimleri %2.529 → %0.742; duvar ux maksimumunun değişimi
-%3.8413 → %2.0075. Bu yerel inceltme dizisinde uzak alan boyutu 1.5 m'de sabittir;
+Ardışık tepe moment değişimleri %2.644 → %0.508; duvar ux maksimumunun değişimi
+%3.6943 → %1.8238. Bu yerel inceltme dizisinde uzak alan boyutu 1.5 m'de sabittir;
 alan sınırı duyarlılığı veya genel ağ bağımsızlığı sonucu çıkarılmaz.
 
 ![Üç yerel ağda imzalı moment ve duvar yatay deplasmanı](data/s4/wall-profiles.svg)
@@ -94,13 +110,19 @@ Yüzde farkların paydası başlangıç koşusunun ilgili maksimum mutlak değer
 
 | Koşu | Maks. \|M\| (kN·m/m) | Tepe moment farkı | İmzalı M alanı farkı | Duvar ux alanı farkı |
 |---|---:|---:|---:|---:|
-| Standart adımlar | 163.801169 | — | — | — |
-| Yarı adımlar | 163.930753 | %0.0791 | %0.0924 | %0.1006 |
-| %50 + kalan serbest bırakma | 163.741799 | %0.0362 | %0.1596 | %0.2664 |
+| Standart adımlar | 163.729759 | — | — | — |
+| Yarı adımlar | 163.785192 | %0.0339 | %0.0564 | %0.0783 |
+| %50 + kalan serbest bırakma | 164.076680 | %0.2119 | %0.2735 | %0.3803 |
 
 Bu duyarlılık koşularında tolerans gevşetilmedi veya duvar/zemin rijitliği ayarlanmadı.
 S3'teki elastik kesin bölme değişmezliği testi ayrıca geçer; plastik sonuçlar yukarıdaki
 sonlu farklarla raporlanır.
+
+Ters ara yüz ekleme sırası (`h050-right-first`) aynı fiziksel girdi özetini,
+aynı 3657 düğümü ve 59 iterasyonda λ=1 sonucunu üretir. Bağıl farklar tepe
+momentinde 6.237e-13, imzalı moment alanında
+9.825e-13, duvar ux alanında
+8.002e-13; farklar yuvarlama düzeyindedir.
 
 ## Doğrulama ölçütü ve dış referans
 

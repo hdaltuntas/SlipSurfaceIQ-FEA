@@ -238,6 +238,11 @@ def main():
     parser.add_argument("--size", type=float, default=0.5)
     parser.add_argument("--mixed", action="store_true")
     parser.add_argument(
+        "--reverse-interface-order",
+        action="store_true",
+        help="check right-then-left interface construction of the same physical model",
+    )
+    parser.add_argument(
         "--study", action="store_true", help="also halve step sizes and split release"
     )
     parser.add_argument("--output", type=Path, required=True, help="new output directory")
@@ -247,7 +252,13 @@ def main():
         parser.error("size must be finite and in (0, 1.5] m")
     if args.output.exists():
         parser.error("output directory already exists; choose a new path")
-    m = model(args.size, mixed=args.mixed, gauss_order="high", rankine_at_apex=True)
+    m = model(
+        args.size,
+        mixed=args.mixed,
+        gauss_order="high",
+        rankine_at_apex=True,
+        interface_order=("right", "left") if args.reverse_interface_order else ("left", "right"),
+    )
     reference = export_run(m, args.output / "baseline", save_project=args.save_project)
     if args.study:
         variants = {

@@ -12,6 +12,11 @@ Bu sonuç, bütün ağ/eleman kararlılığının kanıtı veya küresel dengeni
 
 ## Mevcut model ve yöntemler
 
+Bu belgedeki palplanş sayısal kayıtları, iki taraflı ara yüzün gömülü uç
+bağlantısı düzeltilmeden önce alındı. Eski model ikinci eklenen tarafta ucu
+ayırıyordu; güncel kod iki tarafta da ucu ortak tutar. Eski değerler tanı
+geçmişidir; güncel model ve tekrarlar [S4 protokolündedir](s4-comparison.md).
+
 - Zemin ν=0.30, c=0, φ=30°, ψ=0; ideal elastoplastik MC. İç değişkene bağlı
   dayanım düşüşü yok. Noktasal dış yük yok; mesnetler alt ve yan kenar kümelerinde.
 - Kazı köşesi (0, −5), palplanş ucu (0, −10.5) ve duvar üstü (0, 0) tanı noktalarıdır.

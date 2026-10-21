@@ -116,6 +116,11 @@ gizlenmez. Newton tahmini için geri dönüş kapsamı ayrı birim testleriyle s
 
 ## Palplanşta açık malzeme seçimi
 
+Bu belgedeki palplanş sayısal kayıtları, iki taraflı ara yüzün gömülü uç
+bağlantısı düzeltilmeden önce alındı. Eski model ikinci eklenen tarafta ucu
+ayırıyordu; güncel kod iki tarafta da ucu ortak tutar. Eski değerler tanı
+geçmişidir; güncel model ve tekrarlar [S4 protokolündedir](s4-comparison.md).
+
 ```bash
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/compare_sheet_pile_meshes.py --sizes 0.5 0.25 --gauss-order high --soil-tension 0 --csv /tmp/pile-cutoff-high.csv
 ```
@@ -126,7 +131,7 @@ kaydeder. Zemin E, ν, c, φ, ψ ve γ değerleri, ara yüz, sınırlar ve toler
 değişmez. Buna rağmen çekme akışı farklı bir malzeme tanımıdır; önceki kesmesiz
 modelin doğrulanmış çözümü olarak sunulamaz.
 
-Son kodla high integrasyonda dört koşu da kazıyı λ=1'e kadar tamamladı:
+Uç düzeltmesi öncesinde high integrasyonda dört koşu da kazıyı λ=1'e kadar tamamladı:
 
 | h (m) | Ağ | Maksimum \|M\| (kNm/m) | Maksimum düğüm \|u\| (m) |
 |---|---|---:|---:|

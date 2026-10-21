@@ -74,7 +74,7 @@ def test_case_identity_tracks_physics_but_not_mesh_steps_or_split_release(export
     assert exporter.physical_case(m)["wall_soil_shared_points_m"] == [[0.0, -10.5]]
     assert exporter.physical_case(m)["closed_interface_points_m"] == {
         "pile_left": [[0.0, -10.5]],
-        "pile_right": [],
+        "pile_right": [[0.0, -10.5]],
     }
     restored = model_from_dict(model_to_dict(m))
     assert exporter.case_hash(exporter.physical_case(restored)) == identity

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from slipsurface.fe2d import api
 from slipsurface.fe2d.fem.structural import InterfaceGroup, interface_return
 from slipsurface.fe2d.mesh import rectangle
 from slipsurface.fe2d.mesh.structures import add_beams, insert_interface
+from slipsurface.fe2d.mesh.topology import boundary_nodes
 
 
 @pytest.mark.parametrize("trial", [[1, -2], [8, -4], [-8, -4], [0.1, 2], [10, 2], [10, 8]])
@@ -163,6 +165,98 @@ def test_open_interior_tips_remain_shared():
     assert face1[0, 0] == face2[0, 0]
     assert face1[-1, 1] == face2[-1, 1]
     assert np.all(face1[:, 2] != face2[:, 2])
+
+
+def _embedded_wall(etype, both_internal=False):
+    mesh = rectangle(4, 4, 4, 4, etype=etype)
+    ids = np.flatnonzero(
+        np.isclose(mesh.coords[:, 0], 2)
+        & (mesh.coords[:, 1] >= 1)
+        & (mesh.coords[:, 1] <= (3 if both_internal else 4))
+    )
+    ids = ids[np.argsort(mesh.coords[ids, 1])]
+    quadratic = etype in (api.ElemType.T6, api.ElemType.Q8)
+    edges = (
+        np.column_stack([ids[:-2:2], ids[2::2], ids[1::2]])
+        if quadratic
+        else np.column_stack([ids[:-1], ids[1:]])
+    )
+    mesh.edge_sets["wall"] = edges
+    return add_beams(mesh, "wall", "beam"), ids
+
+
+@pytest.mark.parametrize(
+    "etype", [api.ElemType.T3, api.ElemType.T6, api.ElemType.Q4, api.ElemType.Q8]
+)
+@pytest.mark.parametrize("both_internal", [False, True])
+def test_two_sided_internal_tips_do_not_depend_on_insertion_order(etype, both_internal):
+    source, nodes = _embedded_wall(etype, both_internal)
+    tips = nodes[[0, -1]] if both_internal else nodes[:1]
+    for order in (("left", "right"), ("right", "left")):
+        mesh = source
+        for side in order:
+            mesh = insert_interface(mesh, "wall", side, side)
+        for side in order:
+            first, second = mesh.edges(f"{side}:face1"), mesh.edges(f"{side}:face2")
+            np.testing.assert_array_equal(np.unique(first[first == second]), tips)
+        shared = np.intersect1d(np.unique(mesh.blocks[0].conn), nodes)
+        np.testing.assert_array_equal(shared, tips)
+        assert mesh.nn == source.nn + 2 * (nodes.size - tips.size)
+        np.testing.assert_array_equal(mesh.block("beam").conn, source.block("beam").conn)
+        assert np.isin(tips, boundary_nodes(mesh)).all()  # recovery still sees cut faces
+        assert not np.isin(tips, boundary_nodes(mesh, join_interfaces=True)).any()
+        if not both_internal:
+            assert nodes[-1] in boundary_nodes(mesh, join_interfaces=True)
+
+
+@pytest.mark.parametrize("etype", [api.ElemType.T6, api.ElemType.Q8])
+def test_insertion_order_preserves_asymmetric_soil_wall_response(etype):
+    source, wall = _embedded_wall(etype)
+    block = source.blocks[0]
+    nc = 3 if etype is api.ElemType.T6 else 4
+    regions = np.where(source.coords[block.conn[:, :nc], 0].mean(axis=1) < 2, 1, 2)
+    source = replace(source, blocks=(replace(block, region=regions), *source.blocks[1:]))
+    results = []
+    for order in (("left", "right"), ("right", "left")):
+        mesh = source
+        for side in order:
+            mesh = insert_interface(mesh, "wall", side, side)
+        m = api.Model(
+            analysis=api.Analysis.PLANE_STRAIN,
+            mesh=mesh,
+            materials={
+                "stiff": api.MaterialSpec.elastic("stiff", 3e4, 0.3),
+                "soft": api.MaterialSpec.elastic("soft", 1e4, 0.3),
+            },
+            region_material={1: "stiff", 2: "soft"},
+            liners={"beam": api.LinerSpec("beam", 2e8, 0, 0.1, 0.001, 0.08)},
+            interfaces={
+                s: api.InterfaceSpec(s, 4e5, 1e5, c=1e6, sig_t=1e6) for s in ("left", "right")
+            },
+            initial=api.InitialStress("none"),
+            fixities=(
+                api.Fixity("bottom", True, True),
+                api.Fixity("left", True, False),
+                api.Fixity("right", True, False),
+            ),
+            stages=[
+                api.Stage(
+                    "push",
+                    active_structures={"beam", "left", "right"},
+                    loads=(api.PointLoad(int(wall[-1]), fx=10),),
+                )
+            ],
+        )
+        result = api.run(m)
+        np.testing.assert_allclose(result.last.reactions[:, 0].sum(), -10, atol=1e-7)
+        results.append((mesh, result.last))
+    (left_mesh, left), (right_mesh, right) = results
+    np.testing.assert_allclose(left.u[wall], right.u[wall], rtol=1e-8, atol=1e-12)
+    np.testing.assert_allclose(left.beams["beam"], right.beams["beam"], rtol=1e-8, atol=1e-8)
+    # Compare material-point displacements, independent of the numbering of copies.
+    np.testing.assert_allclose(
+        left.u[left_mesh.blocks[0].conn], right.u[right_mesh.blocks[0].conn], rtol=1e-8, atol=1e-12
+    )
 
 
 @pytest.mark.parametrize(

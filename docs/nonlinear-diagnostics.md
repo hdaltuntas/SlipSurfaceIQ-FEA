@@ -10,6 +10,11 @@ Minimum adıma ulaşıldığında `NonConvergence.history` tanı kaydını içer
 
 ## Yerel girdilerin bağımsız tekrarı
 
+Bu belgedeki palplanş sayısal kayıtları, iki taraflı ara yüzün gömülü uç
+bağlantısı düzeltilmeden önce alındı. Eski model ikinci eklenen tarafta ucu
+ayırıyordu; güncel kod iki tarafta da ucu ortak tutar. Eski değerler tanı
+geçmişidir; güncel model ve tekrarlar [S4 protokolündedir](s4-comparison.md).
+
 `MaterialIntegrationError.details` etkin malzeme parametrelerini, başarısız GP
 sayısını ve ilk en çok sekiz noktanın `sig_n`, `deps`, `q_n`, deneme gerilmesi,
 ortalama gerilme ve akma değerini taşır. Statik çözücü blok adı, blok içi eleman

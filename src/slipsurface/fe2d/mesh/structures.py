@@ -10,7 +10,9 @@
   and IFACE4 / IFACE6 elements pair the two faces. Ends of an open line that lie inside the
   mesh are *not* duplicated (the joint closes at its tip). Calling it twice (``side="left"``
   then ``"right"``) gives a wall with interfaces on both faces; the original nodes then
-  carry only the wall (beam) and the interface faces.
+  carry only the wall (beam) and the interface faces, except the shared interior tips.
+  Existing interface cuts are ignored when classifying exterior endpoints, so both
+  insertion orders preserve the same closed interior tips.
 
 Interface connectivity: face 1 ``[a1, b1(, m1)]`` then face 2 ``[a2, b2(, m2)]``; node
 ``a2`` is the partner of ``a1``. Face 2 lies on the left (+n) of the direction a1 → b1, so a
@@ -85,11 +87,11 @@ def add_bars_along(mesh: Mesh, edge_set: str, tag: str) -> Mesh:
 
 
 def boundary_node_mask(mesh: Mesh) -> NDArray[np.bool_]:
-    """Nodes on the outer boundary of the continuum mesh."""
+    """Exterior node mask with existing paired interface faces identified."""
     from .topology import boundary_nodes
 
     m = np.zeros(mesh.nn, dtype=bool)
-    m[boundary_nodes(mesh)] = True
+    m[boundary_nodes(mesh, join_interfaces=True)] = True
     return m
 
 
