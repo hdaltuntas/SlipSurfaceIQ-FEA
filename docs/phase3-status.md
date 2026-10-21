@@ -12,10 +12,12 @@ Referans: *SlipSurface 2D — Teknik Mimari ve Yol Haritası*, Faz 3 ve Ek A.
 | HDF5 ve .ssproj | Mevcut, kayıt testleri var | Aşama bazlı okuma, karma eleman/plastik çıktı gidiş-dönüşü, atomik kayıt |
 | S4 konsol palplanş | **Ön yapısal kontroller geçti; tam doğrulama açık** | Bağımsız Timoshenko/Winkler ve idealize Rankine diyagramı geçti; zeminli örnek 0.50 m ağda çözülüyor, 0.25 m ağda λ=0.8938’de yakınsamıyor; bağımsız araç karşılaştırması eksik |
 | Kapı 3 | **Açık** | Tam S4 geçmeden Faz 4'e geçme |
+| T3+Q4 / T6+Q8 karma ağ | Deneysel | Patch, konsol, plastik basınç, aşama, su, ara yüz ve kayıt kontrolleri geçti; nonlinear palplanş integrasyon/ağ duyarlılığı açık |
 
 Yöntem, referans bağlantıları, sayısal hata tabloları ve sınırlar:
 [phase3-verification.md](phase3-verification.md).
 Proje/sonuç API'si: [project-files.md](project-files.md).
+Karma ağ API'si ve aynı palplanş modeliyle karşılaştırma: [mixed-mesh.md](mixed-mesh.md).
 
 ## Düzeltilen hatalar
 
@@ -37,7 +39,10 @@ Proje/sonuç API'si: [project-files.md](project-files.md).
 
 ## Sıradaki iş
 
-Önce 0.25 m ağdaki λ=0.8938 yakınsamama durumunun nedenini bağımsız kontrollerle ayır.
+Önce ince ağ ve integrasyon duyarlılığının nedenini bağımsız kontrollerle ayır:
+default ile 0.25 m T6 λ=0.8938, T6+Q8 λ=0.9961'de duruyor;
+high ile karma 0.50 m ağ da kazıyı tamamlamıyor. Karma ağda daha yüksek λ,
+tek başına doğrulama veya güvenilirlik kanıtı değildir.
 Ardından bağımsız palplanş aracıyla aynı geometri, sınır koşulu, zemin, su ve kazı aşamalarını
 kullanan sürekli ortam FEM senaryosunu karşılaştır. Maksimum moment farkını %10 içinde
 ve ağ yakınsamasıyla doğrula; ardından S1–S4 ve aşama bölme değişmezliğiyle Kapı 3'ü kapat.
@@ -47,10 +52,12 @@ GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışın
 
 ## Son doğrulama
 
-- Linux / Python 3.12: benchmark dışı tam koşuda **185 geçti**, PyVista eksikliği
+- Linux / Python 3.12: benchmark dışı tam koşuda **220 geçti**, PyVista eksikliği
   nedeniyle görüntüleyici modülü **1 atlandı**, performans testleri **2 hariç**.
 - NumPy 2.2.6 / SciPy 1.15.3 ile malzeme, ara yüz, S1, S4 ön kontrolleri ve değişen
   aktif kümelerin hedefli koşusunda **46 geçti** (ana toplamla örtüşür).
+- Aynı NumPy/SciPy sürümleriyle karma ağ, karma patch/aşama ve E2 konsol
+  dosyalarında **39 geçti** (ana toplamla örtüşür).
 - Ruff, `git diff --check`, wheel derlemesi ve ayrı klasöre kurulu wheel'den API/topoloji
   import kontrolü başarılı.
 - Zeminli örneğin ince ağdaki başarısızlığı bu test toplamlarına başarı olarak eklenmedi;

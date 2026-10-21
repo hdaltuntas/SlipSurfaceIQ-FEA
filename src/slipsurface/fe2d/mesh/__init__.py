@@ -1,6 +1,7 @@
 """L2 — mesh generation."""
 
 from .mesher import unstructured_mesh
+from .mixed import recombine_mesh, validate_conformity
 from .pslg import PSLG, Domain, arc, circle
 from .quality import QualityReport, mesh_quality
 from .sizing import DistanceSize, min_size
@@ -19,5 +20,8 @@ __all__ = [
     "min_size",
     "plate_with_hole",
     "rectangle",
+    "recombine_mesh",
     "unstructured_mesh",
+    "validate_conformity",
 ]
+

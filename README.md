@@ -13,6 +13,9 @@ doğrulamaları tamamlandı; S4 yapısal ön kontrolleri geçti, tam zeminli S4 
 [Durum ve kalan kapı testleri](docs/phase3-status.md) ·
 [Proje/sonuç dosyası API](docs/project-files.md).
 
+T3+Q4 ve T6+Q8 uyumlu karma ağ üretimi deneysel olarak eklendi:
+[API, doğrulama kapsamı ve palplanş karşılaştırması](docs/mixed-mesh.md).
+
 ## Install (development)
 
 ```bash

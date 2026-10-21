@@ -11,11 +11,11 @@ from __future__ import annotations
 import numpy as np
 
 from slipsurface.fe2d import api
-from slipsurface.fe2d.mesh import DistanceSize, Domain, unstructured_mesh
+from slipsurface.fe2d.mesh import DistanceSize, Domain, recombine_mesh, unstructured_mesh
 from slipsurface.fe2d.mesh.structures import add_beams, insert_interface
 
 
-def model(h=0.5):
+def model(h=0.5, *, mixed=False, gauss_order=None):
     domain = Domain().add_polygon(
         [(-20, -20), (20, -20), (20, 0), (-20, 0)], 1, edge_names=["bottom", "right", "top", "left"]
     )
@@ -23,6 +23,8 @@ def model(h=0.5):
     line = np.array([[0, -10.5], [0, 0]])
     domain.add_line(line, name="wall")
     mesh = unstructured_mesh(domain, h=DistanceSize(h, 1.5, 1.3, lines=[line]))
+    if mixed:
+        mesh = recombine_mesh(mesh, where=lambda x: np.abs(x[:, 0]) < 4)
     mesh = add_beams(mesh, "wall", "pile")
     mesh = insert_interface(mesh, "wall", "pile_left", "left")
     mesh = insert_interface(mesh, "wall", "pile_right", "right")
@@ -51,7 +53,13 @@ def model(h=0.5):
                 active_structures={"pile", "pile_left", "pile_right"},
             ),
         ],
-        settings=api.SolverSettings(dlam0=0.1, tol_force=1e-4, tol_energy=1e-5, line_search=True),
+        settings=api.SolverSettings(
+            dlam0=0.1,
+            tol_force=1e-4,
+            tol_energy=1e-5,
+            line_search=True,
+            gauss_order=gauss_order or ("high" if mixed else "default"),
+        ),
     )
 
 
@@ -62,10 +70,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--size", type=float, default=0.5, help="local mesh size [m]")
     parser.add_argument("--output", type=Path, help="optional .ssproj output path")
+    parser.add_argument("--mixed", action="store_true", help="recombine suitable T6 pairs to Q8")
+    parser.add_argument("--gauss-order", choices=["default", "high"], default=None)
     args = parser.parse_args()
     if args.size <= 0:
         parser.error("--size must be positive")
-    m = model(args.size)
+    m = model(args.size, mixed=args.mixed, gauss_order=args.gauss_order)
     print(f"Nodes: {m.mesh.nn}")
     result = api.run(m)
     moment = np.nanmax(np.abs(result.last.beams["pile"][:, :, 2]))

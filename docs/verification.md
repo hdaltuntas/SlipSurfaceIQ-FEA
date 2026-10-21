@@ -48,6 +48,14 @@ hata durumları.
 
 ## Ek birim testleri
 
+### Aynı dereceli karma ağlar (deneysel)
+
+T3+Q4 ve T6+Q8 geçişleri ortak düğümlerle kontrol edilir. Çarpık ağda düzlem ve
+eksenel simetrik patch testleri, default/high integrasyonla çekme ve E2 konsol
+çözümü geçer. Plastik Tresca basınç, kazı/geri dolgu, liner/ara yüz, su ve kayıt
+testlerinin kapsamı ile nonlinear palplanşta kalan başarısızlıklar
+[mixed-mesh.md](mixed-mesh.md) içinde açıklanır. Bu ek, Kapı 3'ü kapatmaz.
+
 `tests/unit/` — şekil fonksiyonu türevleri (sonlu farkla), kuadratür tamlığı, eleman
 rijitliğinin simetrisi ve tam olarak 3 rijit cisim modu, ağ geometrisi (delikli levhada
 alan, katman bölgeleri), ağırlık analizi ile K₀ alanının yanal olarak tutulu kolonda
@@ -85,3 +93,4 @@ sınırlar dahil makine hassasiyetinde yeniden üretir; bölge sınırlarındaki
 yaymaz. Kirsch (T6) probleminde iç bölgede RMS hatası ortalamaya göre ~%25–30 daha
 düşüktür; ağın dış sınırında ekstrapolasyon ortalaması daha doğru olduğundan varsayılan
 hibrit yöntem sınırda onu kullanır.
+
