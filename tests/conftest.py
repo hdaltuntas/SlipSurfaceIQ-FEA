@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
 import numpy as np
 import pytest
 
@@ -54,3 +57,16 @@ def rel_err(a, b) -> float:
 @pytest.fixture
 def rng():
     return np.random.default_rng(1234)
+
+
+def pytest_runtest_logreport(report):  # pragma: no cover - CI only
+    """On GitHub Actions, turn every failure into an ``::error`` annotation so the failing
+    test and its message are visible in the check run without downloading the log."""
+    if not os.environ.get("GITHUB_ACTIONS") or not report.failed:
+        return
+    text = report.longreprtext.strip().splitlines()
+    tail = "\n".join(text[-15:])
+    msg = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    title = f"{report.nodeid} ({report.when})".replace(",", "%2C").replace("::", "-")
+    sys.__stdout__.write(f"\n::error title={title}::{msg}\n")
+    sys.__stdout__.flush()
