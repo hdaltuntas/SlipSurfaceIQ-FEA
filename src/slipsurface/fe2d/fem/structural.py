@@ -193,44 +193,54 @@ def interface_return(
     t_tr: Arr, ks: float, kn: float, c: float, tphi: float, tpsi: float, st: float
 ) -> tuple[Arr, Arr, NDArray[np.uint8]]:
     """Return mapping for traction trials (m, 2) = [tau, sigma_n]; returns t, D (m,2,2), flag."""
-    m = t_tr.shape[0]
-    t = t_tr.copy()
-    D = np.zeros((m, 2, 2))
-    D[:, 0, 0], D[:, 1, 1] = ks, kn
-    flag = np.zeros(m, dtype=np.uint8)
-    tau, sn = t_tr[:, 0], t_tr[:, 1]
-    # --- tension / gap
-    gap = sn > st
-    if np.any(gap):
-        lim = max(c - st * tphi, 0.0)
-        t[gap, 1] = st
-        t[gap, 0] = np.clip(tau[gap], -lim, lim)
-        D[gap] = _SMALL * np.array([[ks, 0.0], [0.0, kn]])
-        D[gap, 0, 0] = np.where(np.abs(tau[gap]) < lim, ks, _SMALL * ks)
-        flag[gap] = PlasticFlag.TENSION
-    # --- slip
-    fs = np.abs(tau) + sn * tphi - c
-    tol = 1e-12 * (abs(c) + np.abs(sn) + np.abs(tau) + 1e-30)
-    sl = (~gap) & (fs > tol)
-    if np.any(sl):
-        sg = np.sign(tau[sl])
-        sg[sg == 0] = 1.0
-        dl = fs[sl] / (ks + kn * tphi * tpsi)
-        tau_n = tau[sl] - ks * dl * sg
-        sn_n = sn[sl] - kn * tpsi * dl
-        # past the apex (shear reverses) or into tension: put on the apex / gap
-        bad = (tau_n * sg < 0) | (sn_n > st)
-        t[sl, 0] = np.where(bad, 0.0, tau_n)
-        t[sl, 1] = np.where(bad, min(st, c / tphi if tphi > 0 else st), sn_n)
-        a = np.stack([sg, np.full(sg.size, tphi)], axis=1)
-        bvec = np.stack([sg, np.full(sg.size, tpsi)], axis=1)
-        K = np.array([ks, kn])
-        Kb, aK = K * bvec, a * K
-        den = (aK * bvec).sum(axis=1)
-        Dsl = np.diag(K)[None] - np.einsum("mi,mj->mij", Kb, aK) / den[:, None, None]
-        Dsl[bad] = _SMALL * np.diag(K)
-        D[sl] = Dsl
-        flag[sl] = np.where(bad, PlasticFlag.APEX, PlasticFlag.SHEAR)
+    # Three yield planes: +/-tau + sigma_n*tan(phi) <= c, sigma_n <= st.
+    # A trial in tension can return to the shear plane under dilatant flow;
+    # therefore tension-first clipping is not a valid multi-surface return.
+    cap = min(st, c / tphi) if tphi > 0 else st
+    A = np.array([[1.0, tphi], [-1.0, tphi], [0.0, 1.0]])
+    B = np.array([[1.0, tpsi], [-1.0, tpsi], [0.0, 1.0]])
+    limits = np.array([c, c, cap])
+    K = np.diag([ks, kn])
+    trial = t_tr.copy()
+    if ks == 0:
+        trial[:, 0] = 0.0  # a frictionless joint cannot retain an initial shear traction
+    scale = np.maximum(
+        1.0, np.max(np.abs(trial), axis=1) + abs(c) + (abs(cap) if np.isfinite(cap) else 0)
+    )
+    tol = 1e-11 * scale
+    t = trial.copy()
+    D = np.broadcast_to(K, (len(trial), 2, 2)).copy()
+    flag = np.zeros(len(trial), dtype=np.uint8)
+    pending = np.any(trial @ A.T - limits > tol[:, None], axis=1)
+    # Test active sets with nonnegative plastic multipliers and admissible stresses.
+    # All small inverses depend only on properties, never on the integration point.
+    for active in ((0,), (1,), (2,), (0, 1), (0, 2), (1, 2)):
+        if 2 in active and not np.isfinite(cap):
+            continue
+        ids = np.flatnonzero(pending)
+        if not ids.size:
+            break
+        aa, bb = A[list(active)], B[list(active)]
+        H = aa @ K @ bb.T
+        if np.linalg.matrix_rank(H) < len(active):
+            continue
+        inv = np.linalg.inv(H)
+        lam = (trial[ids] @ aa.T - limits[list(active)]) @ inv.T
+        candidate = trial[ids] - lam @ bb @ K
+        ok = np.all(lam >= -tol[ids, None] / max(ks, kn), axis=1)
+        ok &= np.all(candidate @ A.T - limits <= tol[ids, None], axis=1)
+        accept = ids[ok]
+        t[accept] = candidate[ok]
+        D[accept] = K - K @ bb.T @ inv @ aa @ K
+        flag[accept] = PlasticFlag.TENSION if 2 in active else PlasticFlag.SHEAR
+        if tphi > 0 and abs(cap - c / tphi) <= 1e-12 * max(1.0, abs(cap)):
+            apex = (np.abs(t[accept, 0]) <= tol[accept]) & (
+                np.abs(t[accept, 1] - cap) <= tol[accept]
+            )
+            flag[accept[apex]] = PlasticFlag.APEX
+        pending[accept] = False
+    if np.any(pending):
+        raise ValueError("interface return has no admissible active set")
     return t, D, flag
 
 

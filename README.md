@@ -8,7 +8,8 @@ MIT-licensed Python package. The roadmap and architecture are described in
 **Status: Faz 3 devam ediyor — Kapı 1/2 geçmiş doğrulamaları mevcut; Kapı 3 açık.**
 
 Aktif küme/kazı, yapısal elemanlar ve aşama bazlı su uygulaması mevcut. HDF5 sonuç
-kaydı, aşama bazlı okuma ve `.ssproj` konteyneri eklendi.
+kaydı, aşama bazlı okuma ve `.ssproj` konteyneri eklendi. S1 (no-slip) ve ara yüz
+doğrulamaları tamamlandı; S4 yapısal ön kontrolleri geçti, tam zeminli S4 karşılaştırması açık.
 [Durum ve kalan kapı testleri](docs/phase3-status.md) ·
 [Proje/sonuç dosyası API](docs/project-files.md).
 

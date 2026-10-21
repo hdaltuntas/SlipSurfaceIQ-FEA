@@ -216,6 +216,7 @@ class StaticSolver:
         self.system: System | None = None
         self._ctx: _StageCtx | None = None
         self._D_committed: tuple[dict, dict] | None = None
+        self._D_committed_key: tuple | None = None
 
     # ------------------------------------------------------------------ materials
     def _cm(self, spec: MaterialSpec) -> object:
@@ -361,7 +362,7 @@ class StaticSolver:
                 gs = g
             else:
                 gs = GeomCache(B=g.B[ids], wdet=g.wdet[ids], N=g.N, xg=g.xg[ids])
-            ed = dm.node_dofs[b.conn[ids]][:, :, :2].reshape(ids.size, -1)
+            ed = dm.node_dofs[b.conn[ids]][:, :, :2].reshape(ids.size, 2 * b.etype.nen)
             groups = []
             for cm, gids in bm.groups:
                 pos = gids if ids.size == b.ne else np.flatnonzero(np.isin(ids, gids))
@@ -450,7 +451,7 @@ class StaticSolver:
 
     # ------------------------------------------------------------------ assembly
     def _stiffness(self, sysm: System, D: dict, K: dict) -> sp.csr_matrix:
-        kes = [element_stiffness(c.geom, D[c.tag]) for c in sysm.cont]
+        kes = [element_stiffness(c.geom, D[c.tag] if c.ids.size else c.De) for c in sysm.cont]
         kes += [K[s.group.tag] for s in sysm.struct]
         return sysm.pattern.assemble(kes)
 
@@ -631,6 +632,7 @@ class StaticSolver:
         trial, _ = self.integrate(state, np.zeros(sysm.dm.ndof), sysm, lay)
         self._commit_trial(state, sysm, trial)
         self._D_committed = (trial.D, trial.K)
+        self._D_committed_key = sysm.key
 
     def _commit_trial(self, state: SolverState, sysm: System, t: Trial) -> None:
         for c in sysm.cont:
@@ -665,7 +667,10 @@ class StaticSolver:
         base = state.commit()
         committed = base
         u_start = state.u.copy()
-        D_comm = self._D_committed
+        # Tangents are indexed by the exact active element IDs, not just block tags
+        # or array sizes. Excavation (even swapping equally sized sets) invalidates
+        # the previous stage's committed tangent and structural DOF layout.
+        D_comm = self._D_committed if self._D_committed_key == sysm.key else None
 
         def integrate(du: NDArray[np.float64]) -> tuple[Trial, NDArray[np.float64]]:
             return self.integrate(committed, du, sysm, lay)
@@ -706,6 +711,7 @@ class StaticSolver:
             )
         finally:
             self._D_committed = D_comm
+            self._D_committed_key = sysm.key if D_comm is not None else None
             for k in ("u", "sig", "q", "plastic", "struct", "struct_flag"):
                 setattr(state, k, getattr(committed, k))
         return state, hist
@@ -872,10 +878,6 @@ class StaticSolver:
     ) -> tuple[SolverState, System, NDArray[np.float64], StageHistory]:
         sysm = self.build_system(lay, ctx.active, ctx.water, ctx.displacements)
         self.apply_activation(state, ctx.active, sysm.dm)
-        if self._D_committed is not None:
-            D, K = self._D_committed
-            if set(D) != {c.tag for c in sysm.cont if c.ids.size}:
-                self._D_committed = None
         f_ext = self.external_force(sysm, ctx)
         dm = sysm.dm
         du_presc = dm.prescribed_values - self._gather_u(state, dm)[dm.prescribed]
@@ -922,3 +924,4 @@ def solve(model: Model, extra_tractions: dict[str, tuple] | None = None) -> Solv
 
 
 __all__ = ["Analysis", "SolveResult", "StageResult", "StaticSolver", "Trial", "solve", "Stage"]
+

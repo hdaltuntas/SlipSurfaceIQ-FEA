@@ -55,10 +55,43 @@ def test_mohr_coulomb_return_and_tangent(c, phi, psi, st, rng):
             def obj(x, tr=tr):
                 return (tr - x) @ Dinv @ (tr - x)
 
-            cons = {"type": "ineq", "fun": lambda x: -mc.yield_function(x[None])[0]}
-            r = minimize(obj, sig[i] * 0.9, constraints=[cons], method="SLSQP",
-                         options={"ftol": 1e-14, "maxiter": 500})  # fmt: skip
-            assert obj(sig[i]) <= r.fun * (1 + 1e-4) + 1e-12
+            # Independent convex QP in principal stresses. Six linear MC planes
+            # avoid finite-difference optimization of a nonsmooth spectral max.
+            # An infeasible/unsuccessful optimizer is never a reference solution.
+            trial = np.linalg.eigvalsh([[tr[0], tr[3], 0], [tr[3], tr[1], 0], [0, 0, tr[2]]])
+            scale = max(np.abs(trial).max(), c, 1.0)
+            trial = trial / scale
+            compliance = np.full((3, 3), -0.3)
+            np.fill_diagonal(compliance, 1.0)
+            A, b = [], []
+            sp, cp = math.sin(math.radians(phi)), math.cos(math.radians(phi))
+            for j in range(3):
+                for k in range(3):
+                    if j == k:
+                        continue
+                    row = np.zeros(3)
+                    row[j], row[k] = 1 + sp, -(1 - sp)
+                    A.append(row)
+                    b.append(2 * c * cp / scale)
+            if st is not None:
+                A.extend(np.eye(3))
+                b.extend([st / scale] * 3)
+            A, b = np.asarray(A), np.asarray(b)
+
+            def energy(x, trial=trial, compliance=compliance):
+                d = x - trial
+                return d @ compliance @ d
+
+            def gradient(x, trial=trial, compliance=compliance):
+                return 2 * compliance @ (x - trial)
+
+            cons = {"type": "ineq", "fun": lambda x, b=b, A=A: b - A @ x, "jac": lambda x, A=A: -A}
+            r = minimize(energy, np.zeros(3), jac=gradient, constraints=[cons], method="SLSQP",
+                         options={"ftol": 1e-12, "maxiter": 500})  # fmt: skip
+            assert r.success, r.message
+            assert np.max(A @ r.x - b) < 1e-9
+            reference = r.fun * scale**2 / 1e4
+            assert obj(sig[i]) <= reference * (1 + 1e-4) + 1e-12
 
 
 @pytest.mark.parametrize(

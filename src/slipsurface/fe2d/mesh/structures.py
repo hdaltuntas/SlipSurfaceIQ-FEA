@@ -86,7 +86,7 @@ def add_bars_along(mesh: Mesh, edge_set: str, tag: str) -> Mesh:
 
 def boundary_node_mask(mesh: Mesh) -> NDArray[np.bool_]:
     """Nodes on the outer boundary of the continuum mesh."""
-    from ..post.recovery import boundary_nodes
+    from .topology import boundary_nodes
 
     m = np.zeros(mesh.nn, dtype=bool)
     m[boundary_nodes(mesh)] = True
@@ -194,3 +194,4 @@ def insert_interface(mesh: Mesh, edge_set: str, tag: str, side: str = "left") ->
     edge_sets[f"{tag}:face2"] = f2
     node_sets[f"{tag}:face2"] = np.unique(f2)
     return Mesh(new_coords, (*blocks, iblk), node_sets, edge_sets)
+

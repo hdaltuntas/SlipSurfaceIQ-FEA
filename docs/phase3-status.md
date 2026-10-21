@@ -1,54 +1,57 @@
-# Faz 3 — devam durumu
+# Faz 3 — güncel durum
 
-Bu adım 6db8e55 üzerindeki mevcut Faz 3 WIP uygulamasını ilerletir. Referans:
-*SlipSurface 2D — Teknik Mimari ve Yol Haritası*, Faz 3 ve Ek A.
+Referans: *SlipSurface 2D — Teknik Mimari ve Yol Haritası*, Faz 3 ve Ek A.
 
-| Yol haritası maddesi | Durum | Kanıt / kalan iş |
+| Madde / doğrulama | Durum | Kanıt / kalan iş |
 |---|---|---|
-| Aktif küme, kazı, load split, aktivasyon ve yer değiştirme referansı | Mevcut; S3 testi var | `test_s3_staging.py`: tek/çok aşama, üç gevşeme oranı, geri dolgu |
-| Timoshenko liner, BAR2 ankraj, ön germe ve akma | Mevcut; S2 eklendi | Üç ankraj aralığında seri yay dengesi ve ön germenin tekrar uygulanmaması; S1/S4 henüz yok |
-| Goodman ara yüzü ve düğüm çoğaltma | Mevcut; karma model kayıt testi eklendi | Ayrıntılı kayma/açılma ve tutarlı tanjant doğrulamaları halen gerekli |
-| Aşama bazlı piezometrik su ve malzeme değişimi | Mevcut | Su ve statik birim testleri |
-| HDF5 sonuçları ve `.ssproj` | Bu adımda eklendi | Sıkıştırma, aşama bazlı okuma, karma elemanların gidiş-dönüşü, hata halinde atomik kayıt |
-| Kapı 3 | **Açık** | S1 liner'lı tünel ve S4 konsol palplanş benchmarkları eksik |
+| Aktif küme, kazı, load split, aktivasyon ve u_ref | Mevcut, S3 doğrulandı | Tek/çok aşama, üç gevşeme oranı, geri dolgu |
+| S1 liner'lı elastik tünel | No-slip kapsamı doğrulandı | Dört ağ/sınır denemesi, imzalı N/M alanları %5 içinde |
+| S2 ön germeli ankraj | Doğrulandı | Üç ankraj aralığında bağımsız seri yay dengesi |
+| Goodman ara yüzü | Tanımlı kapsamda doğrulandı | Akma/çekme/birleşik dönüş, tanjant, iki taraflı düğüm ayrılması, su kuvveti ve durum korunması |
+| Aşama bazlı piezometrik su, malzeme değişimi | Mevcut | Su ve statik birim testleri |
+| HDF5 ve .ssproj | Mevcut, kayıt testleri var | Aşama bazlı okuma, karma eleman/plastik çıktı gidiş-dönüşü, atomik kayıt |
+| S4 konsol palplanş | **Ön yapısal kontroller geçti; tam doğrulama açık** | Bağımsız Timoshenko/Winkler ve idealize Rankine diyagramı geçti; zeminli örnek 0.50 m ağda çözülüyor, 0.25 m ağda λ=0.8938’de yakınsamıyor; bağımsız araç karşılaştırması eksik |
+| Kapı 3 | **Açık** | Tam S4 geçmeden Faz 4'e geçme |
 
-## Bu adımda bulunan ve düzeltilen hatalar
+Yöntem, referans bağlantıları, sayısal hata tabloları ve sınırlar:
+[phase3-verification.md](phase3-verification.md).
+Proje/sonuç API'si: [project-files.md](project-files.md).
 
-- Ön germeli ankrajın değişmeden tutulduğu aşamada sıfıra yakın yük artımı, kayan
-  nokta iptal hatasını büyük bir göreli kalıntıya dönüştürebiliyordu. Sonuç, analitik
-  dengede bile gereksiz adım küçültme ve yakınsamamaydı (S2, aralık 2.5 m). Newton
-  kontrolüne kuvvet ölçeğine bağlı makine hassasiyeti eşiği eklendi; zorlanmış yer
-  değiştirme artımları ilk iterasyondaki erken kabulden yine hariç tutulur.
-- VTU dosyası kiriş/çubuk hücrelerini içerirken `plastic` dizisi yalnızca sürekli
-  ortam elemanlarını kapsıyordu. Dizi artık tüm dışa aktarılan hücreleri kapsar;
-  yapısal ve etkin olmayan hücrelerde bu alan NaN'dır. Düşük seviyeli yazıcı yanlış
-  uzunluktaki hücre/nokta verisini reddeder.
+## Düzeltilen hatalar
 
-## Sıradaki kapatma işleri
+- Ön germenin tutulduğu yüksüz aşamada makine hassasiyetindeki kalıntının sahte
+  yakınsamamaya yol açması: kuvvet ölçeğine bağlı yuvarlama eşiği.
+- Karma VTU'da plastik hücre verisinin uzunluğunun yapısal hücrelerle uyuşmaması:
+  tüm dışa aktarılan hücreleri kapsayan dizi ve veri uzunluğu kontrolleri.
+- Ara yüzde dilatanslı kayma ile çekme kesmesinin sıralı kırpılması: kabul edilebilirlik
+  ve plastik çarpan işaretini birlikte kontrol eden aktif küme dönüşü ve tam türevi.
+- Python 3.10 CI'daki güvenilmez SLSQP referansı: başarısı/kısıtları kontrol edilen,
+  doğrusal kısıtlı bağımsız QP. Üretim malzeme toleransları değiştirilmedi.
+- Ağ katmanının sınır düğümleri için post-processing katmanına ters bağımlılığı:
+  ortak topoloji işlevi L2'ye taşındı; mevcut post-processing import'u korundu.
 
-1. S1: elastik dairesel tünelde liner N ve M değerlerini Einstein–Schwartz referansı
-   ile karşılaştır; ağ yakınsamasını göster.
-2. Ara yüzün kayma/açılma, iki taraflı düğüm çoğaltma ve tanjant testlerini tamamla.
-3. S4: konsol palplanşın maksimum momentini bağımsız kiriş-yay ve limit denge
-   sonuçlarıyla karşılaştır.
-4. S1–S4 ve aşama bölme değişmezliği birlikte geçince Kapı 3'ü kapat. Faz 4'e geçme.
+- Plastik aşamalarda blok adı aynı kalırken aktif eleman tanjantlarının yanlış yeniden
+  kullanılması: tam sistem anahtarına bağlı önbellek.
+- Ayrı bir eleman bloğunun bütünüyle kaldırılmasında boş DOF dizisinin yeniden
+  şekillendirilmesi ve tanjant anahtarının bulunamaması: boş blok desteği düzeltildi.
 
-## Sınırlar
+## Sıradaki iş
 
-Sonuç dosyaları yakınsamış aşama çıktılarıdır; nonlinear çözümün kaldığı yerden devam
-etmesini sağlayan bir restart formatı değildir. Aktivasyon referansları ve solver'ın
-commit durumu yeniden kurulmaz. `api.run(project.model)` modeli baştan çözer.
-Performans kapısı Numba önbelleği ısıtılmış ve donanımı belirtilmiş ayrı bir ölçüm ister.
+Önce 0.25 m ağdaki λ=0.8938 yakınsamama durumunun nedenini bağımsız kontrollerle ayır.
+Ardından bağımsız palplanş aracıyla aynı geometri, sınır koşulu, zemin, su ve kazı aşamalarını
+kullanan sürekli ortam FEM senaryosunu karşılaştır. Maksimum moment farkını %10 içinde
+ve ağ yakınsamasıyla doğrula; ardından S1–S4 ve aşama bölme değişmezliğiyle Kapı 3'ü kapat.
 
-## Bu oturumun doğrulaması
+Kayıt dosyaları post-processing snapshot'ıdır; nonlinear solver restart biçimi değildir.
+GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışındadır.
 
-- Linux / Python 3.12: `pytest -q -m 'not benchmark'`: **152 geçti**, PyVista
-  kurulu olmadığından görüntüleyici modülü **1 atlandı**, performans testleri **2 hariç**.
-- Sonradan eklenen iki plastik kayıt senaryosu ve son JSON/HDF5 düzenlemeleri dahil
-  `test_io.py`, `test_results_storage.py`, `test_s2_anchor.py`: **22 geçti**.
-  Bunlar regresyon toplamıyla örtüşür; sayıların toplamı ayrı test sayısı değildir.
-- S2 + kayıt + Newton yakınsama kontrollerinin önceki hedefli koşusu: **16 geçti**.
-- `ruff check src tests` ve `git diff --check`: başarılı.
-- `pip wheel --no-deps --no-build-isolation .`: başarılı; yeni iki kayıt modülü
-  wheel içinde doğrulandı. Bu bir Windows taşınabilir uygulama paketi değildir.
-- GUI ve performans kapısı bu oturumda doğrulanmadı; Windows CI sonucu ayrıca izlenmeli.
+## Son doğrulama
+
+- Linux / Python 3.12: benchmark dışı tam koşuda **185 geçti**, PyVista eksikliği
+  nedeniyle görüntüleyici modülü **1 atlandı**, performans testleri **2 hariç**.
+- NumPy 2.2.6 / SciPy 1.15.3 ile malzeme, ara yüz, S1, S4 ön kontrolleri ve değişen
+  aktif kümelerin hedefli koşusunda **46 geçti** (ana toplamla örtüşür).
+- Ruff, `git diff --check`, wheel derlemesi ve ayrı klasöre kurulu wheel'den API/topoloji
+  import kontrolü başarılı.
+- Zeminli örneğin ince ağdaki başarısızlığı bu test toplamlarına başarı olarak eklenmedi;
+  yukarıda ve doğrulama raporunda açık sorun olarak tutuldu.
