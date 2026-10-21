@@ -9,7 +9,7 @@ from .boundary import (
     PointLoad,
     WaterCondition,
 )
-from .materials import BoltSpec, LinerSpec, MaterialSpec
+from .materials import BoltSpec, InterfaceSpec, LinerSpec, MaterialSpec
 from .mesh import ElementBlock, Mesh
 from .model import Model
 from .stages import InitialStress, SolverSettings, Stage
@@ -23,6 +23,7 @@ __all__ = [
     "FluxBC",
     "HeadBC",
     "InitialStress",
+    "InterfaceSpec",
     "LinerSpec",
     "MaterialSpec",
     "Mesh",

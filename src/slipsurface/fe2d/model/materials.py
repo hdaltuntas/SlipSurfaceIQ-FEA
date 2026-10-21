@@ -112,7 +112,11 @@ class MaterialSpec:
 
 @dataclass(frozen=True)
 class LinerSpec:
-    """Timoshenko beam (liner, wall, sheet pile) — per metre out of plane."""
+    """Timoshenko beam (liner, wall, sheet pile) — per metre out of plane.
+
+    E [kPa], nu, A [m2/m], I [m4/m], As (shear area) [m2/m], unit_weight [kN/m3].
+    Plane strain uses E / (1 - nu^2) for axial and bending stiffness.
+    """
 
     name: str
     E: float
@@ -121,6 +125,46 @@ class LinerSpec:
     I: float  # noqa: E741
     As: float
     unit_weight: float = 0.0
+
+
+@dataclass(frozen=True)
+class InterfaceSpec:
+    """Zero-thickness Goodman interface: normal/shear stiffness [kPa/m], Mohr-Coulomb slip
+    (c, phi, psi) and tensile strength ``sig_t`` (gap opening above it).
+
+    Use :meth:`from_soil` for the usual reduction of the adjacent soil strength
+    (``R_inter``: tan(phi_i) = R tan(phi), c_i = R c) with a stiffness based on a virtual
+    thickness ``t_v`` (``ks = G_i / t_v``, ``kn = Eoed_i / t_v``).
+    """
+
+    name: str
+    kn: float
+    ks: float
+    c: float = 0.0
+    phi: float = 0.0
+    psi: float = 0.0
+    sig_t: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.kn <= 0 or self.ks < 0:
+            raise ModelError(f"interface '{self.name}': need kn > 0, ks >= 0")
+        if not (0.0 <= self.psi <= self.phi < 90.0) or self.c < 0 or self.sig_t < 0:
+            raise ModelError(f"interface '{self.name}': invalid strength parameters")
+
+    @classmethod
+    def from_soil(
+        cls, name: str, soil: MaterialSpec, R: float = 0.67, t_v: float = 0.1
+    ) -> InterfaceSpec:
+        import math
+
+        p = soil.params
+        E, nu = p["E"], p["nu"]
+        Ei = R * R * E
+        G = Ei / (2 * (1 + nu))
+        Eoed = Ei * (1 - nu) / ((1 + nu) * (1 - 2 * nu))
+        phi = math.degrees(math.atan(R * math.tan(math.radians(p.get("phi", 0.0)))))
+        return cls(name, Eoed / t_v, G / t_v, R * p.get("c", 0.0), phi, 0.0,
+                   R * p.get("sig_t", 0.0))  # fmt: skip
 
 
 @dataclass(frozen=True)

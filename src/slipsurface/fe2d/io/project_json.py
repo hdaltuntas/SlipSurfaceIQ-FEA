@@ -26,6 +26,7 @@ from ..model import (
     FluxBC,
     HeadBC,
     InitialStress,
+    InterfaceSpec,
     LinerSpec,
     MaterialSpec,
     Mesh,
@@ -92,6 +93,7 @@ def model_to_dict(model: Model) -> dict:
         "liners": _enc(model.liners),
         "bolts": _enc(model.bolts),
         "settings": _enc(model.settings),
+        "interfaces": _enc(model.interfaces),
     }
 
 
@@ -110,6 +112,16 @@ def _load(d: dict) -> EdgeLoad | PointLoad:
     d = dict(d)
     kind = d.pop("kind")
     return {"EdgeLoad": EdgeLoad, "PointLoad": PointLoad}[kind](**d)
+
+
+def _initial(d: dict) -> InitialStress:
+    d = dict(d)
+    if "water" in d:
+        d["water"] = _water(d["water"])
+    for k in ("active_regions", "active_structures"):
+        if d.get(k) is not None:
+            d[k] = frozenset(d[k])
+    return InitialStress(**d)
 
 
 def model_from_dict(doc: dict) -> Model:
@@ -167,10 +179,11 @@ def model_from_dict(doc: dict) -> Model:
         region_material={int(k): v for k, v in doc["region_material"].items()},
         fixities=tuple(Fixity(**f) for f in doc["fixities"]),
         displacements=tuple(Displacement(**d) for d in doc["displacements"]),
-        initial=InitialStress(**doc["initial"]),
+        initial=_initial(doc["initial"]),
         stages=stages,
         liners={k: LinerSpec(**v) for k, v in doc["liners"].items()},
         bolts={k: BoltSpec(**v) for k, v in doc["bolts"].items()},
+        interfaces={k: InterfaceSpec(**v) for k, v in doc.get("interfaces", {}).items()},
         settings=SolverSettings(**doc["settings"]),
     )
 

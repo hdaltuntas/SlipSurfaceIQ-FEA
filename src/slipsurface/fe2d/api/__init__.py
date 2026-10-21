@@ -31,17 +31,21 @@ from ..fem.static import SolveResult, StageResult, solve
 from ..io.project_json import load_model, save_model
 from ..io.vtk_export import write_vtu
 from ..model import (
+    BoltSpec,
     Displacement,
     EdgeLoad,
     ElementBlock,
     Fixity,
     InitialStress,
+    InterfaceSpec,
+    LinerSpec,
     MaterialSpec,
     Mesh,
     Model,
     PointLoad,
     SolverSettings,
     Stage,
+    WaterCondition,
 )
 from ..post.recovery import nodal_average, principal_stresses, spr
 
@@ -110,6 +114,10 @@ __all__ = [
     "ElementBlock",
     "Fixity",
     "InitialStress",
+    "InterfaceSpec",
+    "BoltSpec",
+    "LinerSpec",
+    "WaterCondition",
     "MaterialSpec",
     "Mesh",
     "Model",

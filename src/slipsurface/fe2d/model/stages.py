@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 from .boundary import Displacement, EdgeLoad, PointLoad, WaterCondition
@@ -20,6 +21,13 @@ class Stage:
     # prescribed displacements for this stage (total values, added to Model.displacements);
     # they are reached linearly over the stage's load steps
     displacements: tuple[Displacement, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.active_regions is not None:
+            object.__setattr__(self, "active_regions", frozenset(self.active_regions))
+        object.__setattr__(self, "active_structures", frozenset(self.active_structures))
+        if not 0.0 < self.load_split <= 1.0:
+            raise ValueError("load_split must be in (0, 1]")
 
 
 @dataclass(frozen=True)
@@ -42,8 +50,17 @@ class InitialStress:
     surface_y: float | None = None  # k0_field: None -> max y of the mesh
     field: tuple[float, float, float, float] | None = None
     gravity: bool = False  # "field" mode: also apply self-weight in the stages
+    # elements present in the initial stage (None: all continuum regions / all interfaces,
+    # no beams or bars); "wished-in-place" walls are activated in a later stage
+    active_regions: frozenset[int] | None = None
+    active_structures: frozenset[str] | None = None
+    water: WaterCondition = dataclasses.field(default_factory=WaterCondition)
 
     def __post_init__(self) -> None:
+        if self.active_regions is not None:
+            object.__setattr__(self, "active_regions", frozenset(self.active_regions))
+        if self.active_structures is not None:
+            object.__setattr__(self, "active_structures", frozenset(self.active_structures))
         if self.field is not None:
             object.__setattr__(self, "field", tuple(float(v) for v in self.field))
 

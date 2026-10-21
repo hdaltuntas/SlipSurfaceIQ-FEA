@@ -19,7 +19,6 @@ from numpy.typing import NDArray
 from ..core.errors import ModelError, NonConvergence, SolverError
 from ..core.log import get_logger
 from ..model.model import Model
-from ..model.stages import Stage
 from .static import SolveResult, StageResult, StaticSolver
 
 log = get_logger("srf")
@@ -62,13 +61,11 @@ def strength_reduction(
         idx = stage if isinstance(stage, int) else [s.name for s in model.stages].index(stage)
         idx = idx % len(model.stages)
         base = solver.run(stop_after=idx)
-        st_def: Stage = model.stages[idx]
     else:
         base = solver.run()
-        st_def = Stage("initial")
-    assert solver.state is not None
+    assert solver.state is not None and solver._ctx is not None
+    ctx = solver._ctx
     base_state = solver.state.commit()
-    override = dict(getattr(solver, "override", {}))
     if not any(m.model in ("mohr_coulomb", "drucker_prager") for m in model.materials.values()):
         raise ModelError("strength reduction needs Mohr-Coulomb or Drucker-Prager materials")
     trials: list[SRFTrial] = []
@@ -77,25 +74,27 @@ def strength_reduction(
 
     def trial(F: float) -> bool:
         mats = {k: v.with_strength_factor(F) for k, v in model.materials.items()}
-        lay = solver.layout(override, materials=mats)
+        lay = solver.layout(ctx.override, materials=mats)
         state = base_state.commit()
         solver._D_committed = None
-        solver.project(state, lay)
-        f_ext = solver.stage_external_force(st_def, lay)
+        sysm = solver.build_system(lay, ctx.active, ctx.water, ctx.displacements)
+        solver.project(state, sysm, lay)
+        f_ext = solver.external_force(sysm, ctx)
         try:
             state, _ = solver.solve_increment(
-                state, lay, f_ext, np.zeros(solver.dofmap.prescribed.size), trial_settings
+                state, sysm, lay, f_ext, np.zeros(sysm.dm.prescribed.size), trial_settings
             )
             ok, lam = True, 1.0
         except NonConvergence as exc:
             ok, lam = False, exc.lam
         except SolverError:
             ok, lam = False, 0.0
-        du = solver.dofmap.nodal(state.u - base_state.u)
+        du = state.u[:, :2] - base_state.u[:, :2]
+        du[~sysm.dm.used_nodes] = np.nan
         trials.append(SRFTrial(F, ok, lam, float(np.nanmax(np.linalg.norm(du, axis=1)))))
         log.info("SRF trial F=%.4f %s (lam=%.3f)", F, "ok" if ok else "FAILED", lam)
         if ok and ("F" not in best or F > best["F"]):  # type: ignore[operator]
-            best.update(F=F, res=solver._result(f"SRF F={F:.4f}", state, f_ext, {}))
+            best.update(F=F, res=solver._result(f"SRF F={F:.4f}", state, sysm, lay, f_ext, {}))
         if not ok:
             best.setdefault("fail_u", {})
             best["fail_u"][F] = du  # type: ignore[index]

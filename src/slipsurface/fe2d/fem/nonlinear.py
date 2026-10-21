@@ -91,8 +91,10 @@ def solve_stage(
     du_presc: Arr,
     settings: SolverSettings,
     linear: bool,
+    lam_end: float = 1.0,
 ) -> tuple[object, Arr, StageHistory]:
-    """Drive lambda from 0 to 1. Returns (final trial state, total du, history).
+    """Drive lambda from 0 to ``lam_end`` (< 1: load split). Returns (final trial state,
+    total du, history).
 
     ``du_presc``: increment of prescribed displacements over the whole stage.
     Raises :class:`NonConvergence` (with the last converged lambda) if the step size
@@ -111,10 +113,10 @@ def solve_stage(
     last_trial: object | None = None
     initial_fact = None
 
-    while lam < 1.0 - 1e-12:
-        lam_t = min(1.0, lam + dlam)
-        if 1.0 - lam_t < 1e-9:
-            lam_t = 1.0
+    while lam < lam_end - 1e-12:
+        lam_t = min(lam_end, lam + dlam)
+        if lam_end - lam_t < 1e-9:
+            lam_t = lam_end
         dpres = (lam_t - lam) * du_presc if pres.size else np.zeros(0)
         du = du_total.copy()
         res_hist: list[float] = []

@@ -127,5 +127,5 @@ def test_validation_errors():
     with pytest.raises(ModelError):
         api.run(m)
     m = column_model(stages=[api.Stage("exc", active_regions=frozenset())])
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ModelError):
         api.run(m)

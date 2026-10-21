@@ -1,16 +1,27 @@
-"""Static stage driver: initial stress + sequence of (elasto-plastic) stages.
+"""Staged static analysis: initial stress + sequence of (elasto-plastic) stages.
 
 Every stage is solved incrementally from the committed state with the Newton-Raphson
 family in :mod:`.nonlinear`:
 
-    R(u, lam) = lam f_ext + (1 - lam) f0 - f_int(sigma(u))
+    R(u, lam) = lam f_ext + (1 - lam) f0 - f_int(sigma'(u))
 
-Purely elastic stages take a single step and reuse the elastic factorisation across
-stages. When a stage changes materials (``material_override``) the committed stresses
-are first projected onto the new yield surfaces; the resulting out-of-balance force is
-applied gradually through ``f0`` (same mechanism as excavation unloading).
-
-Element activation/deactivation and structural elements arrive in Faz 3.
+* **Active set** — the mesh is fixed; continuum regions and structural blocks are switched
+  on and off per stage. Whenever the active set changes the DOF map, the CSR pattern and
+  the scatter indices are rebuilt (once per stage). Nodes that lose all their elements
+  keep (and hide) their displacement; nodes that become active get ``u_ref = u`` so the
+  reported displacement starts from zero.
+* **Excavation** — deactivated elements lose their stresses; ``f0`` is evaluated on the
+  remaining elements, so the unbalanced force on the new boundary is applied gradually.
+  ``Stage.load_split = alpha < 1`` stops the stage at lambda = alpha; the remainder is
+  carried over automatically to the next stage (support installed in between).
+* **Activation** — new continuum elements start stress-free, bars start with their
+  pretension; their self-weight enters ``f_ext``.
+* **Water** — a piezometric line gives hydrostatic pore pressures; the internal force is
+  effective, the pore-pressure terms (``int B^T m p``, joint water pressure and water
+  pressure on the exposed boundary of the active mesh) are external forces, unit weights
+  switch to saturated below the line. Changing the water level between stages produces
+  the corresponding load increment.
+* **Material change** — committed stresses are projected onto the new yield surfaces.
 """
 
 from __future__ import annotations
@@ -22,46 +33,48 @@ import numpy as np
 import scipy.sparse as sp
 from numpy.typing import NDArray
 
-from ..core.enums import Analysis
+from ..core.enums import Analysis, ElemType
 from ..core.errors import ModelError
 from ..core.log import get_logger
+from ..core.units import GAMMA_W
+from ..model.boundary import Displacement, WaterCondition
 from ..model.materials import MaterialSpec
 from ..model.model import Model
 from ..model.stages import SolverSettings, Stage
-from .assembly import (
-    DofMap,
-    SparsePattern,
-    element_stiffness,
-    internal_force,
-    scatter_vector,
-    strain,
-)
+from .assembly import DofMap, SparsePattern, element_stiffness, internal_force, strain
 from .elements import kernel
 from .elements.base import GeomCache
 from .linsolve import factorize
-from .loads import (
-    TractionFn,
-    assemble_nodal_loads,
-    gravity_element_forces,
-    k0_stress_field,
-)
+from .loads import TractionFn, assemble_nodal_loads, k0_stress_field, pressure_edge_forces
 from .materials import build as build_material
 from .nonlinear import Problem, StageHistory, solve_stage
 from .state import SolverState
+from .structural import GROUP_TYPES, BarGroup, BeamGroup, InterfaceGroup
 
 log = get_logger("static")
+_M = np.array([1.0, 1.0, 1.0, 0.0])
+_CONT = (ElemType.T3, ElemType.T6, ElemType.Q4, ElemType.Q8)
 
 
+# ================================================================== result objects
 @dataclass
 class StageResult:
     name: str
-    u: NDArray[np.float64]  # (nn, 2) reported displacement (NaN on DOF-less nodes)
-    sig: dict[str, NDArray[np.float64]]  # block tag -> (ne, ngp, 4)
-    reactions: NDArray[np.float64]  # (nn, 2) nodal reactions at prescribed DOFs
+    u: NDArray[np.float64]  # (nn, 2) reported displacement (NaN on inactive nodes)
+    sig: dict[str, NDArray[np.float64]]  # continuum tag -> (ne, ngp, 4) effective stress
+    reactions: NDArray[np.float64]  # (nn, 3) reactions (fx, fy, m) at prescribed DOFs
     timings: dict[str, float] = field(default_factory=dict)
     q: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, ngp, nq)
     plastic: dict[str, NDArray[np.uint8]] = field(default_factory=dict)  # (ne, ngp)
     history: StageHistory | None = None
+    rotation: NDArray[np.float64] | None = None  # (nn,) beam node rotations (NaN elsewhere)
+    active: dict[str, NDArray[np.bool_]] = field(default_factory=dict)
+    pore: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, ngp) [kPa]
+    beams: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, 2, 3) N, V, M
+    bars: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne,) axial force N
+    interfaces: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, ip, 2)
+    struct_flags: dict[str, NDArray[np.uint8]] = field(default_factory=dict)
+    lam: float = 1.0  # load factor reached (load split)
 
 
 @dataclass
@@ -84,11 +97,13 @@ class SolveResult:
         return self.stages[-1] if self.stages else self.initial
 
 
+# ================================================================== internals
 @dataclass
 class _BlockMat:
     groups: list[tuple[object, NDArray[np.int64]]]  # (constitutive model, element ids)
-    De: NDArray[np.float64]  # (ne, 4, 4) elastic matrices
-    gamma: NDArray[np.float64]  # (ne,)
+    De: NDArray[np.float64]  # (ne, 4, 4)
+    gamma: NDArray[np.float64]  # (ne,) unsaturated unit weight
+    gamma_sat: NDArray[np.float64]  # (ne,)
     k0: NDArray[np.float64]  # (ne,)
 
 
@@ -101,11 +116,46 @@ class _Layout:
 
 
 @dataclass
+class _ContSys:
+    tag: str
+    ids: NDArray[np.int64]
+    geom: GeomCache
+    edofs: NDArray[np.int64]
+    De: NDArray[np.float64]
+    groups: list[tuple[object, NDArray[np.int64]]]  # positions within ids
+    gamma: NDArray[np.float64]  # (n, ngp) unit weight at Gauss points
+    p: NDArray[np.float64]  # (n, ngp) pore pressure
+
+
+@dataclass
+class _StructSys:
+    group: object
+    ids: NDArray[np.int64]
+    edofs: NDArray[np.int64]
+    p: NDArray[np.float64] | None  # interfaces: (n, ip) joint water pressure
+
+
+@dataclass
+class System:
+    dm: DofMap
+    cont: list[_ContSys]
+    struct: list[_StructSys]
+    pattern: SparsePattern
+    linear: bool
+    symmetric: bool
+    key: tuple
+    water: WaterCondition
+
+
+@dataclass
 class Trial:
     sig: dict[str, NDArray[np.float64]]
     q: dict[str, NDArray[np.float64]]
     D: dict[str, NDArray[np.float64]]
     flag: dict[str, NDArray[np.uint8]]
+    st: dict[str, dict[str, NDArray[np.float64]]]
+    K: dict[str, NDArray[np.float64]]
+    sflag: dict[str, NDArray[np.uint8]]
 
 
 @dataclass
@@ -119,17 +169,27 @@ class _Factored:
         return self.fact.solve(rhs)  # type: ignore[attr-defined, no-any-return]
 
 
+@dataclass
+class _StageCtx:
+    """Everything that defines a stage's system (re-used by the SRF driver)."""
+
+    stage: Stage
+    override: dict[int, str]
+    active: dict[str, NDArray[np.bool_]]
+    water: WaterCondition
+    displacements: tuple[Displacement, ...]
+    with_gravity: bool
+
+
+# ================================================================== solver
 class StaticSolver:
     def __init__(self, model: Model, extra_tractions: dict[str, tuple] | None = None) -> None:
         model.validate()
         self.model = model
         self.mesh = model.mesh
         self.blocks = model.mesh.continuum_blocks()
-        if len(self.blocks) != len(model.mesh.blocks):
-            raise NotImplementedError("structural element blocks are implemented in Faz 3")
         if not self.blocks:
             raise ModelError("mesh has no continuum element block")
-        # extra (analytic) tractions per stage name, used by verification tests
         self.extra_tractions: dict[str, tuple[tuple[str, TractionFn], ...]] = extra_tractions or {}
         t0 = time.perf_counter()
         order = model.settings.gauss_order
@@ -137,19 +197,25 @@ class StaticSolver:
             b.tag: kernel(b.etype).precompute(self.mesh.coords, b.conn, model.analysis, order)
             for b in self.blocks
         }
-        self.dofmap = DofMap(self.mesh, None, None, model.fixities, model.displacements)
-        self.edofs = [self.dofmap.element_dofs(b) for b in self.blocks]
-        self.pattern = SparsePattern.build(self.edofs, self.dofmap.ndof)
+        props = {"beam": model.liners, "bar": model.bolts, "interface": model.interfaces}
+        kinds = model.structure_tags()
+        self.groups: list = [
+            GROUP_TYPES[b.etype](b, self.mesh.coords, props[kinds[b.tag]][b.tag], model.analysis)
+            for b in self.mesh.blocks
+            if b.etype not in _CONT
+        ]
+        self._iface_adj = self._interface_adjacency()
+        self._iface_face_keys = self._interface_face_keys()
         self._model_cache: dict[str, object] = {}
         for spec in model.materials.values():  # validates parameters early, fixes nq
             self._cm(spec)
         self._elastic_fact: dict[tuple, object] = {}
-        self._base_dofmap = self.dofmap
+        self._sys_cache: dict[tuple, System] = {}
         self.t_setup = time.perf_counter() - t0
-        # mutable solution state (set in run / used by the SRF driver)
         self.state: SolverState | None = None
-        self._D_committed: dict[str, NDArray[np.float64]] | None = None
-        self._layout: _Layout | None = None
+        self.system: System | None = None
+        self._ctx: _StageCtx | None = None
+        self._D_committed: tuple[dict, dict] | None = None
 
     # ------------------------------------------------------------------ materials
     def _cm(self, spec: MaterialSpec) -> object:
@@ -168,22 +234,24 @@ class StaticSolver:
         for b in self.blocks:
             De = np.empty((b.ne, 4, 4))
             g = np.empty(b.ne)
+            gs = np.empty(b.ne)
             k0 = np.empty(b.ne)
             groups = []
             for r in np.unique(b.region):
                 spec = mats[rm[int(r)]]
                 cm = self._cm(spec)
                 ids = np.flatnonzero(b.region == r)
-                k0v = (
-                    self.model.initial.k0 if self.model.initial.k0 is not None else cm.k0_default()
-                )  # type: ignore[attr-defined]
+                k0v = self.model.initial.k0
+                if k0v is None:
+                    k0v = cm.k0_default()  # type: ignore[attr-defined]
                 De[ids] = cm.elastic_D()  # type: ignore[attr-defined]
                 g[ids] = spec.gamma_unsat
+                gs[ids] = spec.gamma_sat
                 k0[ids] = k0v
                 groups.append((cm, ids))
                 linear &= not getattr(cm, "plastic", False)
                 symmetric &= bool(getattr(cm, "symmetric", True))
-            blocks.append(_BlockMat(groups, De, g, k0))
+            blocks.append(_BlockMat(groups, De, g, gs, k0))
         key = tuple(sorted(rm.items())) + tuple(
             (k, repr(sorted(mats[v].params.items()))) for k, v in sorted(rm.items())
         )
@@ -196,278 +264,655 @@ class StaticSolver:
             n = max(n, int(getattr(cm, "n_int", 0)))
         return n
 
+    # ------------------------------------------------------------- topology helpers
+    def _edge_owner_map(self) -> dict[tuple[int, int], tuple[int, int]]:
+        out: dict[tuple[int, int], tuple[int, int]] = {}
+        for bi, b in enumerate(self.blocks):
+            nc = 4 if b.etype in (ElemType.Q4, ElemType.Q8) else 3
+            for i in range(nc):
+                a, c = b.conn[:, i], b.conn[:, (i + 1) % nc]
+                for e, (p, q) in enumerate(zip(a.tolist(), c.tolist())):
+                    out[(min(p, q), max(p, q))] = (bi, e)
+        return out
+
+    def _interface_adjacency(self) -> dict[str, tuple[NDArray, NDArray, NDArray, NDArray]]:
+        """For each interface element: continuum (block, element) owning face 1 / face 2."""
+        if not any(isinstance(g, InterfaceGroup) for g in self.groups):
+            return {}
+        owner = self._edge_owner_map()
+        out = {}
+        for g in self.groups:
+            if not isinstance(g, InterfaceGroup):
+                continue
+            res = []
+            for face in (g.f1, g.f2):
+                bi = np.full(g.ne, -1)
+                ei = np.full(g.ne, -1)
+                for k, (p, q) in enumerate(zip(face[:, 0].tolist(), face[:, 1].tolist())):
+                    hit = owner.get((min(p, q), max(p, q)))
+                    if hit is not None:
+                        bi[k], ei[k] = hit
+                res += [bi, ei]
+            out[g.tag] = tuple(res)  # type: ignore[assignment]
+        return out  # type: ignore[return-value]
+
+    def _interface_face_keys(self) -> set[tuple[int, int]]:
+        keys: set[tuple[int, int]] = set()
+        for g in self.groups:
+            if isinstance(g, InterfaceGroup):
+                for face in (g.f1, g.f2):
+                    for p, q in zip(face[:, 0].tolist(), face[:, 1].tolist()):
+                        keys.add((min(p, q), max(p, q)))
+        return keys
+
+    def active_masks(
+        self, regions: frozenset[int] | None, structures: frozenset[str] | None
+    ) -> dict[str, NDArray[np.bool_]]:
+        """Activity per block; ``structures=None`` means all interfaces, no beams/bars."""
+        act: dict[str, NDArray[np.bool_]] = {}
+        for b in self.blocks:
+            act[b.tag] = (
+                np.ones(b.ne, dtype=bool)
+                if regions is None
+                else np.isin(b.region, np.fromiter(regions, dtype=np.int64))
+            )
+        for g in self.groups:
+            on = (isinstance(g, InterfaceGroup) and structures is None) or (
+                structures is not None and g.tag in structures
+            )
+            m = np.full(g.ne, on)
+            if on and isinstance(g, InterfaceGroup):
+                b1, e1, b2, e2 = self._iface_adj[g.tag]
+                for bi, ei in ((b1, e1), (b2, e2)):
+                    has = bi >= 0
+                    ok = np.ones(g.ne, dtype=bool)
+                    for k in np.flatnonzero(has):
+                        ok[k] = act[self.blocks[bi[k]].tag][ei[k]]
+                    m &= ok
+            act[g.tag] = m
+        return act
+
+    # ------------------------------------------------------------- system build
+    def build_system(
+        self,
+        lay: _Layout,
+        active: dict[str, NDArray[np.bool_]],
+        water: WaterCondition,
+        displacements: tuple[Displacement, ...],
+    ) -> System:
+        key = (
+            lay.key,
+            tuple((k, v.tobytes()) for k, v in sorted(active.items())),
+            water.key(),
+            displacements,
+        )
+        if key in self._sys_cache:
+            return self._sys_cache[key]
+        beam_nodes = [
+            g.block.conn[active[g.tag]].ravel() for g in self.groups if isinstance(g, BeamGroup)
+        ]
+        bn = np.unique(np.concatenate(beam_nodes)) if beam_nodes else np.empty(0, np.int64)
+        dm = DofMap(self.mesh, active, bn, self.model.fixities, displacements)
+        cont = []
+        for b, bm in zip(self.blocks, lay.blocks):
+            ids = np.flatnonzero(active[b.tag])
+            g = self.geom[b.tag]
+            if ids.size == b.ne:  # fully active block: no copies
+                gs = g
+            else:
+                gs = GeomCache(B=g.B[ids], wdet=g.wdet[ids], N=g.N, xg=g.xg[ids])
+            ed = dm.node_dofs[b.conn[ids]][:, :, :2].reshape(ids.size, -1)
+            groups = []
+            for cm, gids in bm.groups:
+                pos = gids if ids.size == b.ne else np.flatnonzero(np.isin(ids, gids))
+                if pos.size:
+                    groups.append((cm, pos))
+            h = water.head(gs.xg[..., 0])
+            p = GAMMA_W * np.maximum(h - gs.xg[..., 1], 0.0)
+            below = h > gs.xg[..., 1]
+            gam = np.where(below, bm.gamma_sat[ids][:, None], bm.gamma[ids][:, None])
+            De = bm.De if ids.size == b.ne else bm.De[ids]
+            cont.append(_ContSys(b.tag, ids, gs, ed, De, groups, gam, p))
+        struct = []
+        linear, symmetric = lay.linear, lay.symmetric
+        for g in self.groups:
+            ids = np.flatnonzero(active[g.tag])
+            if ids.size == 0:
+                continue
+            p = None
+            if isinstance(g, InterfaceGroup):
+                xi = g.xip[ids]
+                p = GAMMA_W * np.maximum(water.head(xi[..., 0]) - xi[..., 1], 0.0)
+                linear = False
+                symmetric &= g.symmetric
+            elif isinstance(g, BarGroup):
+                linear = False
+            struct.append(_StructSys(g, ids, g.edofs(dm.node_dofs, ids), p))
+        pattern = SparsePattern.build([c.edofs for c in cont] + [s.edofs for s in struct], dm.ndof)
+        sysm = System(dm, cont, struct, pattern, linear, symmetric, key, water)
+        self._sys_cache = {key: sysm}  # keep the latest only
+        return sysm
+
     # ------------------------------------------------------------- integration
     def integrate(
-        self, state: SolverState, du: NDArray[np.float64], lay: _Layout
+        self, state: SolverState, du: NDArray[np.float64], sysm: System, lay: _Layout
     ) -> tuple[Trial, NDArray[np.float64]]:
         sig, q, D, flag = {}, {}, {}, {}
-        for b, ed, bm in zip(self.blocks, self.edofs, lay.blocks):
-            geom = self.geom[b.tag]
-            deps = strain(geom, du[ed])
-            s_n = state.sig[b.tag]
-            q_n = state.q[b.tag]
-            if lay.linear:
-                sig[b.tag] = s_n + np.einsum("eij,egj->egi", bm.De, deps, optimize=True)
-                q[b.tag] = q_n
-                D[b.tag] = bm.De
-                flag[b.tag] = state.plastic[b.tag]
+        fint = np.zeros(sysm.dm.ndof)
+        for c in sysm.cont:
+            if c.ids.size == 0:
                 continue
-            ngp = geom.ngp
-            s_out = np.empty_like(s_n)
-            q_out = q_n.copy()
-            D_out = np.empty((b.ne, ngp, 4, 4))
-            f_out = np.zeros((b.ne, ngp), dtype=np.uint8)
-            for cm, ids in bm.groups:
-                ni = cm.n_int  # type: ignore[attr-defined]
-                sg, qg, Dg, fg = cm.integrate(  # type: ignore[attr-defined]
-                    s_n[ids].reshape(-1, 4),
-                    deps[ids].reshape(-1, 4),
-                    q_n[ids][..., : max(ni, 1)].reshape(-1, max(ni, 1)),
-                )
-                s_out[ids] = sg.reshape(ids.size, ngp, 4)
-                if ni:
-                    q_out[ids, :, :ni] = qg.reshape(ids.size, ngp, ni)
-                D_out[ids] = Dg.reshape(ids.size, ngp, 4, 4)
-                f_out[ids] = fg.reshape(ids.size, ngp)
-            sig[b.tag], q[b.tag], D[b.tag], flag[b.tag] = s_out, q_out, D_out, f_out
-        return Trial(sig, q, D, flag), self._fint(sig)
+            deps = strain(c.geom, du[c.edofs])
+            s_n = state.sig[c.tag][c.ids]
+            q_n = state.q[c.tag][c.ids]
+            if lay.linear:
+                s_out = s_n + np.einsum("eij,egj->egi", c.De, deps, optimize=True)
+                q_out, D_out, f_out = q_n, c.De, state.plastic[c.tag][c.ids]
+            else:
+                ngp = c.geom.ngp
+                n = c.ids.size
+                s_out = np.empty_like(s_n)
+                q_out = q_n.copy()
+                D_out = np.empty((n, ngp, 4, 4))
+                f_out = np.zeros((n, ngp), dtype=np.uint8)
+                for cm, pos in c.groups:
+                    ni = cm.n_int  # type: ignore[attr-defined]
+                    nq = max(ni, 1)
+                    sg, qg, Dg, fg = cm.integrate(  # type: ignore[attr-defined]
+                        s_n[pos].reshape(-1, 4),
+                        deps[pos].reshape(-1, 4),
+                        q_n[pos][..., :nq].reshape(-1, nq),
+                    )
+                    s_out[pos] = sg.reshape(pos.size, ngp, 4)
+                    if ni:
+                        q_out[pos, :, :ni] = qg.reshape(pos.size, ngp, ni)
+                    D_out[pos] = Dg.reshape(pos.size, ngp, 4, 4)
+                    f_out[pos] = fg.reshape(pos.size, ngp)
+            sig[c.tag], q[c.tag], D[c.tag], flag[c.tag] = s_out, q_out, D_out, f_out
+            fint += np.bincount(
+                c.edofs.ravel(), internal_force(c.geom, s_out).ravel(), minlength=sysm.dm.ndof
+            )
+        st, K, sflag = {}, {}, {}
+        for s in sysm.struct:
+            g = s.group
+            tst, fe, Ke, fl = g.integrate(state.struct[g.tag], s.ids, du[s.edofs], s.p)
+            st[g.tag], K[g.tag], sflag[g.tag] = tst, Ke, fl
+            fint += np.bincount(s.edofs.ravel(), fe.ravel(), minlength=sysm.dm.ndof)
+        return Trial(sig, q, D, flag, st, K, sflag), fint
 
-    # ------------------------------------------------------------------ helpers
-    def _stiffness(self, D: dict[str, NDArray[np.float64]]) -> sp.csr_matrix:
-        kes = [element_stiffness(self.geom[b.tag], D[b.tag]) for b in self.blocks]
-        return self.pattern.assemble(kes)
+    def _fint(self, state: SolverState, sysm: System, lay: _Layout) -> NDArray[np.float64]:
+        return self.integrate_committed(state, sysm, lay)[1]
 
-    def _factor_free(self, K: sp.csr_matrix, symmetric: bool) -> object:
-        f, p = self.dofmap.free, self.dofmap.prescribed
-        Kf = K[f]
+    def integrate_committed(self, state: SolverState, sysm: System, lay: _Layout):
+        return self.integrate(
+            state, np.zeros(sysm.dm.ndof), sysm, _Layout(lay.key, lay.blocks, True, True)
+        )
+
+    # ------------------------------------------------------------------ assembly
+    def _stiffness(self, sysm: System, D: dict, K: dict) -> sp.csr_matrix:
+        kes = [element_stiffness(c.geom, D[c.tag]) for c in sysm.cont]
+        kes += [K[s.group.tag] for s in sysm.struct]
+        return sysm.pattern.assemble(kes)
+
+    def _elastic_DK(self, sysm: System) -> tuple[dict, dict]:
+        D = {c.tag: c.De for c in sysm.cont}
+        K = {s.group.tag: s.group.elastic_K(s.ids) for s in sysm.struct}
+        return D, K
+
+    def _factor_free(self, sysm: System, Kmat: sp.csr_matrix, symmetric: bool) -> object:
+        f, p = sysm.dm.free, sysm.dm.prescribed
+        Kf = Kmat[f]
         fact = factorize(Kf[:, f], self.model.settings.linear_solver, symmetric)
         return _Factored(fact, Kf[:, p])
 
-    def _gravity(self, lay: _Layout) -> NDArray[np.float64]:
-        f = np.zeros(self.dofmap.ndof)
-        for b, ed, bm in zip(self.blocks, self.edofs, lay.blocks):
-            f += scatter_vector(
-                ed, gravity_element_forces(self.geom[b.tag], bm.gamma), self.dofmap.ndof
+    def external_force(
+        self, sysm: System, ctx: _StageCtx, stage_name: str | None = None
+    ) -> NDArray[np.float64]:
+        dm = sysm.dm
+        nd = dm.ndof
+        f = np.zeros(nd)
+        if ctx.with_gravity:
+            for c in sysm.cont:
+                if c.ids.size == 0:
+                    continue
+                fe = np.zeros((c.ids.size, c.edofs.shape[1]))
+                fe[:, 1::2] = -np.einsum("eg,eg,gn->en", c.gamma, c.geom.wdet, c.geom.N)
+                f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
+            for s in sysm.struct:
+                f += np.bincount(s.edofs.ravel(), s.group.body_force(s.ids).ravel(), minlength=nd)
+        if ctx.water.mode != "none":
+            f += self._water_forces(sysm, ctx.water)
+        loads = ctx.stage.loads
+        extra = self.extra_tractions.get(stage_name or ctx.stage.name, ())
+        if loads or extra:
+            f += assemble_nodal_loads(
+                self.mesh, dm.node_dofs, nd, loads, self.model.analysis, extra
             )
         return f
 
-    def _fint(self, sig: dict[str, NDArray[np.float64]]) -> NDArray[np.float64]:
-        f = np.zeros(self.dofmap.ndof)
-        for b, ed in zip(self.blocks, self.edofs):
-            f += scatter_vector(ed, internal_force(self.geom[b.tag], sig[b.tag]), self.dofmap.ndof)
+    def _water_forces(self, sysm: System, water: WaterCondition) -> NDArray[np.float64]:
+        dm = sysm.dm
+        nd = dm.ndof
+        f = np.zeros(nd)
+        # int B^T m p (moves to the external side in the effective-stress formulation)
+        for c in sysm.cont:
+            if c.ids.size and np.any(c.p > 0):
+                fe = internal_force(c.geom, c.p[..., None] * _M)
+                f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
+        for s in sysm.struct:
+            if s.p is not None and np.any(s.p > 0):
+                f += np.bincount(
+                    s.edofs.ravel(), s.group.pore_force(s.ids, s.p).ravel(), minlength=nd
+                )
+        # water pressure on the exposed boundary of the active continuum
+        edges, inner = self._exposed_edges(sysm)
+        if edges.size:
+            X = self.mesh.coords
+            hmax = water.head(X[edges[:, :2], 0]).max(axis=1)
+            sel = hmax > X[edges[:, :2], 1].min(axis=1)
+            if np.any(sel):
+
+                def pfun(x: NDArray[np.float64]) -> NDArray[np.float64]:
+                    return GAMMA_W * np.maximum(water.head(x[:, 0]) - x[:, 1], 0.0)
+
+                fe = pressure_edge_forces(X, edges[sel], inner[sel], pfun, self.model.analysis)
+                ed = dm.node_dofs[edges[sel]][:, :, :2]
+                ok = ed >= 0
+                fw = np.bincount(ed[ok], fe[ok], minlength=nd)
+                # on prescribed DOFs the boundary water load only shifts the reaction;
+                # leaving it out makes reported reactions total (effective + water)
+                fw[dm.prescribed] = 0.0
+                f += fw
         return f
 
-    def _result(
-        self,
-        name: str,
-        state: SolverState,
-        f_ext: NDArray,
-        timings: dict,
-        history: StageHistory | None = None,
-    ) -> StageResult:
-        dm = self.dofmap
-        r = np.zeros(dm.ndof)
-        r[dm.prescribed] = (self._fint(state.sig) - f_ext)[dm.prescribed]
-        return StageResult(
-            name=name,
-            u=dm.nodal(state.reported_u()),
-            sig={k: v.copy() for k, v in state.sig.items()},
-            reactions=np.nan_to_num(dm.nodal(r)),
-            timings=timings,
-            q={k: v.copy() for k, v in state.q.items()},
-            plastic={k: v.copy() for k, v in state.plastic.items()},
-            history=history,
-        )
+    def _exposed_edges(self, sysm: System) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+        X = self.mesh.coords
+        keys, rows, cents = [], [], []
+        nn = self.mesh.nn
+        for c, b in zip(sysm.cont, self.blocks):
+            if c.ids.size == 0:
+                continue
+            conn = b.conn[c.ids]
+            nc = 4 if b.etype in (ElemType.Q4, ElemType.Q8) else 3
+            quad = b.etype in (ElemType.T6, ElemType.Q8)
+            cen = X[conn[:, :nc]].mean(axis=1)
+            for i in range(nc):
+                a, e = conn[:, i], conn[:, (i + 1) % nc]
+                r = np.column_stack([a, e, conn[:, nc + i]]) if quad else np.column_stack([a, e])
+                keys.append(np.minimum(a, e) * nn + np.maximum(a, e))
+                rows.append(r)
+                cents.append(cen)
+        if not keys:
+            return np.empty((0, 2), np.int64), np.empty((0, 2))
+        k = np.concatenate(keys)
+        width = max(r.shape[1] for r in rows)
+        if any(r.shape[1] != width for r in rows):
+            raise ModelError("mixed linear/quadratic continuum blocks are not supported")
+        R = np.vstack(rows)
+        C = np.vstack(cents)
+        u, inv, cnt = np.unique(k, return_inverse=True, return_counts=True)
+        once = cnt[inv.ravel()] == 1
+        if self._iface_face_keys:
+            fk = np.array([a * nn + b for a, b in self._iface_face_keys])
+            once &= ~np.isin(k, fk)
+        return R[once], C[once]
 
+    # ------------------------------------------------------------------ state
     def zero_state(self) -> SolverState:
         nq = self.nq
-        z = {b.tag: np.zeros((b.ne, self.geom[b.tag].ngp, 4)) for b in self.blocks}
         return SolverState(
-            u=np.zeros(self.dofmap.ndof),
-            sig=z,
+            u=np.zeros((self.mesh.nn, 3)),
+            sig={b.tag: np.zeros((b.ne, self.geom[b.tag].ngp, 4)) for b in self.blocks},
             q={b.tag: np.zeros((b.ne, self.geom[b.tag].ngp, nq)) for b in self.blocks},
             plastic={
                 b.tag: np.zeros((b.ne, self.geom[b.tag].ngp), dtype=np.uint8) for b in self.blocks
             },
+            struct={g.tag: g.zero_state() for g in self.groups},
+            struct_flag={g.tag: np.zeros((g.ne, 1), dtype=np.uint8) for g in self.groups},
+            active={
+                **{b.tag: np.zeros(b.ne, dtype=bool) for b in self.blocks},
+                **{g.tag: np.zeros(g.ne, dtype=bool) for g in self.groups},
+            },
+            u_ref=np.zeros((self.mesh.nn, 3)),
         )
 
-    def project(self, state: SolverState, lay: _Layout) -> None:
+    def _gather_u(self, state: SolverState, dm: DofMap) -> NDArray[np.float64]:
+        u = np.zeros(dm.ndof)
+        for comp in range(3):
+            d = dm.node_dofs[:, comp]
+            m = d >= 0
+            u[d[m]] = state.u[m, comp]
+        return u
+
+    def _scatter_u(self, du: NDArray[np.float64], dm: DofMap) -> NDArray[np.float64]:
+        out = np.zeros((self.mesh.nn, 3))
+        for comp in range(3):
+            d = dm.node_dofs[:, comp]
+            m = d >= 0
+            out[m, comp] = du[d[m]]
+        return out
+
+    def apply_activation(self, state: SolverState, active: dict, dm: DofMap) -> None:
+        """Reset newly (de)activated elements; datum for newly active nodes."""
+        used_before = self._used_nodes(state.active)
+        for b in self.blocks:
+            new = active[b.tag] & ~state.active[b.tag]
+            gone = ~active[b.tag] & state.active[b.tag]
+            for arr in (state.sig[b.tag], state.q[b.tag]):
+                arr[new | gone] = 0.0
+            state.plastic[b.tag][new | gone] = 0
+        for g in self.groups:
+            new = np.flatnonzero(active[g.tag] & ~state.active[g.tag])
+            gone = np.flatnonzero(~active[g.tag] & state.active[g.tag])
+            if gone.size:
+                g.activate(state.struct[g.tag], gone)
+                for v in state.struct[g.tag].values():
+                    v[gone] = 0.0
+            if new.size:
+                g.activate(state.struct[g.tag], new)
+        used_now = dm.used_nodes
+        fresh = used_now & ~used_before
+        assert state.u_ref is not None
+        state.u_ref[fresh] = state.u[fresh]
+        state.active = {k: v.copy() for k, v in active.items()}
+
+    def _used_nodes(self, active: dict) -> NDArray[np.bool_]:
+        used = np.zeros(self.mesh.nn, dtype=bool)
+        for b in self.mesh.blocks:
+            m = active.get(b.tag)
+            if m is not None and m.any():
+                used[np.unique(b.conn[m])] = True
+        return used
+
+    def project(self, state: SolverState, sysm: System, lay: _Layout) -> None:
         """Return committed stresses onto the yield surfaces of ``lay`` (du = 0)."""
         if lay.linear:
             return
-        trial, _ = self.integrate(state, np.zeros(self.dofmap.ndof), lay)
-        state.sig, state.q, state.plastic = trial.sig, trial.q, trial.flag
-        self._D_committed = trial.D
+        trial, _ = self.integrate(state, np.zeros(sysm.dm.ndof), sysm, lay)
+        self._commit_trial(state, sysm, trial)
+        self._D_committed = (trial.D, trial.K)
+
+    def _commit_trial(self, state: SolverState, sysm: System, t: Trial) -> None:
+        for c in sysm.cont:
+            if c.tag in t.sig:
+                state.sig[c.tag][c.ids] = t.sig[c.tag]
+                state.q[c.tag][c.ids] = t.q[c.tag]
+                state.plastic[c.tag][c.ids] = t.flag[c.tag]
+        for s in sysm.struct:
+            tag = s.group.tag
+            for k, v in t.st[tag].items():
+                state.struct[tag][k][s.ids] = v
+            fl = t.sflag[tag]
+            if state.struct_flag[tag].shape[1] != fl.shape[1]:
+                state.struct_flag[tag] = np.zeros((s.group.ne, fl.shape[1]), dtype=np.uint8)
+            state.struct_flag[tag][s.ids] = fl
 
     # ------------------------------------------------------------- stage solve
     def solve_increment(
         self,
         state: SolverState,
+        sysm: System,
         lay: _Layout,
         f_ext: NDArray[np.float64],
         du_presc: NDArray[np.float64],
         settings: SolverSettings | None = None,
+        lam_end: float = 1.0,
     ) -> tuple[SolverState, StageHistory]:
         """Solve one stage from ``state`` (updated in place; on failure it holds the last
         converged step and :class:`NonConvergence` is raised)."""
-        dm = self.dofmap
-        f0 = self._fint(state.sig)
-        committed = state.commit()
-        u_start = committed.u.copy()
+        dm = sysm.dm
+        _, f0 = self.integrate_committed(state, sysm, lay)
+        base = state.commit()
+        committed = base
+        u_start = state.u.copy()
         D_comm = self._D_committed
 
         def integrate(du: NDArray[np.float64]) -> tuple[Trial, NDArray[np.float64]]:
-            return self.integrate(committed, du, lay)
+            return self.integrate(committed, du, sysm, lay)
 
         def factor(kind: str, trial: object | None) -> object:
             if kind == "elastic" or (kind == "committed" and D_comm is None):
-                key = (lay.key, dm.free.size, hash(dm.free.tobytes()))
+                key = (sysm.key, dm.free.size, hash(dm.free.tobytes()))
                 fk = self._elastic_fact.get(key)
                 if fk is None:
-                    K = self._stiffness({b.tag: bm.De for b, bm in zip(self.blocks, lay.blocks)})
-                    fk = self._factor_free(K, True)
+                    D, K = self._elastic_DK(sysm)
+                    fk = self._factor_free(sysm, self._stiffness(sysm, D, K), True)
                     self._elastic_fact = {key: fk}
                 return fk
-            Dd = trial.D if kind == "tangent" else D_comm  # type: ignore[union-attr]
-            return self._factor_free(self._stiffness(Dd), lay.symmetric)  # type: ignore[arg-type]
+            if kind == "tangent":
+                t: Trial = trial  # type: ignore[assignment]
+                D, K = t.D, t.K
+            else:
+                D, K = D_comm  # type: ignore[misc]
+                if set(K) != {s.group.tag for s in sysm.struct} or set(D) != {
+                    c.tag for c in sysm.cont if c.ids.size
+                }:
+                    D, K = self._elastic_DK(sysm)
+            return self._factor_free(sysm, self._stiffness(sysm, D, K), sysm.symmetric)
 
         def commit(trial: object, du_total: NDArray[np.float64]) -> None:
             nonlocal committed, D_comm
             t: Trial = trial  # type: ignore[assignment]
-            committed = SolverState(
-                u=u_start + du_total,
-                sig=t.sig,
-                q=t.q,
-                plastic=t.flag,
-                u_ref=committed.u_ref,
-            )
-            D_comm = t.D
+            new = base.commit()
+            new.u = u_start + self._scatter_u(du_total, dm)
+            self._commit_trial(new, sysm, t)
+            committed = new
+            D_comm = (t.D, t.K)
 
         prob = Problem(dm.ndof, dm.free, dm.prescribed, integrate, factor, commit)
         try:
             _, _, hist = solve_stage(
-                prob, f_ext, f0, du_presc, settings or self.model.settings, lay.linear
+                prob, f_ext, f0, du_presc, settings or self.model.settings, sysm.linear, lam_end
             )
         finally:
-            # on failure the state holds the last converged step (useful for mechanisms)
             self._D_committed = D_comm
-            state.u, state.sig, state.q, state.plastic = (
-                committed.u,
-                committed.sig,
-                committed.q,
-                committed.plastic,
-            )
+            for k in ("u", "sig", "q", "plastic", "struct", "struct_flag"):
+                setattr(state, k, getattr(committed, k))
         return state, hist
 
-    def stage_external_force(self, st: Stage, lay: _Layout) -> NDArray[np.float64]:
-        init = self.model.initial
-        with_g = init.mode in ("gravity", "k0_field") or (init.mode == "field" and init.gravity)
-        f = self._gravity(lay) if with_g else np.zeros(self.dofmap.ndof)
-        return f + assemble_nodal_loads(
-            self.mesh,
-            self.dofmap.node_dofs,
-            self.dofmap.ndof,
-            st.loads,
-            self.model.analysis,
-            self.extra_tractions.get(st.name, ()),
-        )
-
-    def _stage_dofmap(self, st: Stage) -> DofMap:
-        if not st.displacements:
-            return self._base_dofmap
-        return DofMap(
-            self.mesh,
-            None,
-            None,
-            self.model.fixities,
-            (*self.model.displacements, *st.displacements),
+    # ------------------------------------------------------------------ results
+    def _result(
+        self,
+        name: str,
+        state: SolverState,
+        sysm: System,
+        lay: _Layout,
+        f_ext: NDArray,
+        timings: dict,
+        history: StageHistory | None = None,
+        lam: float = 1.0,
+    ) -> StageResult:
+        dm = sysm.dm
+        _, fint = self.integrate_committed(state, sysm, lay)
+        r = np.zeros(dm.ndof)
+        r[dm.prescribed] = (fint - f_ext)[dm.prescribed]
+        used = dm.used_nodes
+        u = state.reported_u()[:, :2].copy()
+        u[~used] = np.nan
+        rot = np.full(self.mesh.nn, np.nan)
+        has_rot = dm.node_dofs[:, 2] >= 0
+        rot[has_rot] = state.reported_u()[has_rot, 2]
+        pore = {}
+        for c in sysm.cont:
+            pp = np.full(state.sig[c.tag].shape[:2], np.nan)
+            pp[c.ids] = c.p
+            pore[c.tag] = pp
+        beams, bars, ifs = {}, {}, {}
+        for g in self.groups:
+            act = state.active[g.tag]
+            if isinstance(g, BeamGroup):
+                v = g.end_forces(state.struct[g.tag]["f"])
+                v[~act] = np.nan
+                beams[g.tag] = v
+            elif isinstance(g, BarGroup):
+                v = state.struct[g.tag]["N"].copy()
+                v[~act] = np.nan
+                bars[g.tag] = v
+            else:
+                v = state.struct[g.tag]["t"].copy()
+                v[~act] = np.nan
+                ifs[g.tag] = v
+        return StageResult(
+            name=name,
+            u=u,
+            sig={k: v.copy() for k, v in state.sig.items()},
+            reactions=np.nan_to_num(dm.nodal(r, comps=3)),
+            timings=timings,
+            q={k: v.copy() for k, v in state.q.items()},
+            plastic={k: v.copy() for k, v in state.plastic.items()},
+            history=history,
+            rotation=rot,
+            active={k: v.copy() for k, v in state.active.items()},
+            pore=pore,
+            beams=beams,
+            bars=bars,
+            interfaces=ifs,
+            struct_flags={k: v.copy() for k, v in state.struct_flag.items()},
+            lam=lam,
         )
 
     # --------------------------------------------------------------------- run
+    def _with_gravity(self) -> bool:
+        init = self.model.initial
+        return init.mode in ("gravity", "k0_field") or (init.mode == "field" and init.gravity)
+
     def initial_state(self) -> tuple[SolverState, StageResult]:
-        model, dm = self.model, self.dofmap
+        model = self.model
+        init = model.initial
         lay = self.layout({})
-        self._layout = lay
         state = self.zero_state()
-        mode = model.initial.mode
+        active = self.active_masks(init.active_regions, init.active_structures)
+        sysm = self.build_system(lay, active, init.water, model.displacements)
+        self.apply_activation(state, active, sysm.dm)
+        ctx = _StageCtx(Stage("initial"), {}, active, init.water, model.displacements,
+                        init.mode in ("gravity", "k0_field"))  # fmt: skip
         timings: dict[str, float] = {"setup": self.t_setup}
         hist = None
-        f_grav = self._gravity(lay) if mode in ("gravity", "k0_field") else np.zeros(dm.ndof)
+        f_ext = (
+            self.external_force(sysm, ctx)
+            if init.mode in ("gravity", "k0_field")
+            else np.zeros(sysm.dm.ndof)
+        )
         t1 = time.perf_counter()
-        if mode == "gravity":
-            state, hist = self.solve_increment(state, lay, f_grav, np.zeros(dm.prescribed.size))
-            state.u = np.zeros(dm.ndof)  # displacements of the gravity stage are discarded
-        elif mode == "k0_field":
-            surf = model.initial.surface_y
+        if init.mode == "gravity":
+            state, hist = self.solve_increment(
+                state, sysm, lay, f_ext, np.zeros(sysm.dm.prescribed.size)
+            )
+            state.u[:] = 0.0  # displacements of the gravity stage are discarded
+            state.u_ref = np.zeros_like(state.u)
+        elif init.mode in ("k0_field", "field"):
+            self._assign_initial_stress(state, sysm, lay, ctx)
+            self.project(state, sysm, lay)
+            if init.mode == "k0_field":
+                _, fint = self.integrate_committed(state, sysm, lay)
+                res = fint - f_ext
+                fr = sysm.dm.free
+                rel = np.linalg.norm(res[fr]) / max(np.linalg.norm(f_ext[fr]), 1e-30)
+                if rel > 1e-3:
+                    log.warning(
+                        "K0 field is not in equilibrium with self-weight (relative residual "
+                        "%.2e); the first stage will redistribute it. Use mode='gravity' "
+                        "for non-horizontal ground.",
+                        rel,
+                    )
+        timings["solve"] = time.perf_counter() - t1
+        self.system, self._ctx, self._layout = sysm, ctx, lay
+        return state, self._result("initial", state, sysm, lay, f_ext, timings, hist)
+
+    def _assign_initial_stress(
+        self, state: SolverState, sysm: System, lay: _Layout, ctx: _StageCtx
+    ) -> None:
+        init = self.model.initial
+        if init.mode == "field":
+            s0 = np.asarray(init.field, dtype=float)
+            for c in sysm.cont:
+                state.sig[c.tag][c.ids] = s0
+        else:
+            surf = init.surface_y
             if surf is None:
                 surf = float(self.mesh.coords[:, 1].max())
-            yranges = []
-            for b in self.blocks:
-                ye = self.mesh.coords[b.conn, 1]
-                yranges.append(np.column_stack([ye.min(axis=1), ye.max(axis=1)]))
-            sig0 = k0_stress_field(
-                [self.geom[b.tag].xg for b in self.blocks],
-                yranges,
-                [bm.gamma for bm in lay.blocks],
-                [bm.k0 for bm in lay.blocks],
-                surf,
-            )
-            state.sig = {b.tag: s for b, s in zip(self.blocks, sig0)}
-            self.project(state, lay)
-            res = self._fint(state.sig) - f_grav
-            rel = np.linalg.norm(res[dm.free]) / max(np.linalg.norm(f_grav[dm.free]), 1e-30)
-            if rel > 1e-3:
-                log.warning(
-                    "K0 field is not in equilibrium with self-weight (relative residual "
-                    "%.2e); the first stage will redistribute it. Use mode='gravity' "
-                    "for non-horizontal ground.",
-                    rel,
-                )
-        elif mode == "field":
-            s0 = np.asarray(model.initial.field, dtype=float)
-            state.sig = {k: np.broadcast_to(s0, v.shape).copy() for k, v in state.sig.items()}
-            self.project(state, lay)
-        timings["solve"] = time.perf_counter() - t1
-        return state, self._result("initial", state, f_grav, timings, hist)
+            xg, yr, gam, k0s = [], [], [], []
+            for c, b in zip(sysm.cont, self.blocks):
+                ye = self.mesh.coords[b.conn[c.ids], 1]
+                xg.append(c.geom.xg)
+                yr.append(np.column_stack([ye.min(axis=1), ye.max(axis=1)]))
+                gam.append(c.gamma.mean(axis=1))  # saturated below the water line
+                k0s.append(np.ones(c.ids.size))
+            total = k0_stress_field(xg, yr, gam, k0s, surf)
+            for c, sv, bm in zip(sysm.cont, total, lay.blocks):
+                sve = sv[..., 1] + c.p  # effective vertical stress (tension +)
+                s = np.zeros_like(sv)
+                k0 = bm.k0[c.ids][:, None]
+                s[..., 1] = sve
+                s[..., 0] = s[..., 2] = k0 * sve
+                state.sig[c.tag][c.ids] = s
+        # interfaces start with the traction of the adjacent soil
+        ifaces = [s for s in sysm.struct if isinstance(s.group, InterfaceGroup)]
+        if ifaces:
+            from ..post.recovery import nodal_average
+
+            nodal = nodal_average(self.mesh, state.sig)
+            for s in ifaces:
+                t = s.group.initial_traction(s.ids, np.nan_to_num(nodal))
+                state.struct[s.group.tag]["t"][s.ids] = t
+
+    def stage_context(self, st: Stage, override: dict[int, str]) -> _StageCtx:
+        active = self.active_masks(st.active_regions, frozenset(st.active_structures))
+        if not any(active[b.tag].any() for b in self.blocks):
+            raise ModelError(f"stage '{st.name}' has no active continuum element")
+        disp = (*self.model.displacements, *st.displacements)
+        return _StageCtx(st, override, active, st.water, disp, self._with_gravity())
+
+    def solve_stage_ctx(
+        self,
+        state: SolverState,
+        ctx: _StageCtx,
+        lay: _Layout,
+        settings: SolverSettings | None = None,
+    ) -> tuple[SolverState, System, NDArray[np.float64], StageHistory]:
+        sysm = self.build_system(lay, ctx.active, ctx.water, ctx.displacements)
+        self.apply_activation(state, ctx.active, sysm.dm)
+        if self._D_committed is not None:
+            D, K = self._D_committed
+            if set(D) != {c.tag for c in sysm.cont if c.ids.size}:
+                self._D_committed = None
+        f_ext = self.external_force(sysm, ctx)
+        dm = sysm.dm
+        du_presc = dm.prescribed_values - self._gather_u(state, dm)[dm.prescribed]
+        if ctx.stage.reset_displacements:
+            state.u_ref = state.u.copy()
+        state, hist = self.solve_increment(
+            state, sysm, lay, f_ext, du_presc, settings, ctx.stage.load_split
+        )
+        return state, sysm, f_ext, hist
 
     def run(self, stop_after: int | None = None) -> SolveResult:
         """Initial state + stages ``0..stop_after`` (all stages by default)."""
-        model, dm = self.model, self.dofmap
-        all_regions = self.mesh.regions()
-        for st in model.stages:
-            if st.active_regions is not None and frozenset(st.active_regions) != all_regions:
-                raise NotImplementedError("element activation/excavation arrives in Faz 3")
-            if st.active_structures:
-                raise NotImplementedError("structural elements arrive in Faz 3")
-            if st.water.mode != "none":
-                raise NotImplementedError("groundwater coupling arrives in Faz 3-4")
-
+        model = self.model
         state, initial = self.initial_state()
         results = []
-        current_override: dict[int, str] = {}
+        override: dict[int, str] = {}
         lay = self._layout
         assert lay is not None
         stages = model.stages if stop_after is None else model.stages[: stop_after + 1]
-        self.override = current_override
         for st in stages:
             t1 = time.perf_counter()
-            if st.material_override != current_override:
-                current_override = dict(st.material_override)
-                lay = self.layout(current_override)
+            if st.material_override != override:
+                override = dict(st.material_override)
+                lay = self.layout(override)
                 self._D_committed = None
-                self.project(state, lay)
-            self.dofmap = self._stage_dofmap(st)
-            dm = self.dofmap
-            f_ext = self.stage_external_force(st, lay)
-            # prescribed values are totals: move from the current position to them
-            du_presc = dm.prescribed_values - state.u[dm.prescribed]
-            if st.reset_displacements:
-                state.u_ref = state.u.copy()
-            state, hist = self.solve_increment(state, lay, f_ext, du_presc)
+                prev = self._ctx
+                assert prev is not None
+                proj_sys = self.build_system(lay, state.active, prev.water, prev.displacements)
+                self.project(state, proj_sys, lay)
+            ctx = self.stage_context(st, override)
+            state, sysm, f_ext, hist = self.solve_stage_ctx(state, ctx, lay)
             timings = {"solve": time.perf_counter() - t1}
-            results.append(self._result(st.name, state, f_ext, timings, hist))
-            self.override = current_override
-        self.state, self._layout = state, lay
+            results.append(
+                self._result(st.name, state, sysm, lay, f_ext, timings, hist, st.load_split)
+            )
+            self.system, self._ctx, self._layout = sysm, ctx, lay
+        self.state = state
         return SolveResult(model=model, geom=self.geom, initial=initial, stages=results)
 
 

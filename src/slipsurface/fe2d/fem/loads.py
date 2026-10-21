@@ -200,3 +200,34 @@ def k0_stress_field(
         sig[..., 2] = k0[:, None] * sv
         out.append(sig)
     return out
+
+
+def pressure_edge_forces(
+    coords: NDArray[np.float64],
+    edges: NDArray[np.int64],
+    inner: NDArray[np.float64],
+    pressure: Callable[[NDArray[np.float64]], NDArray[np.float64]],
+    analysis: Analysis,
+    ngauss: int = 4,
+) -> NDArray[np.float64]:
+    """Consistent nodal forces (n_edge, npe, 2) of a pressure field ``p(x)`` (>0 pushes
+    into the material) on ``edges``; ``inner`` (n_edge, 2) is a point inside the owning
+    element (orients the outward normal)."""
+    edges = np.atleast_2d(edges)
+    npe = edges.shape[1]
+    xi, w = gauss_legendre(ngauss)
+    N, dN = _edge_shape(npe, xi)
+    X = coords[edges]
+    xg = np.einsum("gn,enj->egj", N, X)
+    T = np.einsum("gn,enj->egj", dN, X)
+    jac = np.linalg.norm(T, axis=2)
+    n = np.stack([T[..., 1], -T[..., 0]], axis=2) / np.maximum(jac, 1e-300)[..., None]
+    mid = X[:, :2].mean(axis=1)
+    s = np.sign(np.einsum("ej,ej->e", n.mean(axis=1), mid - inner))
+    s[s == 0] = 1.0
+    n *= s[:, None, None]
+    p = pressure(xg.reshape(-1, 2)).reshape(xg.shape[:2])
+    wt = jac * w[None, :]
+    if analysis is Analysis.AXISYMMETRIC:
+        wt = wt * xg[..., 0]
+    return np.einsum("gn,egj,eg->enj", N, -p[..., None] * n, wt)
