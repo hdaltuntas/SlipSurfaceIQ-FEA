@@ -72,3 +72,38 @@ def test_modified_newton_is_linear():
     k = _loglog(hist)
     assert k.size >= 1 and np.median(k) < 1.3
     assert _history(mat, p_in, p_out, "hybrid").n_iterations < hist.n_iterations
+
+
+def test_all_methods_reach_the_same_solution():
+    """NR, mNR, hybrid, initial stiffness and NR + line search: same converged state."""
+    mat, p_in, p_out = CASES["mc_nonassoc"]
+    u = {}
+    for method, ls in [("NR", False), ("NR", True), ("mNR", False), ("hybrid", False),
+                       ("initial", False)]:  # fmt: skip
+        mesh = rectangle(1.0, 0.1, 20, 2, ElemType.T6, origin=(1.0, 0.0), grade_x=2.0)
+        model = api.Model(
+            analysis=api.Analysis.AXISYMMETRIC,
+            mesh=mesh,
+            materials={"m": mat},
+            region_material={1: "m"},
+            fixities=(api.Fixity("bottom", False, True), api.Fixity("top", False, True)),
+            initial=api.InitialStress("field", field=(-p_out, -p_out, -p_out, 0.0)),
+            stages=[
+                api.Stage(
+                    "p", loads=(api.EdgeLoad("left", qn=p_in), api.EdgeLoad("right", qn=p_out))
+                )
+            ],
+            settings=api.SolverSettings(
+                method=method,
+                line_search=ls,
+                tol_force=1e-8,
+                tol_energy=1e-12,
+                max_iter=300,
+                dlam0=0.1,
+                dlam_max=0.1,
+            ),  # fmt: skip
+        )
+        u[(method, ls)] = api.run(model).last.u
+    ref = u[("NR", False)]
+    for k, v in u.items():
+        assert np.abs(v - ref).max() < 1e-5 * np.abs(ref).max(), k

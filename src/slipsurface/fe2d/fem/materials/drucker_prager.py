@@ -170,6 +170,36 @@ class DruckerPrager(LinearElastic):
         return sig, q, D, flag
 
 
+class DPYield:
+    """Drucker-Prager callbacks for the explicit substepping integrator."""
+
+    def __init__(self, model: DruckerPrager) -> None:
+        self.m = model
+
+    def _sj(self, sig: NDArray[np.float64]) -> tuple[NDArray, float, float]:
+        p = sig[:3].sum() / 3.0
+        s = sig - p * _M
+        return s, p, max(float(np.sqrt(0.5 * (s * s * _W).sum())), 1e-300)
+
+    def f(self, sig: NDArray[np.float64], q: NDArray[np.float64]) -> float:
+        s, p, rho = self._sj(sig)
+        return rho + self.m.alpha * p - (self.m.k0 + self.m.H * q[0])
+
+    def df(self, sig: NDArray[np.float64], q: NDArray[np.float64]) -> NDArray[np.float64]:
+        s, _, rho = self._sj(sig)
+        return np.asarray(s * _W / (2 * rho) + self.m.alpha / 3.0 * _M)
+
+    def dg(self, sig: NDArray[np.float64], q: NDArray[np.float64]) -> NDArray[np.float64]:
+        s, _, rho = self._sj(sig)
+        return np.asarray(s * _W / (2 * rho) + self.m.beta / 3.0 * _M)
+
+    def hardening(
+        self, sig: NDArray[np.float64], q: NDArray[np.float64]
+    ) -> tuple[float, NDArray[np.float64]]:
+        # q[0] = multiplier (sqrt(J2)-conjugate plastic strain): dq = dlam
+        return self.m.H, np.ones(1)
+
+
 class VonMises(DruckerPrager):
     """von Mises with linear isotropic hardening; ``sy`` is the uniaxial yield stress,
     ``H`` the hardening modulus in uniaxial stress per unit equivalent plastic strain."""
@@ -180,4 +210,4 @@ class VonMises(DruckerPrager):
         self.sy = float(sy)
 
 
-__all__ = ["DruckerPrager", "VonMises", "dp_parameters", "equivalent_plastic_strain"]
+__all__ = ["DPYield", "DruckerPrager", "VonMises", "dp_parameters", "equivalent_plastic_strain"]

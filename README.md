@@ -5,7 +5,7 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Status: Faz 1 (lineer elastik statik çekirdek).**
+**Status: Faz 2 (elasto-plastik çözücü) — Kapı 1 ve Kapı 2 geçti.**
 
 ## Install (development)
 
@@ -35,6 +35,36 @@ model = api.Model(
 res = api.run(model)                  # gravity initial stress + stages
 api.export_vtu(res, "surcharge.vtu")  # open in ParaView
 ```
+
+### Elasto-plastic analysis and factor of safety
+
+```python
+from slipsurface.fe2d import api
+from slipsurface.fe2d.mesh import Domain, unstructured_mesh
+
+d = Domain().add_polygon([(0, 0), (40, 0), (40, 10), (20, 10)],
+                         edge_names=["base", "right", "crest", "face"])
+mesh = unstructured_mesh(d, h=1.0)
+soil = api.MaterialSpec.mohr_coulomb("soil", E=1e5, nu=0.3, c=10.0, phi=20.0, psi=0.0,
+                                     sig_t=None, gamma=20.0)
+model = api.Model(
+    analysis=api.Analysis.PLANE_STRAIN, mesh=mesh,
+    materials={"soil": soil}, region_material={1: "soil"},
+    fixities=(api.Fixity("base", True, True), api.Fixity("right", True, False)),
+    initial=api.InitialStress("gravity"),          # elasto-plastic gravity stage
+    settings=api.SolverSettings(method="NR"),      # "NR" | "mNR" | "hybrid" | "initial"
+)
+fs = api.strength_reduction(model)                 # SRF by bisection
+print(fs.factor)                                   # ≈ 1.38 (Bishop: 1.378)
+```
+
+Materials: `elastic`, `mohr_coulomb` (+ tension cut-off, non-associated flow; implicit
+multi-surface return in principal stress space, consistent tangent), `drucker_prager`
+(plane-strain/outer/inner match), `von_mises` (linear hardening). Stages may prescribe
+displacements (`Stage.displacements`) for displacement-controlled loading; the initial
+state can be `gravity`, `k0_field`, a constant `field` or `none`. Elements: T3, T6, Q4
+(B-bar), Q8. Nodal stresses use superconvergent patch recovery (`api.nodal_stress`).
+`slipsurface.fe2d.gui.show_result` gives a quick PyVista view (`pip install .[gui]`).
 
 ### Unstructured mesh (Delaunay + Ruppert)
 
@@ -77,7 +107,7 @@ points become one-node sets; `boundary` and `all` are always present. See
 | L1 | `model/` — immutable model definition | L0 |
 | L0 | `core/` — units, enums, errors, logging | NumPy |
 
-## Verification (Kapı 1)
+## Verification (Kapı 1, Kapı 2)
 
 See [`docs/verification.md`](docs/verification.md).
 

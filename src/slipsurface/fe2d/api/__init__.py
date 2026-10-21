@@ -43,7 +43,7 @@ from ..model import (
     SolverSettings,
     Stage,
 )
-from ..post.recovery import nodal_average, principal_stresses
+from ..post.recovery import nodal_average, principal_stresses, spr
 
 
 def run(model: Model) -> SolveResult:
@@ -51,16 +51,34 @@ def run(model: Model) -> SolveResult:
     return solve(model)
 
 
-def nodal_stress(result: SolveResult, stage: str | int | None = None) -> np.ndarray:
+def nodal_stress(
+    result: SolveResult, stage: str | int | None = None, method: str = "spr"
+) -> np.ndarray:
+    """Nodal stresses (nn, 4): ``method="spr"`` (patch recovery) or ``"average"``."""
     st = result.last if stage is None else result.stage(stage)
-    return nodal_average(result.model.mesh, st.sig)
+    mesh = result.model.mesh
+    if method == "average":
+        return nodal_average(mesh, st.sig)
+    if method == "spr":
+        return spr(mesh, st.sig, {k: g.xg for k, g in result.geom.items()})
+    raise ValueError(f"unknown recovery method '{method}'")
 
 
-def export_vtu(result: SolveResult, path: str | Path, stage: str | int | None = None) -> Path:
-    """Write displacements and nodal stresses (core sign convention) of one stage."""
+def export_vtu(
+    result: SolveResult,
+    path: str | Path,
+    stage: str | int | None = None,
+    method: str = "spr",
+) -> Path:
+    """Write displacements, nodal stresses (core sign convention) and plastic state.
+
+    Point data: displacement, sxx/syy/szz/txy, s1/s3/q (recovered with ``method``),
+    eps_p (equivalent plastic strain, averaged). Cell data: plastic (fraction of
+    yielding Gauss points per element).
+    """
     st: StageResult = result.last if stage is None else result.stage(stage)
     mesh = result.model.mesh
-    s = nodal_average(mesh, st.sig)
+    s = nodal_stress(result, stage, method)
     p = principal_stresses(s)
     pd = {
         "displacement": st.u,
@@ -72,7 +90,15 @@ def export_vtu(result: SolveResult, path: str | Path, stage: str | int | None = 
         "s3": p["s3"],
         "q": p["q"],
     }
-    return write_vtu(path, mesh, pd)
+    cd = {}
+    if st.q:
+        pd["eps_p"] = np.maximum(
+            0.0, nodal_average(mesh, {k: v[..., :1] for k, v in st.q.items()})[:, 0]
+        )
+    if st.plastic:
+        blocks = [b for b in mesh.continuum_blocks() if b.tag in st.plastic]
+        cd["plastic"] = np.concatenate([(st.plastic[b.tag] > 0).mean(axis=1) for b in blocks])
+    return write_vtu(path, mesh, pd, cd)
 
 
 __all__ = [

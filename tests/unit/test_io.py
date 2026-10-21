@@ -62,3 +62,38 @@ def test_vtu_is_valid_xml(tmp_path):
     n = int(np.frombuffer(raw[:8], dtype=np.uint64)[0])
     pts = np.frombuffer(raw[8 : 8 + n], dtype=np.float64).reshape(-1, 3)
     assert np.array_equal(pts[:, :2], m.mesh.coords)
+
+
+def test_json_roundtrip_faz2_fields(tmp_path):
+    from slipsurface.fe2d import api
+    from slipsurface.fe2d.mesh import rectangle
+
+    mesh = rectangle(2.0, 1.0, 4, 2)
+    model = api.Model(
+        analysis=api.Analysis.PLANE_STRAIN,
+        mesh=mesh,
+        materials={
+            "mc": api.MaterialSpec.mohr_coulomb("mc", 2e4, 0.3, 10.0, 30.0, 5.0, sig_t=1.0),
+            "dp": api.MaterialSpec.drucker_prager("dp", 2e4, 0.3, 10.0, 30.0, match="outer"),
+            "vm": api.MaterialSpec.von_mises("vm", 2e5, 0.3, 250.0, H=1e3),
+        },
+        region_material={1: "mc"},
+        fixities=(api.Fixity("bottom", True, True),),
+        initial=api.InitialStress("field", field=(-10.0, -20.0, -10.0, 0.0)),
+        stages=[
+            api.Stage(
+                "push",
+                material_override={1: "dp"},
+                displacements=(api.Displacement("top", uy=-0.01),),
+            )
+        ],
+        settings=api.SolverSettings(method="hybrid", line_search=True, dlam0=0.2),
+    )
+    p = api.save_model(model, tmp_path / "m.json")
+    m2 = api.load_model(p)
+    assert m2.materials == model.materials
+    assert m2.initial == model.initial
+    assert m2.stages[0].displacements == model.stages[0].displacements
+    assert m2.settings == model.settings
+    r1, r2 = api.run(model), api.run(m2)
+    assert np.allclose(r1.last.u, r2.last.u)
