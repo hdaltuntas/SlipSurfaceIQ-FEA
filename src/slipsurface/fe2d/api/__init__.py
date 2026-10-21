@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
+from ..fem.srf import SRFResult, strength_reduction
 from ..fem.static import SolveResult, StageResult, solve
 from ..io.project_json import load_model, save_model
 from ..io.vtk_export import write_vtu
@@ -88,6 +89,7 @@ __all__ = [
     "Model",
     "PlasticFlag",
     "PointLoad",
+    "SRFResult",
     "SolveResult",
     "SolverSettings",
     "Stage",
@@ -97,4 +99,5 @@ __all__ = [
     "nodal_stress",
     "run",
     "save_model",
+    "strength_reduction",
 ]

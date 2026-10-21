@@ -27,7 +27,7 @@ from ..core.errors import ModelError
 from ..core.log import get_logger
 from ..model.materials import MaterialSpec
 from ..model.model import Model
-from ..model.stages import Stage
+from ..model.stages import SolverSettings, Stage
 from .assembly import (
     DofMap,
     SparsePattern,
@@ -106,6 +106,17 @@ class Trial:
     q: dict[str, NDArray[np.float64]]
     D: dict[str, NDArray[np.float64]]
     flag: dict[str, NDArray[np.uint8]]
+
+
+@dataclass
+class _Factored:
+    """Factorised K_ff plus the free x prescribed coupling block."""
+
+    fact: object
+    Kfp: sp.csr_matrix
+
+    def solve(self, rhs: NDArray[np.float64]) -> NDArray[np.float64]:
+        return self.fact.solve(rhs)  # type: ignore[attr-defined, no-any-return]
 
 
 class StaticSolver:
@@ -227,8 +238,10 @@ class StaticSolver:
         return self.pattern.assemble(kes)
 
     def _factor_free(self, K: sp.csr_matrix, symmetric: bool) -> object:
-        f = self.dofmap.free
-        return factorize(K[f][:, f], self.model.settings.linear_solver, symmetric)
+        f, p = self.dofmap.free, self.dofmap.prescribed
+        Kf = K[f]
+        fact = factorize(Kf[:, f], self.model.settings.linear_solver, symmetric)
+        return _Factored(fact, Kf[:, p])
 
     def _gravity(self, lay: _Layout) -> NDArray[np.float64]:
         f = np.zeros(self.dofmap.ndof)
@@ -293,8 +306,10 @@ class StaticSolver:
         lay: _Layout,
         f_ext: NDArray[np.float64],
         du_presc: NDArray[np.float64],
+        settings: SolverSettings | None = None,
     ) -> tuple[SolverState, StageHistory]:
-        """Solve one stage from ``state`` (modified in place on success)."""
+        """Solve one stage from ``state`` (updated in place; on failure it holds the last
+        converged step and :class:`NonConvergence` is raised)."""
         dm = self.dofmap
         f0 = self._fint(state.sig)
         committed = state.commit()
@@ -329,14 +344,19 @@ class StaticSolver:
             D_comm = t.D
 
         prob = Problem(dm.ndof, dm.free, dm.prescribed, integrate, factor, commit)
-        _, _, hist = solve_stage(prob, f_ext, f0, du_presc, self.model.settings, lay.linear)
-        self._D_committed = D_comm
-        state.u, state.sig, state.q, state.plastic = (
-            committed.u,
-            committed.sig,
-            committed.q,
-            committed.plastic,
-        )
+        try:
+            _, _, hist = solve_stage(
+                prob, f_ext, f0, du_presc, settings or self.model.settings, lay.linear
+            )
+        finally:
+            # on failure the state holds the last converged step (useful for mechanisms)
+            self._D_committed = D_comm
+            state.u, state.sig, state.q, state.plastic = (
+                committed.u,
+                committed.sig,
+                committed.q,
+                committed.plastic,
+            )
         return state, hist
 
     def stage_external_force(self, st: Stage, lay: _Layout) -> NDArray[np.float64]:
@@ -410,7 +430,8 @@ class StaticSolver:
         timings["solve"] = time.perf_counter() - t1
         return state, self._result("initial", state, f_grav, timings, hist)
 
-    def run(self) -> SolveResult:
+    def run(self, stop_after: int | None = None) -> SolveResult:
+        """Initial state + stages ``0..stop_after`` (all stages by default)."""
         model, dm = self.model, self.dofmap
         all_regions = self.mesh.regions()
         for st in model.stages:
@@ -426,7 +447,9 @@ class StaticSolver:
         current_override: dict[int, str] = {}
         lay = self._layout
         assert lay is not None
-        for st in model.stages:
+        stages = model.stages if stop_after is None else model.stages[: stop_after + 1]
+        self.override = current_override
+        for st in stages:
             t1 = time.perf_counter()
             if st.material_override != current_override:
                 current_override = dict(st.material_override)
@@ -443,6 +466,7 @@ class StaticSolver:
             state, hist = self.solve_increment(state, lay, f_ext, du_presc)
             timings = {"solve": time.perf_counter() - t1}
             results.append(self._result(st.name, state, f_ext, timings, hist))
+            self.override = current_override
         self.state, self._layout = state, lay
         return SolveResult(model=model, geom=self.geom, initial=initial, stages=results)
 

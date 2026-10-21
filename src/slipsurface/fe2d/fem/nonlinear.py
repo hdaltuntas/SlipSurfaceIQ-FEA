@@ -11,6 +11,11 @@ spurious unloading occurs between iterations. A step that does not converge is r
 back and retried with half the increment; a step converging in ``fast_iter`` iterations
 or fewer lets the next increment grow by 1.5.
 
+The first iteration of every step is a predictor with the tangent of the last
+converged state; prescribed-displacement increments enter it in linearised form
+(``R0 - K_fp du_p``), so displacement-controlled steps start from a smooth field instead
+of a boundary-layer strain spike.
+
 Tangent options (``SolverSettings.method``):
 
 * ``"NR"``      consistent tangent, refactorised every iteration (quadratic convergence)
@@ -18,7 +23,8 @@ Tangent options (``SolverSettings.method``):
 * ``"hybrid"``  mNR, switching to NR inside a step when ``||R_i|| / ||R_i-1|| > ratio``
 * ``"initial"`` elastic stiffness, factorised once per stage
 
-Convergence needs both ``||R|| / f_ref < tol_force`` and
+A step is abandoned early when the residual stagnates (no 20 % reduction over four
+iterations) or diverges. Convergence needs both ``||R|| / f_ref < tol_force`` and
 ``|du_i . R_i| / |du_0 . R_0| < tol_energy``; ``f_ref`` is the norm of the stage's change
 of external force on the free DOFs, of the reaction change, or (displacement-driven
 stages) of the total reaction at the driven DOFs, whichever is largest.
@@ -71,7 +77,8 @@ class Problem:
     prescribed: NDArray[np.int64]
     # integrate(du_step) -> (trial state object, f_int (ndof,))  from the committed state
     integrate: Callable[[Arr], tuple[object, Arr]]
-    # factor(kind, trial) -> object with .solve(rhs_free); kind: "tangent"|"committed"|"elastic"
+    # factor(kind, trial) -> object with .solve(rhs_free) and .Kfp (free x prescribed);
+    # kind: "tangent" | "committed" | "elastic"
     factor: Callable[[str, object | None], object]
     # commit(trial, du_total_so_far): make a converged step the new committed state
     commit: Callable[[object, Arr], None]
@@ -108,9 +115,8 @@ def solve_stage(
         lam_t = min(1.0, lam + dlam)
         if 1.0 - lam_t < 1e-9:
             lam_t = 1.0
+        dpres = (lam_t - lam) * du_presc if pres.size else np.zeros(0)
         du = du_total.copy()
-        if pres.size:
-            du[pres] += (lam_t - lam) * du_presc
         res_hist: list[float] = []
         converged = False
         fact = None
@@ -134,7 +140,7 @@ def solve_stage(
                 )
                 rel = float(np.linalg.norm(Rf)) / f_ref
                 res_hist.append(rel)
-                if it == 0 and rel < 1e-3 * s.tol_force:
+                if it == 0 and rel < 1e-3 * s.tol_force and not driven.size:
                     converged = True
                     break
                 if it > 0:
@@ -145,7 +151,10 @@ def solve_stage(
                     if linear and rel < 1e-8:
                         converged = True
                         break
-                if it == s.max_iter or not np.isfinite(rel):
+                if it == s.max_iter or not np.isfinite(rel) or rel > 1e8:
+                    break
+                # stagnation / divergence: give up early and cut the step
+                if it >= 6 and rel > 0.8 * res_hist[it - 4] and rel > s.tol_force:
                     break
                 # ---- tangent / factorisation
                 if s.method == "hybrid" and it >= 2 and rel > s.hybrid_ratio * prev_rel:
@@ -154,15 +163,24 @@ def solve_stage(
                     if initial_fact is None:
                         initial_fact = prob.factor("elastic", None)
                     fact = initial_fact
+                elif it == 0 or (fact is None and not use_nr):
+                    # predictor (and mNR): tangent of the last converged state
+                    fact = prob.factor("committed", None)
                 elif use_nr:
                     fact = prob.factor("tangent", trial)
-                elif fact is None:
-                    fact = prob.factor("committed", None)
-                ddu = fact.solve(Rf)  # type: ignore[attr-defined]
                 if it == 0:
-                    g0 = float(ddu @ Rf)
-                if s.line_search and it > 0:
-                    ddu = _line_search(prob, du - du_total, ddu, Rf, lam_t, f_ext, f0, free)
+                    # linearised prescribed-displacement increment: R0 - K_fp du_p
+                    rhs = Rf
+                    if dpres.size and np.any(dpres != 0.0):
+                        rhs = Rf - fact.Kfp @ dpres  # type: ignore[attr-defined]
+                    ddu = fact.solve(rhs)  # type: ignore[attr-defined]
+                    g0 = float(ddu @ rhs)
+                    if pres.size:
+                        du[pres] += dpres
+                else:
+                    ddu = fact.solve(Rf)  # type: ignore[attr-defined]
+                    if s.line_search:
+                        ddu = _line_search(prob, du - du_total, ddu, Rf, lam_t, f_ext, f0, free)
                 du[free] += ddu
                 prev_rel = rel
         except SingularSystemError:
