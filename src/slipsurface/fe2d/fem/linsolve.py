@@ -29,9 +29,16 @@ _SINGULAR_MSG = "stiffness matrix is singular — check boundary conditions (rig
 class _SuperLU:
     def __init__(self, K: sp.spmatrix, symmetric: bool = True) -> None:
         Kc = sp.csc_matrix(K)
-        if not symmetric:  # non-associated plasticity: partial pivoting, COLAMD
+        if not symmetric:
+            # non-associated plasticity: the tangent is structurally symmetric, so keep
+            # the symmetric ordering but allow threshold pivoting off the diagonal
             try:
-                self._lu = spla.splu(Kc, permc_spec="COLAMD")
+                self._lu = spla.splu(
+                    Kc,
+                    permc_spec="MMD_AT_PLUS_A",
+                    diag_pivot_thresh=0.01,
+                    options={"SymmetricMode": True},
+                )
             except RuntimeError as exc:
                 raise SingularSystemError(_SINGULAR_MSG) from exc
             return

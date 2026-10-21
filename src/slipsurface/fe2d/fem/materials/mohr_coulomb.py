@@ -195,12 +195,9 @@ def _return_principal(
     for si in range(6):
         n = nset[si]
         uses_t = False
-        uses_mc = False
         for a in range(n):
             if sets[si, a] >= 3:
                 uses_t = True
-            else:
-                uses_mc = True
         if uses_t and not has_t:
             continue
         for a in range(n):

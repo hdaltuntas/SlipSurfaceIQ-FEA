@@ -115,7 +115,8 @@ def solve_stage(
         converged = False
         fact = None
         use_nr = s.method == "NR"
-        g0 = None
+        g0 = 0.0
+        ddu = np.zeros(free.size)
         trial: object | None = None
         prev_rel = np.inf
         it = 0
@@ -137,7 +138,7 @@ def solve_stage(
                     converged = True
                     break
                 if it > 0:
-                    e_rel = abs(float(ddu @ Rf)) / max(abs(g0), 1e-300)  # type: ignore[operator]
+                    e_rel = abs(float(ddu @ Rf)) / max(abs(g0), 1e-300)
                     if rel < s.tol_force and e_rel < s.tol_energy:
                         converged = True
                         break
