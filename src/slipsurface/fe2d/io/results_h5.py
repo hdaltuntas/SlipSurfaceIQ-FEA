@@ -9,7 +9,7 @@ Layout of a results file::
     /geom/<tag>/xg            (ne, ngp, 2) Gauss point coordinates (for recovery/plots)
     /stages/<k>               k = 0 (initial), 1, 2, ...; attrs: name, lam, timings (JSON),
                               history (JSON: per step lam, iterations, residuals, converged)
-        u (nn, 2), rotation (nn,), reactions (nn, 3)
+        u (nn, 2), rotation (nn,), reactions (nn, 3), head (nn,) [seepage stages]
         sig/<tag> (ne, ngp, 4), q/<tag>, plastic/<tag>, active/<tag>, pore/<tag>
         beams/<tag> (ne, 2, 3), bars/<tag> (ne,), interfaces/<tag> (ne, ip, 2),
         struct_flags/<tag>
@@ -144,10 +144,13 @@ def _write_stage(g: Any, st: StageResult) -> None:
     g.attrs["lam"] = float(st.lam)
     g.attrs["timings"] = json.dumps(st.timings)
     g.attrs["history"] = _history_json(st.history)
+    g.attrs["flow"] = json.dumps(st.flow)
     _put(g, "u", st.u)
     _put(g, "reactions", st.reactions)
     if st.rotation is not None:
         _put(g, "rotation", st.rotation)
+    if st.head is not None:
+        _put(g, "head", st.head)
     for fld in _DICT_FIELDS:
         d = getattr(st, fld)
         if d:
@@ -182,6 +185,7 @@ class LazyStage:
         self.name: str = str(g.attrs["name"])
         self.lam: float = float(g.attrs["lam"])
         self.timings: dict[str, float] = json.loads(g.attrs["timings"])
+        self.flow: dict[str, float] = json.loads(g.attrs.get("flow", "{}"))
 
     @property
     def history(self) -> StageHistory | None:
@@ -195,7 +199,7 @@ class LazyStage:
             if item not in g:
                 return {}
             return {_unkey(k): v[()] for k, v in g[item].items()}
-        if item in ("u", "reactions", "rotation"):
+        if item in ("u", "reactions", "rotation", "head"):
             return g[item][()] if item in g else None
         raise AttributeError(item)
 
@@ -207,7 +211,8 @@ class LazyStage:
         kw = {f: getattr(self, f) for f in _DICT_FIELDS}
         return StageResult(
             name=self.name, u=self.u, reactions=self.reactions, timings=self.timings,
-            history=self.history, rotation=self.rotation, lam=self.lam, **kw,
+            history=self.history, rotation=self.rotation, lam=self.lam, head=self.head,
+            flow=self.flow, **kw,
         )  # fmt: skip
 
 

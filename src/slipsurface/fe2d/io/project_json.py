@@ -110,6 +110,7 @@ def _water(d: dict) -> WaterCondition:
         piezo_polyline=None if pl is None else np.asarray(pl, dtype=float),
         head_bcs=tuple(HeadBC(**h) for h in d.get("head_bcs", [])),
         flux_bcs=tuple(FluxBC(**f) for f in d.get("flux_bcs", [])),
+        seepage_faces=tuple(d.get("seepage_faces", [])),
     )
 
 
@@ -170,6 +171,7 @@ def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
             gamma_sat=v["gamma_sat"],
             drainage=Drainage(v["drainage"]),
             k_sat=tuple(v["k_sat"]),
+            vg=tuple(v.get("vg", (1.0, 2.0, 1e-4))),
         )
         for k, v in doc["materials"].items()
     }

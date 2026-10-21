@@ -219,9 +219,10 @@ def pressure_edge_forces(
     coords: NDArray[np.float64],
     edges: NDArray[np.int64],
     inner: NDArray[np.float64],
-    pressure: Callable[[NDArray[np.float64]], NDArray[np.float64]],
+    pressure: Callable[[NDArray[np.float64]], NDArray[np.float64]] | None,
     analysis: Analysis,
     ngauss: int = 4,
+    p_nodal: NDArray[np.float64] | None = None,
 ) -> NDArray[np.float64]:
     """Consistent nodal forces (n_edge, npe, 2) of a pressure field ``p(x)`` (>0 pushes
     into the material) on ``edges``; ``inner`` (n_edge, 2) is a point inside the owning
@@ -239,7 +240,11 @@ def pressure_edge_forces(
     s = np.sign(np.einsum("ej,ej->e", n.mean(axis=1), mid - inner))
     s[s == 0] = 1.0
     n *= s[:, None, None]
-    p = pressure(xg.reshape(-1, 2)).reshape(xg.shape[:2])
+    if p_nodal is not None:  # pressure interpolated from nodal values (n_edge, npe)
+        p = np.einsum("gn,en->eg", N, p_nodal)
+    else:
+        assert pressure is not None
+        p = pressure(xg.reshape(-1, 2)).reshape(xg.shape[:2])
     wt = jac * w[None, :]
     if analysis is Analysis.AXISYMMETRIC:
         wt = wt * xg[..., 0]

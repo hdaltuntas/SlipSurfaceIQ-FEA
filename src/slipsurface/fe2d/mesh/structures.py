@@ -12,6 +12,10 @@
   then ``"right"``) gives a wall with interfaces on both faces; the original nodes then
   carry only the wall (beam) and the interface faces.
 
+Node sets that belong to an edge set of the same name (the sets created from named
+polygon edges) follow their edges to one side of the joint; other node sets get both
+copies of a duplicated node.
+
 Interface connectivity: face 1 ``[a1, b1(, m1)]`` then face 2 ``[a2, b2(, m2)]``; node
 ``a2`` is the partner of ``a1``. Face 2 lies on the left (+n) of the direction a1 → b1, so a
 positive normal relative displacement ``(u2 - u1) . n`` is opening.
@@ -190,6 +194,16 @@ def insert_interface(mesh: Mesh, edge_set: str, tag: str, side: str = "left") ->
             if (min(int(cand[0]), int(cand[1])), max(int(cand[0]), int(cand[1]))) in owner_keys:
                 e2[r] = cand
         edge_sets[k] = e2
+    # a node set that is the node set of an edge set of the same name follows the side its
+    # edges were moved to (otherwise both copies would carry e.g. a prescribed head of
+    # the other side); pure node sets (points, supports) keep both copies
+    for k, e in edge_sets.items():
+        if (
+            k in node_sets
+            and k in mesh.node_sets
+            and np.array_equal(np.unique(mesh.node_sets[k]), np.unique(mesh.edge_sets[k]))
+        ):
+            node_sets[k] = np.unique(e)
     edge_sets[f"{tag}:face1"] = f1
     edge_sets[f"{tag}:face2"] = f2
     node_sets[f"{tag}:face2"] = np.unique(f2)

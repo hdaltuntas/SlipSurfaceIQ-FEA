@@ -67,13 +67,18 @@ class WaterCondition:
 
     ``"piezo_line"``: hydrostatic pore pressure p = gamma_w (h(x) - y) below the polyline
     h(x) (linearly interpolated, constant beyond its ends); ``"none"``: dry.
-    ``"seepage"`` (steady-state flow) arrives in Faz 4.
+    ``"seepage"``: steady saturated/unsaturated flow on the active geometry of the stage
+    (:mod:`slipsurface.fe2d.fem.seepage`) with prescribed heads ``head_bcs`` (node sets),
+    normal inflows ``flux_bcs`` (edge sets, m/s, > 0 into the soil) and potential
+    seepage faces ``seepage_faces`` (node or edge set names); other boundaries are
+    impermeable. Suction is not carried into the mechanics (p = max(p, 0)).
     """
 
     mode: str = "none"  # "none" | "piezo_line" | "seepage"
     piezo_polyline: NDArray[np.float64] | None = None
     head_bcs: tuple[HeadBC, ...] = ()
     flux_bcs: tuple[FluxBC, ...] = ()
+    seepage_faces: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.piezo_polyline is not None:
@@ -84,11 +89,33 @@ class WaterCondition:
             object.__setattr__(self, "piezo_polyline", p[order])
         if self.mode == "piezo_line" and self.piezo_polyline is None:
             raise ValueError("mode 'piezo_line' needs piezo_polyline")
+        if self.mode not in ("none", "piezo_line", "seepage"):
+            raise ValueError(f"unknown water mode '{self.mode}'")
+        object.__setattr__(self, "head_bcs", tuple(self.head_bcs))
+        object.__setattr__(self, "flux_bcs", tuple(self.flux_bcs))
+        object.__setattr__(self, "seepage_faces", tuple(self.seepage_faces))
+        if self.mode == "seepage" and not (self.head_bcs or self.seepage_faces):
+            raise ValueError("mode 'seepage' needs head_bcs or seepage_faces")
 
     @classmethod
     def piezo(cls, points: object) -> WaterCondition:
         """Phreatic/piezometric line from (x, h) points; one point = horizontal level."""
         return cls("piezo_line", np.atleast_2d(np.asarray(points, dtype=float)))
+
+    @classmethod
+    def seepage(
+        cls,
+        heads: dict[str, float] | tuple[HeadBC, ...],
+        fluxes: dict[str, float] | tuple[FluxBC, ...] = (),
+        seepage_faces: tuple[str, ...] | list[str] = (),
+    ) -> WaterCondition:
+        """Steady seepage: ``heads={"upstream": 12.0, ...}`` (node sets), ``fluxes``
+        (edge sets, m/s into the soil), ``seepage_faces`` (set names)."""
+        hb = tuple(HeadBC(k, float(v)) for k, v in heads.items()) if isinstance(heads, dict) \
+            else tuple(heads)  # fmt: skip
+        fb = tuple(FluxBC(k, float(v)) for k, v in fluxes.items()) if isinstance(fluxes, dict) \
+            else tuple(fluxes)  # fmt: skip
+        return cls("seepage", None, hb, fb, tuple(seepage_faces))
 
     def head(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
         """Piezometric level h(x) (-inf when dry)."""
@@ -101,7 +128,7 @@ class WaterCondition:
 
     def key(self) -> tuple:
         pl = None if self.piezo_polyline is None else self.piezo_polyline.tobytes()
-        return (self.mode, pl, self.head_bcs, self.flux_bcs)
+        return (self.mode, pl, self.head_bcs, self.flux_bcs, self.seepage_faces)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, WaterCondition) and self.key() == other.key()

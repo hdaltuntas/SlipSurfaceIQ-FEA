@@ -74,7 +74,14 @@ class Model:
             if st.active_regions is not None and not set(st.active_regions) <= all_regions:
                 raise ModelError(f"stage '{st.name}': unknown regions in active_regions")
             if st.water.mode == "seepage":
-                raise NotImplementedError("steady-state seepage arrives in Faz 4")
+                w = st.water
+                names = [h.node_set for h in w.head_bcs] + list(w.seepage_faces)
+                for nm in names:
+                    if nm not in self.mesh.node_sets and nm not in self.mesh.edge_sets:
+                        raise ModelError(f"stage '{st.name}': unknown seepage set '{nm}'")
+                for fb in w.flux_bcs:
+                    if fb.edge_set not in self.mesh.edge_sets:
+                        raise ModelError(f"stage '{st.name}': unknown edge set '{fb.edge_set}'")
         if self.initial.active_structures is not None:
             unknown = set(self.initial.active_structures) - set(tags)
             if unknown:

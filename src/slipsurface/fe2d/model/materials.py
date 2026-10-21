@@ -27,6 +27,8 @@ class MaterialSpec:
     gamma_sat: float = 0.0
     drainage: Drainage = Drainage.DRAINED
     k_sat: tuple[float, float] = (1e-7, 1e-7)  # kx, ky [m/s]
+    # unsaturated flow (van Genuchten-Mualem): alpha [1/m], n [-], relative k floor
+    vg: tuple[float, float, float] = (1.0, 2.0, 1e-4)
 
     def __post_init__(self) -> None:
         if self.model not in _REQUIRED:
@@ -34,6 +36,10 @@ class MaterialSpec:
         missing = [p for p in _REQUIRED[self.model] if p not in self.params]
         if missing:
             raise ModelError(f"material '{self.name}': missing parameters {missing}")
+        object.__setattr__(self, "k_sat", tuple(float(v) for v in self.k_sat))
+        object.__setattr__(self, "vg", tuple(float(v) for v in self.vg))
+        if min(self.k_sat) < 0 or self.vg[0] <= 0 or self.vg[1] <= 1 or not 0 < self.vg[2] <= 1:
+            raise ModelError(f"material '{self.name}': invalid hydraulic parameters")
         if "nu" in self.params and not (-1.0 < self.params["nu"] < 0.5):
             raise ModelError(f"material '{self.name}': nu must be in (-1, 0.5)")
         if "E" in self.params and self.params["E"] <= 0.0:
@@ -106,7 +112,7 @@ class MaterialSpec:
         p["psi"] = min(p.get("psi", 0.0), phi_f)
         return MaterialSpec(
             f"{self.name}@F={F:.6g}", self.model, p, self.gamma_unsat, self.gamma_sat,
-            self.drainage, self.k_sat,
+            self.drainage, self.k_sat, self.vg,
         )  # fmt: skip
 
 

@@ -48,12 +48,14 @@ from .linsolve import factorize
 from .loads import TractionFn, assemble_nodal_loads, k0_stress_field, pressure_edge_forces
 from .materials import build as build_material
 from .nonlinear import Problem, StageHistory, solve_stage
+from .seepage import SeepageBlock, SeepageResult, solve_seepage
 from .state import SolverState
 from .structural import GROUP_TYPES, BarGroup, BeamGroup, InterfaceGroup
 
 log = get_logger("static")
 _M = np.array([1.0, 1.0, 1.0, 0.0])
 _CONT = (ElemType.T3, ElemType.T6, ElemType.Q4, ElemType.Q8)
+_WT_TOL = 1e-9  # [m] a Gauss point on the water table (round-off) counts as dry
 
 
 # ================================================================== result objects
@@ -75,6 +77,8 @@ class StageResult:
     interfaces: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, ip, 2)
     struct_flags: dict[str, NDArray[np.uint8]] = field(default_factory=dict)
     lam: float = 1.0  # load factor reached (load split)
+    head: NDArray[np.float64] | None = None  # (nn,) total head of a seepage stage [m]
+    flow: dict[str, float] = field(default_factory=dict)  # seepage inflow per BC set [m3/s/m]
 
 
 @dataclass
@@ -105,6 +109,8 @@ class _BlockMat:
     gamma: NDArray[np.float64]  # (ne,) unsaturated unit weight
     gamma_sat: NDArray[np.float64]  # (ne,)
     k0: NDArray[np.float64]  # (ne,)
+    k: NDArray[np.float64] | None = None  # (ne, 2) saturated conductivity kx, ky [m/s]
+    vg: NDArray[np.float64] | None = None  # (ne, 3) van Genuchten alpha, n, kr_min
 
 
 @dataclass
@@ -145,6 +151,8 @@ class System:
     symmetric: bool
     key: tuple
     water: WaterCondition
+    seepage: SeepageResult | None = None  # steady flow solution of a seepage stage
+    p_nodal: NDArray[np.float64] | None = None  # (nn,) pore pressure >= 0 (seepage)
 
 
 @dataclass
@@ -238,6 +246,8 @@ class StaticSolver:
             g = np.empty(b.ne)
             gs = np.empty(b.ne)
             k0 = np.empty(b.ne)
+            kk = np.empty((b.ne, 2))
+            vg = np.empty((b.ne, 3))
             groups = []
             for r in np.unique(b.region):
                 spec = mats[rm[int(r)]]
@@ -250,10 +260,12 @@ class StaticSolver:
                 g[ids] = spec.gamma_unsat
                 gs[ids] = spec.gamma_sat
                 k0[ids] = k0v
+                kk[ids] = spec.k_sat
+                vg[ids] = spec.vg
                 groups.append((cm, ids))
                 linear &= not getattr(cm, "plastic", False)
                 symmetric &= bool(getattr(cm, "symmetric", True))
-            blocks.append(_BlockMat(groups, De, g, gs, k0))
+            blocks.append(_BlockMat(groups, De, g, gs, k0, kk, vg))
         key = tuple(sorted(rm.items())) + tuple(
             (k, repr(sorted(mats[v].params.items()))) for k, v in sorted(rm.items())
         )
@@ -386,6 +398,10 @@ class StaticSolver:
         ]
         bn = np.unique(np.concatenate(beam_nodes)) if beam_nodes else np.empty(0, np.int64)
         dm = DofMap(self.mesh, active, bn, self.model.fixities, displacements, self._ties(active))
+        seep, p_nodal = None, None
+        if water.mode == "seepage":
+            seep = self._solve_seepage(lay, active, water)
+            p_nodal = np.maximum(np.nan_to_num(seep.pressure, nan=0.0), 0.0)
         cont = []
         for b, bm in zip(self.blocks, lay.blocks):
             ids = np.flatnonzero(active[b.tag])
@@ -400,9 +416,17 @@ class StaticSolver:
                 pos = gids if ids.size == b.ne else np.flatnonzero(np.isin(ids, gids))
                 if pos.size:
                     groups.append((cm, pos))
-            h = water.head(gs.xg[..., 0])
-            p = GAMMA_W * np.maximum(h - gs.xg[..., 1], 0.0)
-            below = h > gs.xg[..., 1]
+            if seep is not None:
+                p = (
+                    np.maximum(seep.gp_pressure(b.tag), 0.0)
+                    if b.tag in seep.gp_head
+                    else np.zeros(gs.xg.shape[:2])
+                )
+                below = p > GAMMA_W * _WT_TOL
+            else:
+                h = water.head(gs.xg[..., 0])
+                p = GAMMA_W * np.maximum(h - gs.xg[..., 1], 0.0)
+                below = h - gs.xg[..., 1] > _WT_TOL
             gam = np.where(below, bm.gamma_sat[ids][:, None], bm.gamma[ids][:, None])
             De = bm.De if ids.size == b.ne else bm.De[ids]
             cont.append(_ContSys(b.tag, ids, gs, ed, De, groups, gam, p))
@@ -415,16 +439,41 @@ class StaticSolver:
             p = None
             if isinstance(g, InterfaceGroup):
                 xi = g.xip[ids]
-                p = GAMMA_W * np.maximum(water.head(xi[..., 0]) - xi[..., 1], 0.0)
+                if p_nodal is not None:
+                    p = p_nodal[g.f1[ids]]
+                else:
+                    p = GAMMA_W * np.maximum(water.head(xi[..., 0]) - xi[..., 1], 0.0)
                 linear = False
                 symmetric &= g.symmetric
             elif isinstance(g, BarGroup):
                 linear = False
             struct.append(_StructSys(g, ids, g.edofs(dm.node_dofs, ids), p))
         pattern = SparsePattern.build([c.edofs for c in cont] + [s.edofs for s in struct], dm.ndof)
-        sysm = System(dm, cont, struct, pattern, linear, symmetric, key, water)
+        sysm = System(dm, cont, struct, pattern, linear, symmetric, key, water, seep, p_nodal)
         self._sys_cache = {key: sysm}  # keep the latest only
         return sysm
+
+    def _set_nodes(self, name: str) -> NDArray[np.int64]:
+        if name in self.mesh.node_sets:
+            return self.mesh.nodes(name)
+        return np.unique(self.mesh.edges(name))
+
+    def _solve_seepage(
+        self, lay: _Layout, active: dict[str, NDArray[np.bool_]], water: WaterCondition
+    ) -> SeepageResult:
+        blocks = []
+        for b, bm in zip(self.blocks, lay.blocks):
+            ids = np.flatnonzero(active[b.tag])
+            if ids.size:
+                assert bm.k is not None and bm.vg is not None
+                blocks.append(SeepageBlock(b.tag, b.conn[ids], b.etype, bm.k[ids], bm.vg[ids]))
+        heads = [(h.node_set, self._set_nodes(h.node_set), h.head) for h in water.head_bcs]
+        fluxes = [(self.mesh.edges(f.edge_set), f.q) for f in water.flux_bcs]
+        faces = [(nm, self._set_nodes(nm)) for nm in water.seepage_faces]
+        res = solve_seepage(self.mesh, blocks, heads, fluxes, faces, self.model.analysis)
+        if not res.converged:
+            log.warning("seepage did not converge; pore pressures may be inaccurate")
+        return res
 
     # ------------------------------------------------------------- integration
     def integrate(
@@ -579,14 +628,20 @@ class StaticSolver:
         edges, inner = self._exposed_edges(sysm)
         if edges.size:
             X = self.mesh.coords
-            hmax = water.head(X[edges[:, :2], 0]).max(axis=1)
-            sel = hmax > X[edges[:, :2], 1].min(axis=1)
+            if sysm.p_nodal is not None:
+                sel = (sysm.p_nodal[edges] > 0).any(axis=1)
+            else:
+                hmax = water.head(X[edges[:, :2], 0]).max(axis=1)
+                sel = hmax > X[edges[:, :2], 1].min(axis=1)
             if np.any(sel):
 
                 def pfun(x: NDArray[np.float64]) -> NDArray[np.float64]:
                     return GAMMA_W * np.maximum(water.head(x[:, 0]) - x[:, 1], 0.0)
 
-                fe = pressure_edge_forces(X, edges[sel], inner[sel], pfun, self.model.analysis)
+                pn = None if sysm.p_nodal is None else sysm.p_nodal[edges[sel]]
+                fe = pressure_edge_forces(
+                    X, edges[sel], inner[sel], pfun, self.model.analysis, p_nodal=pn
+                )
                 ed = dm.node_dofs[edges[sel]][:, :, :2]
                 ok = ed >= 0
                 fw = np.bincount(ed[ok], fe[ok], minlength=nd)
@@ -875,6 +930,8 @@ class StaticSolver:
             interfaces=ifs,
             struct_flags={k: v.copy() for k, v in state.struct_flag.items()},
             lam=lam,
+            head=None if sysm.seepage is None else sysm.seepage.head.copy(),
+            flow={} if sysm.seepage is None else dict(sysm.seepage.inflow),
         )
 
     # --------------------------------------------------------------------- run
