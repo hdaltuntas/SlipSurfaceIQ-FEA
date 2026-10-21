@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "solver_commit": "b51733abd39fffd8390864f92de66a66fb20bbc8",
+  "external_reference_status": "pending",
+  "runs": {
+    "h050": {
+      "local_mesh_size_m": 0.5,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "6b379fa7d199e3b5f14f6d30c61a5c8480996255177f91220456be3aca5e9725",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 3658,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 163.80116890370306,
+      "peak_moment_depth_m": 6.4375,
+      "max_abs_wall_ux_m": 0.031544781323066255,
+      "wall_top_ux_m": 0.031544781323066255,
+      "wall_toe_ux_m": 0.005933080032085521,
+      "max_domain_displacement_norm_m": 0.039653270170894706,
+      "free_residual_l2": 0.0071291684213857735,
+      "external_force_l2": 307.02526441281356,
+      "accepted_steps": 14,
+      "rejected_steps": 1,
+      "material_return_rejected_steps": 0,
+      "iterations": 70
+    },
+    "h050-half-steps": {
+      "local_mesh_size_m": 0.5,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "6b379fa7d199e3b5f14f6d30c61a5c8480996255177f91220456be3aca5e9725",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 3658,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.05,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.25,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 163.9307533323834,
+      "peak_moment_depth_m": 6.4375,
+      "max_abs_wall_ux_m": 0.03157652606474569,
+      "wall_top_ux_m": 0.03157652606474569,
+      "wall_toe_ux_m": 0.005932747491416882,
+      "max_domain_displacement_norm_m": 0.039662762025150775,
+      "free_residual_l2": 0.0007123319700988069,
+      "external_force_l2": 307.02526441281356,
+      "accepted_steps": 20,
+      "rejected_steps": 1,
+      "material_return_rejected_steps": 0,
+      "iterations": 90
+    },
+    "h050-split-release": {
+      "local_mesh_size_m": 0.5,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "6b379fa7d199e3b5f14f6d30c61a5c8480996255177f91220456be3aca5e9725",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 3658,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "half-release",
+          "lambda": 0.5
+        },
+        {
+          "name": "complete-release",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 163.74179894948367,
+      "peak_moment_depth_m": 6.4375,
+      "max_abs_wall_ux_m": 0.031628827380851925,
+      "wall_top_ux_m": 0.031628827380851925,
+      "wall_toe_ux_m": 0.005933159781690877,
+      "max_domain_displacement_norm_m": 0.03974874902032484,
+      "free_residual_l2": 0.0027558067627162443,
+      "external_force_l2": 307.02526441281356,
+      "accepted_steps": 15,
+      "rejected_steps": 0,
+      "material_return_rejected_steps": 0,
+      "iterations": 64
+    },
+    "h025": {
+      "local_mesh_size_m": 0.25,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "6b379fa7d199e3b5f14f6d30c61a5c8480996255177f91220456be3aca5e9725",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 4917,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 167.94377306191376,
+      "peak_moment_depth_m": 6.546875,
+      "max_abs_wall_ux_m": 0.03275650599985866,
+      "wall_top_ux_m": 0.03275650599985866,
+      "wall_toe_ux_m": 0.00585116413649341,
+      "max_domain_displacement_norm_m": 0.04199556547850102,
+      "free_residual_l2": 0.01130768179194444,
+      "external_force_l2": 296.15613607454736,
+      "accepted_steps": 21,
+      "rejected_steps": 1,
+      "material_return_rejected_steps": 0,
+      "iterations": 124
+    },
+    "h0125": {
+      "local_mesh_size_m": 0.125,
+      "mesh_family": "T6+Q8",
+      "case_sha256": "6b379fa7d199e3b5f14f6d30c61a5c8480996255177f91220456be3aca5e9725",
+      "external_reference_status": "pending",
+      "completed": true,
+      "lambda": 1.0,
+      "nodes": 7404,
+      "settings": {
+        "linear_solver": "auto",
+        "gauss_order": "high",
+        "method": "NR",
+        "max_iter": 30,
+        "tol_force": 0.0001,
+        "tol_energy": 1e-05,
+        "dlam0": 0.1,
+        "dlam_min": 0.0001,
+        "dlam_max": 0.5,
+        "fast_iter": 4,
+        "line_search": true,
+        "hybrid_ratio": 0.5,
+        "apex_stiffness_ratio": 0.0
+      },
+      "stages": [
+        {
+          "name": "install",
+          "lambda": 1.0
+        },
+        {
+          "name": "excavate",
+          "lambda": 1.0
+        }
+      ],
+      "max_abs_moment_kNm_per_m": 169.1904349655917,
+      "peak_moment_depth_m": 6.546875,
+      "max_abs_wall_ux_m": 0.033414091181169635,
+      "wall_top_ux_m": 0.033414091181169635,
+      "wall_toe_ux_m": 0.005808016452367496,
+      "max_domain_displacement_norm_m": 0.04327201634247408,
+      "free_residual_l2": 0.00041872476258037394,
+      "external_force_l2": 293.9056542736558,
+      "accepted_steps": 44,
+      "rejected_steps": 6,
+      "material_return_rejected_steps": 0,
+      "iterations": 301
+    }
+  },
+  "same_mesh_sensitivity": {
+    "half-steps": {
+      "relative_peak_moment_change": 0.0007911080827300268,
+      "relative_moment_field_change": 0.0009242652307121608,
+      "relative_wall_ux_field_change": 0.0010063389362037166
+    },
+    "split-release": {
+      "relative_peak_moment_change": 0.000362451346450981,
+      "relative_moment_field_change": 0.0015959373146035055,
+      "relative_wall_ux_field_change": 0.00266434111319114
+    }
+  },
+  "mesh_refinement_relative_changes": {
+    "h050->h025": {
+      "max_abs_moment_kNm_per_m": 0.02529044319974355,
+      "max_abs_wall_ux_m": 0.03841284123616238,
+      "max_domain_displacement_norm_m": 0.05906941085846557
+    },
+    "h025->h0125": {
+      "max_abs_moment_kNm_per_m": 0.007423090960439126,
+      "max_abs_wall_ux_m": 0.020074948815170114,
+      "max_domain_displacement_norm_m": 0.030394896447495566
+    }
+  }
+}

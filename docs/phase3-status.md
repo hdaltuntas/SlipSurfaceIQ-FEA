@@ -11,6 +11,7 @@ Referans: *SlipSurface 2D — Teknik Mimari ve Yol Haritası*, Faz 3 ve Ek A.
 | Aşama bazlı piezometrik su, malzeme değişimi | Mevcut | Su ve statik birim testleri |
 | HDF5 ve .ssproj | Mevcut, kayıt testleri var | Aşama bazlı okuma, karma eleman/plastik çıktı gidiş-dönüşü, atomik kayıt |
 | S4 konsol palplanş | **Ön yapısal kontroller geçti; tam doğrulama açık** | Bağımsız Timoshenko/Winkler ve Rankine kontrolleri geçti; yerel MC dönüş korumasıyla ağ/integrasyon karşılaştırmaları yenilendi, tam doğrulama yok |
+| S4 dış karşılaştırma hazırlığı | Model ve duvar alan çıktıları hazır | 0.5/0.25/0.125 m karma ağda M=163.801/167.944/169.190; adım/aşama duyarlılığı ölçüldü; uçtaki ortak zemin düğümü tanımlandı; dış referans bekleniyor |
 | P4 açık Rankine-apex | **Tanımlı model kapsamı doğrulandı** | h=1.5 tam/1e-6 ve h=1.0 tam tanjant: %3 Bishop, aralık, mekanizma ve gerilme kabul edilebilirliği; model tamamlaması açıkça seçilir |
 | P4 eski kesmesiz model / genel Kapı 2 kapsamı | **Açık sınır korunuyor** | Eski test strict xfail; yerel ret göçme sınırı sayılamıyor, eski korumasız FE faktörleri geri çekilmiş durumda |
 | Yerel ret girdilerinin tekrarı | İki kayıt için neden ayrıştırıldı | Palplanş/P4: ψ=0, Rankine yok, deneme ortalaması apex üzerinde; 128 yerel parçayla da toplam artış tamamlanmıyor; küresel çözümsüzlük iddiası yok |
@@ -24,6 +25,7 @@ Proje/sonuç API'si: [project-files.md](project-files.md).
 Karma ağ API'si ve aynı palplanş modeliyle karşılaştırma: [mixed-mesh.md](mixed-mesh.md).
 Yerel malzeme hatası ve tanı API'si: [nonlinear-diagnostics.md](nonlinear-diagnostics.md).
 Çakışan çekme/apex davranışı: [coincident-tension-cutoff.md](coincident-tension-cutoff.md).
+S4 girdileri ve imzalı duvar çıktıları: [s4-comparison.md](s4-comparison.md).
 Geometri, koşullanma ve Newton yöntemlerinin aynı yükte karşılaştırması:
 [convergence-audit.md](convergence-audit.md).
 
@@ -60,8 +62,10 @@ yaklaşık Newton matrisidir; varsayılan 0 ile gerçek tanjant korunur. Eski ke
 P4 doğrulaması hâlâ çözülmedi.
 Zeminli palplanşta σt=0 seçimiyle high koşuları tamamlandı. Bu seçim ayrı bir akış
 tanımıdır; eski kesmesiz modelin yerine sessizce konmadı. Toleranslar gevşetilmedi.
-Ardından bağımsız palplanş aracıyla aynı geometri, sınır koşulu, zemin, su ve kazı aşamalarını
-kullanan sürekli ortam FEM senaryosunu karşılaştır. Maksimum moment farkını %10 içinde
+Bağımsız palplanş aracıyla aynı geometri, sınır koşulu, uç bağlantısı, zemin, su ve kazı
+aşamalarını kullanan sürekli ortam FEM senaryosunu karşılaştır. Aktarım paketi ve
+tekrar komutları S4 karşılaştırma belgesinde hazır; dış programın kimliği/modeli ve
+sonuç dosyası henüz sağlanmadı. Maksimum moment farkını %10 içinde
 ve ağ yakınsamasıyla doğrula; ardından S1–S4 ve aşama bölme değişmezliğiyle Kapı 3'ü kapat.
 
 Kayıt dosyaları post-processing snapshot'ıdır; nonlinear solver restart biçimi değildir.
@@ -69,6 +73,9 @@ GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışın
 
 ## Son doğrulama
 
+- S4 aktarım, S3 aşama ve S4 yapısal referans dosyalarında **14 hedefli test geçti**.
+  Yeni aktarım testleri aşağıdaki önceki tam koşuya dahil değildir. Beş zeminli
+  duyarlılık koşusu λ=1'e ulaştı; tümünde yerel ret sayısı 0. Dış referans bekleniyor.
 - Linux / Python 3.12: benchmark dışı tam koşuda **303 geçti**, **eski kesmesiz P4 1 strict xfail**;
   bu beklenen başarısızlık geçiş olarak sayılmıyor. PyVista eksikliği
   nedeniyle görüntüleyici modülü **1 atlandı**, performans testleri **2 hariç**.

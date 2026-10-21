@@ -109,7 +109,12 @@ referans kabul ediyordu. Karşılaştırma, asal gerilme uzayında altı doğrus
 ölçeklenmiş, analitik gradyanlı bir konveks QP'ye çevrildi. Optimizasyonun başarısı ve
 kısıt artığı zorunlu kontrol edilir; üretim gerilme toleransları gevşetilmedi.
 
-## Sürekli ortam palplanş örneği ve açık yakınsama sorunu
+## Sürekli ortam palplanş örneği: eski kesmesiz koşular
+
+Aşağıdaki başarısızlıklar eski, Rankine akışı olmayan modele aittir. Açık
+Rankine-apex modeli tam kazıyı tamamlar. Güncel karşılaştırma girdileri, uç bağlantısı,
+duvar alan çıktıları ve adım/aşama duyarlılığı [s4-comparison.md](s4-comparison.md)
+içindedir. Dış referans eksik olduğundan tam S4 hâlâ açıktır.
 
 `examples/sheet_pile_staged_excavation.py`, 40×20 m sand alanında, 10.5 m uzunluğunda
 palplanş ve 5 m kazı içerir. MC: E=30000 kPa, ν=0.3, c=0, φ=30°, ψ=0, γ=18 kN/m³.

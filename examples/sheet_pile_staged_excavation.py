@@ -14,13 +14,17 @@ from slipsurface.fe2d import api
 from slipsurface.fe2d.mesh import DistanceSize, Domain, recombine_mesh, unstructured_mesh
 from slipsurface.fe2d.mesh.structures import add_beams, insert_interface
 
+DOMAIN_POINTS = [(-20, -20), (20, -20), (20, 0), (-20, 0)]
+EXCAVATION_POINTS = [(0, -5), (20, -5), (20, 0), (0, 0)]
+WALL_POINTS = [(0, -10.5), (0, 0)]
+
 
 def model(h=0.5, *, mixed=False, gauss_order=None, soil_tension=None, rankine_at_apex=False):
     domain = Domain().add_polygon(
-        [(-20, -20), (20, -20), (20, 0), (-20, 0)], 1, edge_names=["bottom", "right", "top", "left"]
+        DOMAIN_POINTS, 1, edge_names=["bottom", "right", "top", "left"]
     )
-    domain.add_polygon([(0, -5), (20, -5), (20, 0), (0, 0)], 2)
-    line = np.array([[0, -10.5], [0, 0]])
+    domain.add_polygon(EXCAVATION_POINTS, 2)
+    line = np.asarray(WALL_POINTS, dtype=float)
     domain.add_line(line, name="wall")
     mesh = unstructured_mesh(domain, h=DistanceSize(h, 1.5, 1.3, lines=[line]))
     if mixed:
