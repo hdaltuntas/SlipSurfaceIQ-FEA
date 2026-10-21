@@ -41,6 +41,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Install Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0
       - run: python -m pip install -e ".[dev,gui]"
       - name: Native worker, persistence, cancellation and active result exports
         run: pytest -q tests/unit/test_desktop.py tests/unit/test_progress_exports.py tests/unit/test_viewer.py
