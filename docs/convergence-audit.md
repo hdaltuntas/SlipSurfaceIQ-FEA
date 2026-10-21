@@ -124,3 +124,61 @@ PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/diagnose_sheet_pile.py --s
 olarak değiştirilir. Üçüncü komutun çıkış kodu 1'dir; bu beklenen açık başarısızlık
 gizlenmez. `--audit` ek LU faktörlemeleri yapar; performans zamanlaması için kullanılmaz.
 Tanı verisi JSON'dadır, solver restart dosyası değildir.
+
+## Algoritmik tanjant ve regülarizasyon önerileri
+
+MC'nin asal gerilme dönüş/tanjantı ve Goodman dönüşü için yerel sonlu fark testleri
+zaten mevcuttur. `test_newton_convergence.py` ilişkili Tresca ve ilişkisiz MC'de
+asimptotik log-kalıntı eğimini >1.6, mNR için daha düşük eğimi kontrol eder.
+Klasik kuadratik yakınsama düzenlilik ve tekil olmayan tanjant gerektirir;
+köşe/aktif küme değişiminde her iterasyon için garanti değildir.
+Algoritmik türev yerine elastik/uyumsuz tanjant kullanmak yakınsamayı bozabilir;
+bu ayrım [MOOSE birincil dokümantasyonunda](https://mooseframework.inl.gov/moose/source/materials/ComputeMultipleInelasticStress.html)
+da açıkça yapılır.
+
+Ek global kontrol: `test_global_algorithmic_tangent.py` T3+Q4 ve T6+Q8,
+default/high, kayma/açılma durumlarında sekiz koşu çalıştırır. MC, beam ve
+iki taraflı dilatanslı ara yüz monte edilir; üç serbest DOF yönünde iki pertürbasyon
+büyüklüğüyle
+
+    K_ff v ≈ [f_int(du+h v) − f_int(du−h v)]_free / (2h)
+
+karşılaştırılır. Bağıl hata <2e-6; elastoplastik ve ara yüz bayrakları pertürbasyonda
+değişmez; giriş gerilme/geçmiş dizileri korunur. Tanjantın ilişkisiz akıştan gelen
+simetrik olmayan kısmı da korunur. Bunlar sıfırdan farklı deneme artımında cebirsel
+türev testleridir; model denge benchmark'ı veya olası bütün köşe yollarının kanıtı
+değildir. Bayrakların aynı kalması, bütün MC alt-aktif kümelerinin aynı kaldığını
+tek başına kanıtlamaz; iki h değerindeki türev uyumu bu nedenle ayrıca kontrol edilir.
+
+**Dinamik gevşeme:** Açık zaman integrasyonu global K faktörlemesini gerektirmeyebilir;
+var olmayan statik dengeyi oluşturmaz. Yapay kütle, sönüm ve kritik zaman adımı
+seçimi; kuvvet kalıntısı, hız ve kinetik enerji kriterleriyle doğrulanmalıdır.
+Kritik sönüm bütün modlar için tek bir sayı değildir. Süren göçmede kuvvet kalıntısı
+ve hareket sönmeyebilir; [Itasca'nın denge dokümantasyonu](https://docs.itascacg.com/itasca900/flac3d/docproject/source/modeling/problemsolving/equilibrium.html)
+bu ayrımı tartışır. Henüz eklenmedi.
+
+**Perzyna / Duvaut–Lions:** Ayrı, zamana bağlı bir malzeme tanımı gerektirir.
+Kendi gerilme güncellemesi ve algoritmik türevi türetilmeli; viskozite/gevşeme
+zamanı, Δt ve yükleme hızı duyarlılığı, disipasyon ve uygun hızdan bağımsız referans
+kontrol edilmelidir. Tek bir küçük viskozite koşusu η→0 limitinin doğrulanması
+değildir; limitin ağdan bağımsız/tekil olmayan bir çözüm verdiği ayrıca gösterilmelidir.
+Yeni modelde izin verilen overstress, mevcut hızdan bağımsız modelin `255` dönüş
+hatasını kabul etmekle aynı şey değildir.
+[Wang–Sluys–de Borst (1997), birincil kaynak](https://pure.tue.nl/ws/portalfiles/portal/4389528/605201.pdf).
+Viskoplastik model bu değişiklikte eklenmedi; üretim davranışına yapay viskozite konmadı.
+
+**Non-local / gradient / Cosserat:** İçsel uzunluk ve malzeme kalibrasyonu gerektirir;
+çıktı plastik deformasyonunu sonradan komşu GP'lerle ortalamak yeterli değildir.
+Non-local bir iç değişkenin türevi komşu eleman DOF'larını da bağlar; mevcut yerel
+CSR deseni/assembly buna göre genişletilmelidir. Sınır ağırlıkları ve h/içsel-uzunluk
+duyarlılığı doğrulanmalıdır. Cosserat ayrıca bağımsız dönme ve çift-gerilme içerir;
+skaler GP ortalamasıyla aynı formülasyon değildir. Bu yöntemler lokalizasyon/ağ
+nesnelliğini hedefler; u–p hacimsel kilitlenme çözümünden ayrı bir konudur.
+İdeal, ilişkisiz plastisitede de regülarizasyon ihtiyacına ilişkin birincil örnek:
+[Sabet–de Borst (2019)](https://eprints.whiterose.ac.uk/id/eprint/148931/).
+Bu formülasyonlar henüz uygulanmadı.
+
+Öncelik: doğrulanmış yerel güncelleme/tanjant ve bağımsız P4/S4 referansı korunarak,
+denge yolu izleme ile hız/uzunluk içeren yeni malzeme modelleri ayrı seçenekler olarak
+geliştirilmeli. Birden çok yapay mekanizmayı aynı anda açıp yakınsamayı başarı
+saymak yerine her yeni seçenek kendi denge, zaman ve ağ sınamalarıyla doğrulanmalı.

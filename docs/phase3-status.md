@@ -65,7 +65,7 @@ GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışın
 
 ## Son doğrulama
 
-- Linux / Python 3.12: benchmark dışı tam koşuda **262 geçti**, **P4 1 strict xfail**;
+- Linux / Python 3.12: benchmark dışı tam koşuda **270 geçti**, **P4 1 strict xfail**;
   bu beklenen başarısızlık geçiş olarak sayılmıyor. PyVista eksikliği
   nedeniyle görüntüleyici modülü **1 atlandı**, performans testleri **2 hariç**.
 - NumPy 2.2.6 / SciPy 1.15.3 ile güncel malzeme, ortak apex, Newton tanısı,
@@ -73,6 +73,8 @@ GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışın
   (ana toplamla örtüşür).
 - Ek tanı/matris/geri alma kontrolleri aynı eski NumPy/SciPy ortamında **23 geçti**
   (ana toplamla örtüşür).
+- Global algoritmik tanjantın sekiz karma continuum/beam/interface durumu ile
+  Newton yakınsaması aynı eski ortamda **12 geçti** (ana toplamla örtüşür).
 - Ruff, `git diff --check`, wheel derlemesi ve ayrı klasöre kurulu wheel'den API/topoloji
   import kontrolü başarılı.
 - Zeminli örneğin başarısızlıkları bu test toplamlarına başarı olarak eklenmedi;
