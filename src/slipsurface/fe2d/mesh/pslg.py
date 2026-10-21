@@ -53,6 +53,7 @@ class PSLG:
     barrier: NDArray[np.bool_]  # (ns,) True: separates regions (polygon edges)
     seg_h: NDArray[np.float64]  # (ns,) target subsegment length (inf = none)
     seg_names: dict[str, NDArray[np.int64]]  # name -> segment ids
+    seg_sign: dict[str, NDArray[np.int8]]  # name -> +1/-1: segment direction vs that input
     point_names: dict[str, int]  # name -> vertex id
     polygons: tuple[PolygonSpec, ...]
     seeds: tuple[SeedSpec, ...]
@@ -200,9 +201,11 @@ class Domain:
         segs, barrier, seg_h, names = _merge_duplicates(segs, barrier, seg_h, names)
 
         seg_names: dict[str, list[int]] = {}
+        seg_sign: dict[str, list[int]] = {}
         for i, nm in enumerate(names):
-            for n in nm:
+            for n, sg in nm.items():  # type: ignore[attr-defined]
                 seg_names.setdefault(n, []).append(i)
+                seg_sign.setdefault(n, []).append(sg)
         point_names = {nm: int(point_ids[i]) for i, (_, _, nm) in enumerate(self._points) if nm}
         polygons = tuple(
             PolygonSpec(p, r, hl, ma, abs(_signed_area(p))) for p, r, hl, ma in self._polys
@@ -213,6 +216,7 @@ class Domain:
             barrier=barrier,
             seg_h=seg_h,
             seg_names={k: np.asarray(v, dtype=np.int64) for k, v in seg_names.items()},
+            seg_sign={k: np.asarray(v, dtype=np.int8) for k, v in seg_sign.items()},
             point_names=point_names,
             polygons=polygons,
             seeds=tuple(self._seeds),
@@ -381,7 +385,9 @@ def _merge_duplicates(
     barrier: NDArray[np.bool_],
     seg_h: NDArray[np.float64],
     names: list[frozenset[str]],
-) -> tuple[NDArray, NDArray, NDArray, list[frozenset[str]]]:
+) -> tuple[NDArray, NDArray, NDArray, list[dict[str, int]]]:
+    """Merge coincident segments; each name keeps the direction of *its* input segment
+    (``+1`` if the merged segment has the same direction, ``-1`` otherwise)."""
     key = np.sort(segs, axis=1)
     uniq, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
     inv = inv.ravel()
@@ -392,9 +398,11 @@ def _merge_duplicates(
     out_s = segs[first[order]]
     out_b = np.zeros(m, dtype=bool)
     out_h = np.full(m, np.inf)
-    out_n: list[set[str]] = [set() for _ in range(m)]
+    out_n: list[dict[str, int]] = [{} for _ in range(m)]
     for i, g in enumerate(rank[inv]):
         out_b[g] |= barrier[i]
         out_h[g] = min(out_h[g], seg_h[i])
-        out_n[g] |= names[i]
-    return out_s, out_b, out_h, [frozenset(n) for n in out_n]
+        sgn = 1 if segs[i, 0] == out_s[g, 0] else -1
+        for n in names[i]:
+            out_n[g].setdefault(n, sgn)
+    return out_s, out_b, out_h, out_n

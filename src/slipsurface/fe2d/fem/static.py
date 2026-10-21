@@ -216,6 +216,8 @@ class StaticSolver:
         self.system: System | None = None
         self._ctx: _StageCtx | None = None
         self._D_committed: tuple[dict, dict] | None = None
+        # nodal external force applied at the end of the previous stage (load split)
+        self._f_applied: NDArray[np.float64] | None = None
 
     # ------------------------------------------------------------------ materials
     def _cm(self, spec: MaterialSpec) -> object:
@@ -316,21 +318,52 @@ class StaticSolver:
                 if regions is None
                 else np.isin(b.region, np.fromiter(regions, dtype=np.int64))
             )
+        beam_nodes = np.zeros(self.mesh.nn, dtype=bool)
+        for g in self.groups:
+            if isinstance(g, BeamGroup) and structures is not None and g.tag in structures:
+                beam_nodes[g.block.conn.ravel()] = True
         for g in self.groups:
             on = (isinstance(g, InterfaceGroup) and structures is None) or (
                 structures is not None and g.tag in structures
             )
             m = np.full(g.ne, on)
             if on and isinstance(g, InterfaceGroup):
+                # a face is supported by an active continuum element owning it or by an
+                # active beam carrying all its nodes; otherwise the joint is switched off
                 b1, e1, b2, e2 = self._iface_adj[g.tag]
-                for bi, ei in ((b1, e1), (b2, e2)):
-                    has = bi >= 0
-                    ok = np.ones(g.ne, dtype=bool)
-                    for k in np.flatnonzero(has):
-                        ok[k] = act[self.blocks[bi[k]].tag][ei[k]]
+                for face, bi, ei in ((g.f1, b1, e1), (g.f2, b2, e2)):
+                    ok = beam_nodes[face].all(axis=1) | (bi < 0)
+                    for k in np.flatnonzero(bi >= 0):
+                        ok[k] |= bool(act[self.blocks[bi[k]].tag][ei[k]])
                     m &= ok
             act[g.tag] = m
         return act
+
+    def _ties(self, active: dict[str, NDArray[np.bool_]]) -> NDArray[np.int64]:
+        """Partner-node pairs of inactive interface elements (full continuity there).
+
+        A pair is tied only if no *active* interface element joins the same two nodes, so a
+        partially active joint keeps its relative displacement where it is active.
+        """
+        pairs, keep = [], []
+        for g in self.groups:
+            if not isinstance(g, InterfaceGroup):
+                continue
+            pr = np.stack([g.f1, g.f2], axis=-1).reshape(-1, 2)  # (ne*npe, 2)
+            on = np.repeat(active[g.tag], g.npe)
+            pairs.append(pr[~on])
+            keep.append(pr[on])
+        if not pairs:
+            return np.empty((0, 2), np.int64)
+        tie = np.vstack(pairs)
+        tie = tie[tie[:, 0] != tie[:, 1]]
+        act = np.vstack(keep)
+        if act.size and tie.size:
+            nn = self.mesh.nn
+            k_t = np.minimum(tie[:, 0], tie[:, 1]) * nn + np.maximum(tie[:, 0], tie[:, 1])
+            k_a = np.minimum(act[:, 0], act[:, 1]) * nn + np.maximum(act[:, 0], act[:, 1])
+            tie = tie[~np.isin(k_t, k_a)]
+        return np.unique(tie, axis=0) if tie.size else tie
 
     # ------------------------------------------------------------- system build
     def build_system(
@@ -352,7 +385,7 @@ class StaticSolver:
             g.block.conn[active[g.tag]].ravel() for g in self.groups if isinstance(g, BeamGroup)
         ]
         bn = np.unique(np.concatenate(beam_nodes)) if beam_nodes else np.empty(0, np.int64)
-        dm = DofMap(self.mesh, active, bn, self.model.fixities, displacements)
+        dm = DofMap(self.mesh, active, bn, self.model.fixities, displacements, self._ties(active))
         cont = []
         for b, bm in zip(self.blocks, lay.blocks):
             ids = np.flatnonzero(active[b.tag])
@@ -453,6 +486,44 @@ class StaticSolver:
         kes = [element_stiffness(c.geom, D[c.tag]) for c in sysm.cont]
         kes += [K[s.group.tag] for s in sysm.struct]
         return sysm.pattern.assemble(kes)
+
+    def _tangent_record(self, sysm: System, t: Trial) -> tuple[dict, dict]:
+        """Committed tangents keyed by tag, with the element ids they belong to."""
+        D = {c.tag: (c.ids, t.D[c.tag]) for c in sysm.cont if c.tag in t.D}
+        K = {s.group.tag: (s.ids, t.K[s.group.tag]) for s in sysm.struct}
+        return D, K
+
+    def _tangent_for(self, sysm: System, rec: tuple[dict, dict]) -> tuple[dict, dict]:
+        """Re-index recorded tangents to the active set of ``sysm`` (elastic elsewhere)."""
+        Drec, Krec = rec
+        D, K = {}, {}
+        for c in sysm.cont:
+            if not c.ids.size:
+                continue
+            ngp = c.geom.ngp
+            out = np.broadcast_to(c.De[:, None], (c.ids.size, ngp, 4, 4)).copy()
+            if c.tag in Drec:
+                ids0, D0 = Drec[c.tag]
+                if D0.ndim == 3:
+                    D0 = np.broadcast_to(D0[:, None], (ids0.size, ngp, 4, 4))
+                pos = np.searchsorted(ids0, c.ids)
+                pos = np.clip(pos, 0, max(ids0.size - 1, 0))
+                hit = ids0.size > 0
+                if hit:
+                    m = ids0[pos] == c.ids
+                    out[m] = D0[pos[m]]
+            D[c.tag] = out
+        for s_ in sysm.struct:
+            tag = s_.group.tag
+            out = s_.group.elastic_K(s_.ids)
+            if tag in Krec:
+                ids0, K0 = Krec[tag]
+                if ids0.size:
+                    pos = np.clip(np.searchsorted(ids0, s_.ids), 0, ids0.size - 1)
+                    m = ids0[pos] == s_.ids
+                    out[m] = K0[pos[m]]
+            K[tag] = out
+        return D, K
 
     def _elastic_DK(self, sysm: System) -> tuple[dict, dict]:
         D = {c.tag: c.De for c in sysm.cont}
@@ -610,11 +681,48 @@ class StaticSolver:
                     v[gone] = 0.0
             if new.size:
                 g.activate(state.struct[g.tag], new)
+                if isinstance(g, InterfaceGroup):
+                    self._interface_initial_traction(state, g, new)
         used_now = dm.used_nodes
         fresh = used_now & ~used_before
         assert state.u_ref is not None
         state.u_ref[fresh] = state.u[fresh]
         state.active = {k: v.copy() for k, v in active.items()}
+
+    def _interface_initial_traction(
+        self, state: SolverState, g: InterfaceGroup, ids: NDArray[np.int64]
+    ) -> None:
+        """Newly activated joints take over the traction of the adjacent (stressed) soil,
+        so switching an interface on does not release the stresses across it."""
+        if not any(np.any(v) for v in state.sig.values()):
+            return
+        from ..post.recovery import nodal_average
+
+        live = {k: v for k, v in state.sig.items()}
+        nodal = np.nan_to_num(nodal_average(self.mesh, live))
+        # face-2 nodes of a new joint are copies: use the stress at the face-1 partners if
+        # face 2 has no stressed element yet (e.g. first activation of a wall interface)
+        f2 = nodal[g.f2[ids]]
+        f1 = nodal[g.f1[ids]]
+        pick = np.where((np.abs(f2).sum(axis=-1) > 0)[..., None], f2, f1)
+        state.struct[g.tag]["t"][ids] = g.traction_from_stress(ids, pick)
+
+    def _applied_force(
+        self, f_ext: NDArray[np.float64], dm: DofMap, lam: float
+    ) -> NDArray[np.float64]:
+        """External force in equilibrium at the end of a stage that stopped at ``lam``:
+        the previous stage's applied force plus ``lam`` times the change (``f0`` of the
+        stage driver is an internal force and carries no net load). Also records it."""
+        f_eq = f_ext
+        if lam < 1.0 and self._f_applied is not None:
+            prev = np.zeros(dm.ndof)
+            for comp in range(3):
+                d = dm.node_dofs[:, comp]
+                m = d >= 0
+                np.add.at(prev, d[m], self._f_applied[m, comp])
+            f_eq = lam * f_ext + (1.0 - lam) * prev
+        self._f_applied = np.nan_to_num(dm.nodal(f_eq, comps=3, owners_only=True))
+        return f_eq
 
     def _used_nodes(self, active: dict) -> NDArray[np.bool_]:
         used = np.zeros(self.mesh.nn, dtype=bool)
@@ -630,7 +738,7 @@ class StaticSolver:
             return
         trial, _ = self.integrate(state, np.zeros(sysm.dm.ndof), sysm, lay)
         self._commit_trial(state, sysm, trial)
-        self._D_committed = (trial.D, trial.K)
+        self._D_committed = self._tangent_record(sysm, trial)
 
     def _commit_trial(self, state: SolverState, sysm: System, t: Trial) -> None:
         for c in sysm.cont:
@@ -683,11 +791,7 @@ class StaticSolver:
                 t: Trial = trial  # type: ignore[assignment]
                 D, K = t.D, t.K
             else:
-                D, K = D_comm  # type: ignore[misc]
-                if set(K) != {s.group.tag for s in sysm.struct} or set(D) != {
-                    c.tag for c in sysm.cont if c.ids.size
-                }:
-                    D, K = self._elastic_DK(sysm)
+                D, K = self._tangent_for(sysm, D_comm)  # type: ignore[arg-type]
             return self._factor_free(sysm, self._stiffness(sysm, D, K), sysm.symmetric)
 
         def commit(trial: object, du_total: NDArray[np.float64]) -> None:
@@ -697,7 +801,7 @@ class StaticSolver:
             new.u = u_start + self._scatter_u(du_total, dm)
             self._commit_trial(new, sysm, t)
             committed = new
-            D_comm = (t.D, t.K)
+            D_comm = self._tangent_record(sysm, t)
 
         prob = Problem(dm.ndof, dm.free, dm.prescribed, integrate, factor, commit)
         try:
@@ -725,6 +829,8 @@ class StaticSolver:
         dm = sysm.dm
         _, fint = self.integrate_committed(state, sysm, lay)
         r = np.zeros(dm.ndof)
+        # f_ext here is the external force actually applied at the end of the stage (see
+        # _applied_force for load-split stages)
         r[dm.prescribed] = (fint - f_ext)[dm.prescribed]
         used = dm.used_nodes
         u = state.reported_u()[:, :2].copy()
@@ -756,7 +862,7 @@ class StaticSolver:
             name=name,
             u=u,
             sig={k: v.copy() for k, v in state.sig.items()},
-            reactions=np.nan_to_num(dm.nodal(r, comps=3)),
+            reactions=np.nan_to_num(dm.nodal(r, comps=3, owners_only=True)),
             timings=timings,
             q={k: v.copy() for k, v in state.q.items()},
             plastic={k: v.copy() for k, v in state.plastic.items()},
@@ -817,6 +923,7 @@ class StaticSolver:
                     )
         timings["solve"] = time.perf_counter() - t1
         self.system, self._ctx, self._layout = sysm, ctx, lay
+        f_ext = self._applied_force(f_ext, sysm.dm, 1.0)
         return state, self._result("initial", state, sysm, lay, f_ext, timings, hist)
 
     def _assign_initial_stress(
@@ -847,14 +954,9 @@ class StaticSolver:
                 s[..., 0] = s[..., 2] = k0 * sve
                 state.sig[c.tag][c.ids] = s
         # interfaces start with the traction of the adjacent soil
-        ifaces = [s for s in sysm.struct if isinstance(s.group, InterfaceGroup)]
-        if ifaces:
-            from ..post.recovery import nodal_average
-
-            nodal = nodal_average(self.mesh, state.sig)
-            for s in ifaces:
-                t = s.group.initial_traction(s.ids, np.nan_to_num(nodal))
-                state.struct[s.group.tag]["t"][s.ids] = t
+        for s in sysm.struct:
+            if isinstance(s.group, InterfaceGroup):
+                self._interface_initial_traction(state, s.group, s.ids)
 
     def stage_context(self, st: Stage, override: dict[int, str]) -> _StageCtx:
         active = self.active_masks(st.active_regions, frozenset(st.active_structures))
@@ -872,10 +974,6 @@ class StaticSolver:
     ) -> tuple[SolverState, System, NDArray[np.float64], StageHistory]:
         sysm = self.build_system(lay, ctx.active, ctx.water, ctx.displacements)
         self.apply_activation(state, ctx.active, sysm.dm)
-        if self._D_committed is not None:
-            D, K = self._D_committed
-            if set(D) != {c.tag for c in sysm.cont if c.ids.size}:
-                self._D_committed = None
         f_ext = self.external_force(sysm, ctx)
         dm = sysm.dm
         du_presc = dm.prescribed_values - self._gather_u(state, dm)[dm.prescribed]
@@ -908,8 +1006,9 @@ class StaticSolver:
             ctx = self.stage_context(st, override)
             state, sysm, f_ext, hist = self.solve_stage_ctx(state, ctx, lay)
             timings = {"solve": time.perf_counter() - t1}
+            f_eq = self._applied_force(f_ext, sysm.dm, st.load_split)
             results.append(
-                self._result(st.name, state, sysm, lay, f_ext, timings, hist, st.load_split)
+                self._result(st.name, state, sysm, lay, f_eq, timings, hist, st.load_split)
             )
             self.system, self._ctx, self._layout = sysm, ctx, lay
         self.state = state

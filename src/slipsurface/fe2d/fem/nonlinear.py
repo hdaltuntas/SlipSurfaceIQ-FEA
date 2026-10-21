@@ -147,7 +147,9 @@ def solve_stage(
                     break
                 if it > 0:
                     e_rel = abs(float(ddu @ Rf)) / max(abs(g0), 1e-300)
-                    if rel < s.tol_force and e_rel < s.tol_energy:
+                    # the energy ratio is round-off dominated once the force residual is
+                    # far below tolerance: accept on the force criterion alone then
+                    if rel < s.tol_force and (e_rel < s.tol_energy or rel < 1e-2 * s.tol_force):
                         converged = True
                         break
                     if linear and rel < 1e-8:
@@ -194,7 +196,13 @@ def solve_stage(
             if linear:
                 raise NonConvergence(lam, f"linear stage did not converge (rel={res_hist[-1]:.2e})")
             dlam *= 0.5
-            log.debug("step to lam=%.4f failed after %d its; dlam -> %.3g", lam_t, it, dlam)
+            log.debug(
+                "step to lam=%.4f failed after %d its (residuals %s); dlam -> %.3g",
+                lam_t,
+                it,
+                " ".join(f"{r:.1e}" for r in res_hist[-8:]),
+                dlam,
+            )
             if dlam < s.dlam_min:
                 raise NonConvergence(lam)
             continue

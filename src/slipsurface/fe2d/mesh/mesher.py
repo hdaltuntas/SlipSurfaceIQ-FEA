@@ -22,7 +22,9 @@ Algorithm (written for this package; only the plain Delaunay triangulation comes
    plus ``boundary`` and ``all``.
 
 Because the result is a *conforming* Delaunay mesh, every input segment is a chain of
-mesh edges (needed for embedded liners/bolts and for edge loads).
+mesh edges (needed for embedded liners/bolts and for edge loads). Edge sets follow the
+direction of the input polyline/polygon that defines the name, even where the segment
+coincides with (and was merged into) a segment of another input.
 """
 
 from __future__ import annotations
@@ -527,7 +529,13 @@ def _assemble(
     valid = (sa >= 0) & (sb >= 0)
     for name, base_ids in eng.g.seg_names.items():
         sel = valid & np.isin(eng.S_base, base_ids)
-        e = edges_from_pairs(sa[sel], sb[sel])
+        # orient every subsegment along the direction of the input that carries the name
+        sign = np.ones(eng.g.segs.shape[0], dtype=np.int8)
+        sign[base_ids] = eng.g.seg_sign[name]
+        flip = sign[eng.S_base[sel]] < 0
+        pa = np.where(flip, sb[sel], sa[sel])
+        pb = np.where(flip, sa[sel], sb[sel])
+        e = edges_from_pairs(pa, pb)
         n_missing = int(np.isin(eng.S_base, base_ids).sum()) - e.shape[0]
         if n_missing:
             log.warning("set '%s': %d subsegment(s) outside the meshed domain", name, n_missing)

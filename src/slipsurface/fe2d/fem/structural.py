@@ -10,9 +10,10 @@ the same small protocol as the continuum blocks:
 * ``body_force(ids)``                   self-weight nodal forces (n, nd)
 * ``pore_force(ids, p)``                (interfaces) joint water pressure as external force
 
-Beam (BEAM2, DOFs ux, uy, theta per node; plane strain, per metre): linear Timoshenko
-element with one-point (reduced) shear integration — free of shear locking — and exact
-axial/bending terms; E' = E / (1 - nu^2). Elastic (liner plasticity is a v2 item).
+Beam (BEAM2, DOFs ux, uy, theta per node; plane strain, per metre): two-node Timoshenko
+element with the exact (interdependent interpolation) stiffness — exact for nodal loads
+with any number of elements, no shear locking; E' = E / (1 - nu^2). Elastic (liner
+plasticity is a v2 item). Self-weight is lumped to the end nodes.
 Element end forces are reported as N (tension +), V, M in the local frame.
 
 Bar (BAR2): axial spring EA/s with yield |N| <= T_yield/s (elastic-perfectly plastic) and
@@ -64,16 +65,26 @@ class BeamGroup:
         ka = EA / L
         for i, j, v in ((0, 0, 1), (0, 3, -1), (3, 0, -1), (3, 3, 1)):
             Kl[:, i, j] += v * ka
-        kb = EI / L
-        for i, j, v in ((2, 2, 1), (2, 5, -1), (5, 2, -1), (5, 5, 1)):
-            Kl[:, i, j] += v * kb
-        # shear: gamma = (w2 - w1)/L - (th1 + th2)/2 on [w1, th1, w2, th2] = dofs 1, 2, 4, 5
-        Bs = np.stack([-1 / L, -0.5 * np.ones(ne), 1 / L, -0.5 * np.ones(ne)], axis=1)
-        ks = GA * L
+        # bending + shear: exact two-node Timoshenko stiffness (interdependent
+        # interpolation; Przemieniecki 1968) on [w1, th1, w2, th2] = local dofs 1, 2, 4, 5,
+        # theta = dw/dx - gamma counter-clockwise; As = 0 gives Euler-Bernoulli
+        phi = 12.0 * EI / (GA * L**2) if GA > 0 else np.zeros(ne)
+        c0 = EI / ((1.0 + phi) * L**3)
+        kbs = np.empty((ne, 4, 4))
+        L2 = L * L
+        rows = (
+            (12.0, 6.0 * L, -12.0, 6.0 * L),
+            (6.0 * L, (4.0 + phi) * L2, -6.0 * L, (2.0 - phi) * L2),
+            (-12.0, -6.0 * L, 12.0, -6.0 * L),
+            (6.0 * L, (2.0 - phi) * L2, -6.0 * L, (4.0 + phi) * L2),
+        )
+        for a in range(4):
+            for b in range(4):
+                kbs[:, a, b] = c0 * rows[a][b]
         idx = [1, 2, 4, 5]
         for a in range(4):
             for b in range(4):
-                Kl[:, idx[a], idx[b]] += ks * Bs[:, a] * Bs[:, b]
+                Kl[:, idx[a], idx[b]] += kbs[:, a, b]
         T = np.zeros((ne, 6, 6))
         for o in (0, 3):
             T[:, o, o] = self.c
@@ -266,9 +277,7 @@ class InterfaceGroup:
             w = w * X1[..., 0]
         self.w = w
         self.ks, self.kn = spec.ks, spec.kn
-        self.tphi = math.tan(math.radians(spec.phi))
-        self.tpsi = math.tan(math.radians(spec.psi))
-        self.symmetric = abs(spec.phi - spec.psi) < 1e-12
+        self.set_strength_factor(1.0)
         # element matrix of relative displacement at IP k: du_rel(k) = u2_k - u1_k
         nd = self.nd
         self.Brel = np.zeros((npe, 2, nd))
@@ -276,6 +285,14 @@ class InterfaceGroup:
             for j in range(2):
                 self.Brel[k, j, 2 * k + j] = -1.0
                 self.Brel[k, j, 2 * (npe + k) + j] = 1.0
+
+    def set_strength_factor(self, F: float) -> None:
+        """Strength reduction (SRF): c/F, tan(phi)/F, psi -> min(psi, phi_F)."""
+        sp = self.spec
+        self.c = sp.c / F
+        self.tphi = math.tan(math.radians(sp.phi)) / F
+        self.tpsi = min(math.tan(math.radians(sp.psi)), self.tphi)
+        self.symmetric = abs(self.tphi - self.tpsi) < 1e-14
 
     @property
     def ne(self) -> int:
@@ -305,9 +322,8 @@ class InterfaceGroup:
     def integrate(self, state: dict[str, Arr], ids: NDArray[np.int64], du_e: Arr, p: Arr | None):
         dloc = self._local_jump(ids, du_e)
         t_tr = state["t"][ids] + dloc * np.array([self.ks, self.kn])
-        sp = self.spec
-        t, D, fl = interface_return(t_tr.reshape(-1, 2), self.ks, self.kn, sp.c, self.tphi,
-                                    self.tpsi, sp.sig_t)  # fmt: skip
+        t, D, fl = interface_return(t_tr.reshape(-1, 2), self.ks, self.kn, self.c, self.tphi,
+                                    self.tpsi, self.spec.sig_t)  # fmt: skip
         t = t.reshape(t_tr.shape)
         D = D.reshape(*t_tr.shape[:2], 2, 2)
         f, K = self._assemble(ids, t, D)
@@ -329,7 +345,10 @@ class InterfaceGroup:
 
     def initial_traction(self, ids: NDArray[np.int64], sig_nodes: Arr) -> Arr:
         """Tractions (tau, sigma_n) from nodal continuum stresses at face-2 nodes."""
-        s = sig_nodes[self.f2[ids]]  # (n, ip, 4)
+        return self.traction_from_stress(ids, sig_nodes[self.f2[ids]])
+
+    def traction_from_stress(self, ids: NDArray[np.int64], s: Arr) -> Arr:
+        """Local tractions (tau, sigma_n) of stresses ``s`` (n, ip, 4) at the IPs."""
         Sxy = np.zeros((*s.shape[:2], 2, 2))
         Sxy[..., 0, 0], Sxy[..., 1, 1] = s[..., 0], s[..., 1]
         Sxy[..., 0, 1] = Sxy[..., 1, 0] = s[..., 3]

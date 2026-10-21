@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from scipy.optimize import minimize
 
+from slipsurface.fe2d.core.enums import PlasticFlag
 from slipsurface.fe2d.fem.materials import DruckerPrager, MohrCoulomb, VonMises
 from slipsurface.fe2d.fem.materials.drucker_prager import DPYield
 from slipsurface.fe2d.fem.materials.substep import SubstepSettings, batch, integrate_substep
@@ -140,3 +141,21 @@ def test_substep_batch_elastic_and_unloading():
     # from a yielded state, reverse shear: elastic unloading first, then reverse yield
     s1, q1, _, _, _ = integrate_substep(ym, dp._D, s[1], q[1], np.array([0, 0, 0, -1e-2]))
     assert s1[3] < 0 and abs(ym.f(s1, q1)) < 1e-6 * 10
+
+
+@pytest.mark.parametrize("psi,st", [(0.0, None), (5.0, None), (0.0, 5.0)])
+def test_mohr_coulomb_apex_region_non_associated(psi, st, rng):
+    """Trials far beyond the apex that no combination of (isochoric) flow vectors can
+    reach must still return to an admissible corner (regression: flag 255)."""
+    mc = MohrCoulomb(3e4, 0.3, 10.0, 30.0, psi, st)
+    n = 50000
+    tr = rng.normal(0, 100, (n, 4))
+    deps = tr @ np.linalg.inv(mc._D).T
+    sig, _, _, fl = mc.integrate(np.zeros((n, 4)), deps, np.zeros((n, 1)))
+    assert not np.any(fl == 255)
+    assert mc.yield_function(sig).max() < 1e-9 * 100
+    bad = np.array([[-62.68490516, 126.43094959, 10.15193833, -48.74336934]])
+    mc0 = MohrCoulomb(3e4, 0.3, 10.0, 30.0, 0.0)
+    s, _, _, f = mc0.integrate(np.zeros((1, 4)), bad @ np.linalg.inv(mc0._D).T, np.zeros((1, 1)))
+    assert f[0] == PlasticFlag.APEX
+    assert np.allclose(s[0, :3], 10.0 * math.sqrt(3))  # apex c cot(phi), phi = 30°

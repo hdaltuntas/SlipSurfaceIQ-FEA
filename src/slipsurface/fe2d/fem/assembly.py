@@ -24,6 +24,10 @@ class DofMap:
 
     ``node_dofs[n] = [ux, uy, theta]``; ``-1`` means the DOF does not exist (node not used by
     any active element, or no rotation on a continuum node).
+
+    ``ties`` (m, 2) lists (master, slave) node pairs that share all their DOFs when both are
+    used — e.g. the duplicated nodes of an inactive interface, which then behaves as full
+    continuity. ``owner[n]`` is the node that carries the DOFs of ``n`` (itself if untied).
     """
 
     def __init__(
@@ -33,6 +37,7 @@ class DofMap:
         beam_nodes: NDArray[np.int64] | None = None,
         fixities: tuple[Fixity, ...] = (),
         displacements: tuple[Displacement, ...] = (),
+        ties: NDArray[np.int64] | None = None,
     ) -> None:
         nn = mesh.nn
         self.active = {
@@ -47,15 +52,42 @@ class DofMap:
             has_rot[beam_nodes] = True
             has_rot &= used
 
+        # ---- node tying (union-find on used pairs)
+        rep = np.arange(nn)
+        if ties is not None and len(ties):
+            t = np.asarray(ties, dtype=np.int64).reshape(-1, 2)
+            t = t[used[t[:, 0]] & used[t[:, 1]] & (t[:, 0] != t[:, 1])]
+
+            def find(i: int) -> int:
+                while rep[i] != i:
+                    rep[i] = rep[rep[i]]
+                    i = int(rep[i])
+                return i
+
+            for a, b in t.tolist():
+                ra, rb = find(a), find(b)
+                if ra != rb:
+                    rep[max(ra, rb)] = min(ra, rb)
+            rep = np.array([find(i) for i in range(nn)])
+            has_rot_rep = np.zeros(nn, dtype=bool)
+            has_rot_rep[rep[has_rot]] = True
+            has_rot = has_rot_rep & used
+        owner_mask = used & (rep == np.arange(nn))
+
         node_dofs = np.full((nn, 3), -1, dtype=np.int64)
-        n_used = int(used.sum())
-        node_dofs[used, 0] = 2 * np.arange(n_used)
-        node_dofs[used, 1] = 2 * np.arange(n_used) + 1
-        n_rot = int(has_rot.sum())
-        node_dofs[has_rot, 2] = 2 * n_used + np.arange(n_rot)
+        n_used = int(owner_mask.sum())
+        node_dofs[owner_mask, 0] = 2 * np.arange(n_used)
+        node_dofs[owner_mask, 1] = 2 * np.arange(n_used) + 1
+        rot_own = has_rot & owner_mask
+        n_rot = int(rot_own.sum())
+        node_dofs[rot_own, 2] = 2 * n_used + np.arange(n_rot)
+        tied = used & ~owner_mask
+        node_dofs[tied] = node_dofs[rep[tied]]
         self.node_dofs = node_dofs
         self.ndof = 2 * n_used + n_rot
         self.used_nodes = used
+        self.owner = rep
+        self.owner_mask = owner_mask
 
         presc_val = np.full(self.ndof, np.nan)
         for fx in fixities:
@@ -87,12 +119,20 @@ class DofMap:
         d = self.node_dofs[conn][:, :, :2]  # (ne, nen, 2)
         return d.reshape(conn.shape[0], -1)
 
-    def nodal(self, vec: NDArray[np.float64], comps: int = 2) -> NDArray[np.float64]:
-        """Scatter a global DOF vector back to an (nn, comps) nodal array (NaN where absent)."""
+    def nodal(
+        self, vec: NDArray[np.float64], comps: int = 2, owners_only: bool = False
+    ) -> NDArray[np.float64]:
+        """Scatter a global DOF vector back to an (nn, comps) nodal array (NaN where absent).
+
+        ``owners_only``: tied nodes get NaN (use for nodal *forces*, which must not be
+        counted twice); displacements are reported on every node of a tied group.
+        """
         out = np.full((self.node_dofs.shape[0], comps), np.nan)
         for c in range(comps):
             d = self.node_dofs[:, c]
             m = d >= 0
+            if owners_only:
+                m &= self.owner_mask
             out[m, c] = vec[d[m]]
         return out
 

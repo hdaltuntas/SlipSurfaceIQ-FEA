@@ -1,16 +1,18 @@
 """Shear strength reduction (SRF): factor of safety by bisection.
 
-For a trial factor F the strength of every Mohr-Coulomb / Drucker-Prager material is
-reduced (``c/F``, ``tan(phi)/F``, ``psi -> min(psi, phi_F)``). Each trial starts from the
-state at the end of the selected stage: the committed stresses are returned onto the
-reduced yield surfaces and the resulting out-of-balance force is applied in load steps
-by the Newton-Raphson stage solver. A trial *fails* when the step size drops below
-``dlam_min`` (non-convergence). The bracket ``[F_lo converged, F_hi failed]`` is
-narrowed by bisection until ``F_hi - F_lo < tol``; the factor of safety is ``F_lo``.
+For a trial factor F the strength of every Mohr-Coulomb / Drucker-Prager material and of
+every interface is reduced (``c/F``, ``tan(phi)/F``, ``psi -> min(psi, phi_F)``). Each
+trial starts from the state at the end of the selected stage: the committed stresses are
+returned onto the reduced yield surfaces and the resulting out-of-balance force is
+applied in load steps by the Newton-Raphson stage solver. A trial *fails* when the step
+size drops below ``dlam_min`` (non-convergence). The bracket ``[F_lo converged, F_hi
+failed]`` is narrowed by bisection until ``F_hi - F_lo < tol``; the factor of safety is
+``F_lo``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -20,6 +22,7 @@ from ..core.errors import ModelError, NonConvergence, SolverError
 from ..core.log import get_logger
 from ..model.model import Model
 from .static import SolveResult, StageResult, StaticSolver
+from .structural import InterfaceGroup
 
 log = get_logger("srf")
 
@@ -66,14 +69,23 @@ def strength_reduction(
     assert solver.state is not None and solver._ctx is not None
     ctx = solver._ctx
     base_state = solver.state.commit()
-    if not any(m.model in ("mohr_coulomb", "drucker_prager") for m in model.materials.values()):
-        raise ModelError("strength reduction needs Mohr-Coulomb or Drucker-Prager materials")
+    if not model.interfaces and not any(
+        m.model in ("mohr_coulomb", "drucker_prager") for m in model.materials.values()
+    ):
+        raise ModelError(
+            "strength reduction needs Mohr-Coulomb / Drucker-Prager materials or interfaces"
+        )
     trials: list[SRFTrial] = []
     best: dict[str, object] = {}
     trial_settings = replace(model.settings, dlam_min=max(dlam_min, model.settings.dlam_min))
 
+    ifaces = [g for g in solver.groups if isinstance(g, InterfaceGroup)]
+
     def trial(F: float) -> bool:
         mats = {k: v.with_strength_factor(F) for k, v in model.materials.items()}
+        for g in ifaces:  # joints are reduced with the soil (as in RS2 / PLAXIS)
+            g.set_strength_factor(F)
+        solver._sys_cache.clear()  # symmetry flag may change with F
         lay = solver.layout(ctx.override, materials=mats)
         state = base_state.commit()
         solver._D_committed = None
@@ -100,6 +112,23 @@ def strength_reduction(
             best["fail_u"][F] = du  # type: ignore[index]
         return ok
 
+    try:
+        return _search(trial, trials, best, base, tol, F_first, growth, F_max)
+    finally:
+        for g in ifaces:
+            g.set_strength_factor(1.0)
+
+
+def _search(
+    trial: Callable[[float], bool],
+    trials: list[SRFTrial],
+    best: dict[str, object],
+    base: SolveResult,
+    tol: float,
+    F_first: float,
+    growth: float,
+    F_max: float,
+) -> SRFResult:
     # ---- bracket
     if trial(F_first):
         lo, hi = F_first, F_first * growth

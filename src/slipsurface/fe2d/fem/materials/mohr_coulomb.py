@@ -298,8 +298,57 @@ def _return_principal(
             for j in range(3):
                 C_out[c, j] = 1e-8 * D[c, j]  # corner: (almost) zero stiffness
         return flag
-    # should not happen: fall back to the apex/elastic trial (flagged as apex)
-    for c in range(3):
+    # non-associated flow (psi < phi): the trial can lie beyond the apex in a direction no
+    # combination of flow vectors reaches (e.g. psi = 0 is isochoric). As in Clausen's
+    # region scheme the apex region is "everything else": return to the admissible corner
+    # point closest to the trial in the energy norm.
+    Dinv = np.empty((3, 3))
+    _inv(D, 3, Dinv)
+    best = -1
+    best_e = 1e300
+    sb = np.zeros(3)
+    for pt in range(4):
+        if pt == 0 and not has_apex:
+            continue
+        if pt > 0 and not has_t:
+            continue
+        if pt == 0:
+            rows = (0, 1, 2)
+        elif pt == 1:
+            rows = (3, 4, 5)
+        elif pt == 2:
+            rows = (0, 3, 4)
+        else:
+            rows = (0, 2, 3)
+        for a in range(3):
+            for c in range(3):
+                M[a, c] = A[rows[a], c]
+        if not _inv(M, 3, Mi):
+            continue
+        for c in range(3):
+            s[c] = Mi[c, 0] * rhs[rows[0]] + Mi[c, 1] * rhs[rows[1]] + Mi[c, 2] * rhs[rows[2]]
+        smax = max(s[0], s[1], s[2])
+        smin = min(s[0], s[1], s[2])
+        if k * smax - smin - sc > tolf * 10:
+            continue
+        if has_t and smax - st > tolf * 10:
+            continue
+        e = 0.0
+        for a in range(3):
+            for c in range(3):
+                e += (s_tr[a] - s[a]) * Dinv[a, c] * (s_tr[c] - s[c])
+        if e < best_e:
+            best_e = e
+            best = pt
+            for c in range(3):
+                sb[c] = s[c]
+    if best >= 0:
+        for c in range(3):
+            s_out[c] = sb[c]
+            for j in range(3):
+                C_out[c, j] = 1e-8 * D[c, j]
+        return _AP if best == 0 else _TE
+    for c in range(3):  # should not happen
         s_out[c] = s_tr[c]
         for j in range(3):
             C_out[c, j] = D[c, j]
