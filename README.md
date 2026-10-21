@@ -5,7 +5,7 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Status: Faz 2 (elasto-plastik çözücü) — Kapı 1 ve Kapı 2 geçti.**
+**Status: Faz 3 (aşamalı inşaat ve yapısal elemanlar) — Kapı 1, 2 ve 3 geçti.**
 
 ## Install (development)
 
@@ -66,6 +66,30 @@ state can be `gravity`, `k0_field`, a constant `field` or `none`. Elements: T3, 
 (B-bar), Q8. Nodal stresses use superconvergent patch recovery (`api.nodal_stress`).
 `slipsurface.fe2d.gui.show_result` gives a quick PyVista view (`pip install .[gui]`).
 
+### Staged construction, supports and project files
+
+```python
+from slipsurface.fe2d.mesh.structures import add_beams, add_bar, insert_interface
+
+mesh = add_beams(mesh, "wall", "wall")                  # Timoshenko BEAM2 on an edge set
+mesh = insert_interface(mesh, "wall", "ifL", "left")    # zero-thickness Goodman joint
+mesh = add_bar(mesh, head_node, anchor_node, "anchor")  # end-anchored bolt / anchor
+model = api.Model(..., stages=[
+    api.Stage("install", active_structures={"wall", "ifL"}),
+    api.Stage("dig", active_regions={1}, active_structures={"wall", "ifL"},
+              load_split=0.4,                             # tunnel relaxation
+              water=api.WaterCondition.piezo([[0, -3], [20, -2]])),
+], liners={...}, bolts={...}, interfaces={...})
+res = api.run(model)
+res.last.beams["wall"]          # (ne, 2, [N, V, M]) per element end
+api.save_project("wall.ssproj", model, res)   # ZIP: model.json + mesh.h5 + results.h5
+```
+
+Elements are switched on/off per stage (excavation releases the unbalanced force
+gradually, activated elements start stress free, bars with their pretension). An
+interface that is not active ties its duplicated nodes (full continuity). Results go to
+HDF5 (`api.write_results`, lazy `api.ResultsFile`). See `examples/sheet_pile_staged.py`.
+
 ### Unstructured mesh (Delaunay + Ruppert)
 
 ```python
@@ -100,14 +124,14 @@ points become one-node sets; `boundary` and `all` are always present. See
 | Layer | Package | Depends on |
 |---|---|---|
 | L6 | `api/` (`cli/`, `gui/` later) | L0–L5 |
-| L5 | `io/` — project JSON, VTU | L0–L4 |
+| L5 | `io/` — project JSON, HDF5 results, `.ssproj`, VTU | L0–L4 |
 | L4 | `post/` — stress recovery, principal stresses | L0–L3 |
 | L3 | `fem/` — elements, materials, assembly, stage driver | L0–L2 |
 | L2 | `mesh/` — structured + Delaunay/Ruppert mesh generation, size fields, quality | L0–L1 |
 | L1 | `model/` — immutable model definition | L0 |
 | L0 | `core/` — units, enums, errors, logging | NumPy |
 
-## Verification (Kapı 1, Kapı 2)
+## Verification (Kapı 1, 2, 3)
 
 See [`docs/verification.md`](docs/verification.md).
 
