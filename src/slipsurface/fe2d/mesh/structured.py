@@ -50,13 +50,15 @@ def mapped_mesh(
     region: int = 1,
     tag: str = "soil",
 ) -> Mesh:
-    """Triangulated mapped mesh with sets ``bottom/right/top/left`` (s=0/1, t=0/1 sides).
+    """Mapped mesh with sets ``bottom/right/top/left`` (s=0/1, t=0/1 sides).
 
-    ``pattern``: ``"right"`` (all diagonals one way), ``"left"``, ``"alternate"`` (union
-    jack-like, better isotropy) or ``"cross"``-free alternatives are not offered.
+    Triangles (T3/T6): ``pattern`` = ``"right"`` (all diagonals one way), ``"left"`` or
+    ``"alternate"`` (union-jack-like, better isotropy). Quadrilaterals (Q4/Q8) ignore it.
     """
-    if etype not in (ElemType.T3, ElemType.T6):
-        raise MeshError("mapped_mesh supports T3 and T6")
+    if etype not in (ElemType.T3, ElemType.T6, ElemType.Q4, ElemType.Q8):
+        raise MeshError("mapped_mesh supports T3, T6, Q4 and Q8")
+    quad = etype in (ElemType.Q4, ElemType.Q8)
+    quadratic = etype in (ElemType.T6, ElemType.Q8)
     if nx < 1 or ny < 1:
         raise MeshError("nx, ny must be >= 1")
     s = _fine_params(nx, grade_x)
@@ -72,6 +74,9 @@ def mapped_mesh(
 
     if etype is ElemType.T6:
         keep = np.ones((mx, my), dtype=bool)  # cell centres = diagonal mid-side nodes
+    elif etype is ElemType.Q8:
+        keep = np.ones((mx, my), dtype=bool)
+        keep[1::2, 1::2] = False  # no centre node (serendipity)
     else:
         keep = np.zeros((mx, my), dtype=bool)
         keep[0::2, 0::2] = True
@@ -96,7 +101,11 @@ def mapped_mesh(
         raise MeshError(f"unknown pattern '{pattern}'")
 
     # diagonal p00-p11 (not flipped) or p10-p01 (flipped)
-    if etype is ElemType.T6:
+    if quad:
+        cols = [p00, p10, p11, p01] + ([m_b, m_r, m_t, m_l] if quadratic else [])
+        a = np.column_stack(cols)
+        b = a[:0]
+    elif etype is ElemType.T6:
         a = np.where(
             flip[:, None],
             np.column_stack([p00, p10, p01, m_b, m_c, m_l]),
@@ -125,9 +134,13 @@ def mapped_mesh(
     )
     neg = a2 < 0
     if np.any(neg):
-        conn[neg] = (
-            conn[neg][:, [0, 2, 1, 5, 4, 3]] if etype is ElemType.T6 else conn[neg][:, [0, 2, 1]]
-        )
+        perm = {
+            ElemType.T3: [0, 2, 1],
+            ElemType.T6: [0, 2, 1, 5, 4, 3],
+            ElemType.Q4: [0, 3, 2, 1],
+            ElemType.Q8: [0, 3, 2, 1, 7, 6, 5, 4],
+        }[etype]
+        conn[neg] = conn[neg][:, perm]
 
     def side_nodes(ii: NDArray, jj: NDArray) -> NDArray:
         ids = new_id[gid(ii, jj)]
@@ -135,7 +148,7 @@ def mapped_mesh(
 
     def side_edges(ii: NDArray, jj: NDArray) -> NDArray:
         ids = new_id[gid(ii, jj)]
-        if etype is ElemType.T6:
+        if quadratic:
             return np.column_stack([ids[0:-1:2], ids[2::2], ids[1::2]])
         ids = ids[ids >= 0]
         return np.column_stack([ids[:-1], ids[1:]])

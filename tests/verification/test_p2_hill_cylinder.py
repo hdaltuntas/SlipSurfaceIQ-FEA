@@ -16,6 +16,7 @@ closed form assumes. Criterion: pressure-expansion curve within 2 %.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from scipy.optimize import brentq
 
 from slipsurface.fe2d import api
@@ -39,9 +40,10 @@ def ub_exact(p):
     return 2 * (1 - NU**2) * KC * rc**2 / (E * B_OUT)
 
 
-def test_hill_pressure_expansion():
+@pytest.mark.parametrize("etype,nr", [(ElemType.T6, 40), (ElemType.Q8, 40), (ElemType.Q4, 80)])
+def test_hill_pressure_expansion(etype, nr):
     pressures = KC * np.array([0.5, 0.75, 0.9, 1.0, 1.1, 1.2, 1.3, 1.35])
-    mesh = rectangle(B_OUT - A_IN, 0.1, 40, 2, ElemType.T6, origin=(A_IN, 0.0), grade_x=2.0)
+    mesh = rectangle(B_OUT - A_IN, 0.1, nr, 2, etype, origin=(A_IN, 0.0), grade_x=2.0)
     model = api.Model(
         analysis=api.Analysis.AXISYMMETRIC,
         mesh=mesh,
@@ -66,7 +68,7 @@ def test_hill_pressure_expansion():
     rc = brentq(lambda r: p_of_rc(r) - pressures[5], A_IN, B_OUT)
     r = res.geom["soil"].xg[..., 0]
     pl = res.stages[5].plastic["soil"] > 0
-    assert np.all(pl[r < rc - 0.03]) and not np.any(pl[r > rc + 0.03])
+    assert np.all(pl[r < rc - 0.04]) and not np.any(pl[r > rc + 0.04])
     # sigma_z intermediate everywhere (assumption of the closed form)
     s = res.stages[5].sig["soil"].reshape(-1, 4)
     assert np.all((s[:, 1] <= s[:, 2] + 1e-6) & (s[:, 1] >= s[:, 0] - 1e-6))

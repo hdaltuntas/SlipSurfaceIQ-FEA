@@ -15,12 +15,16 @@ def distort(mesh: Mesh, amount: float, seed: int = 0) -> Mesh:
     blk = mesh.blocks[0]
     coords = mesh.coords.copy()
     boundary = np.unique(np.concatenate([v for k, v in mesh.node_sets.items() if k != "all"]))
-    corners = np.unique(blk.conn[:, :3])
+    nc = 4 if blk.etype in (ElemType.Q4, ElemType.Q8) else 3
+    corners = np.unique(blk.conn[:, :nc])
     interior = np.setdiff1d(corners, boundary)
     coords[interior] += amount * rng.uniform(-1, 1, (interior.size, 2))
+    c = blk.conn
     if blk.etype is ElemType.T6:
-        c = blk.conn
         for m, (a, b) in zip((3, 4, 5), ((0, 1), (1, 2), (2, 0))):
+            coords[c[:, m]] = 0.5 * (coords[c[:, a]] + coords[c[:, b]])
+    if blk.etype is ElemType.Q8:
+        for m, (a, b) in zip((4, 5, 6, 7), ((0, 1), (1, 2), (2, 3), (3, 0))):
             coords[c[:, m]] = 0.5 * (coords[c[:, a]] + coords[c[:, b]])
     return Mesh(
         coords,

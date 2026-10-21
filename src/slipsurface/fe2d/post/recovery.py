@@ -22,6 +22,11 @@ def _extrapolation(etype: ElemType, ngp: int) -> NDArray[np.float64]:
         from ..fem.elements.tri6 import Tri6
 
         return Tri6.corner_extrapolation(tri_rule(ngp))
+    if etype in (ElemType.Q4, ElemType.Q8):
+        from ..fem.elements.quad import quad_corner_extrapolation
+        from ..fem.elements.quadrature import quad_rule
+
+        return quad_corner_extrapolation(quad_rule(int(round(np.sqrt(ngp)))))
     raise NotImplementedError(etype.name)
 
 
@@ -33,6 +38,9 @@ def element_nodal_values(
     corner = np.einsum("cg,egk->eck", E, gp_values)
     if block.etype is ElemType.T6:
         mids = 0.5 * (corner[:, [0, 1, 2]] + corner[:, [1, 2, 0]])
+        return np.concatenate([corner, mids], axis=1)
+    if block.etype is ElemType.Q8:
+        mids = 0.5 * (corner[:, [0, 1, 2, 3]] + corner[:, [1, 2, 3, 0]])
         return np.concatenate([corner, mids], axis=1)
     return corner
 

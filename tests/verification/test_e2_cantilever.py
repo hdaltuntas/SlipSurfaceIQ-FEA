@@ -39,7 +39,10 @@ def shear_traction(x, n):
     return t
 
 
-@pytest.mark.parametrize("etype,nx,ny", [(ElemType.T6, 40, 4), (ElemType.T3, 160, 16)])
+@pytest.mark.parametrize(
+    "etype,nx,ny",
+    [(ElemType.T6, 40, 4), (ElemType.T3, 160, 16), (ElemType.Q8, 40, 4), (ElemType.Q4, 80, 8)],
+)
 def test_cantilever_tip_deflection(etype, nx, ny):
     mesh = rectangle(L, D, nx, ny, etype, origin=(0.0, -D / 2))
     mesh, bcs = per_node_displacements(mesh, mesh.nodes("left"), u_exact)

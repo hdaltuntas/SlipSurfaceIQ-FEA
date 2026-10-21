@@ -66,3 +66,15 @@ def test_mesh_validation_errors():
         Mesh(coords, (ElementBlock(ElemType.T3, np.array([[0, 1, 5]]), np.array([1])),))
     with pytest.raises(MeshError):
         ElementBlock(ElemType.T6, np.array([[0, 1, 2]]), np.array([1]))
+
+
+@pytest.mark.parametrize("etype", [ElemType.Q4, ElemType.Q8])
+def test_mapped_quads(etype):
+    m = rectangle(3.0, 2.0, 6, 4, etype)
+    nq = 7 * 5
+    assert m.nn == (nq if etype is ElemType.Q4 else 13 * 9 - 6 * 4)
+    assert m.blocks[0].ne == 24
+    assert _area(m) == pytest.approx(6.0)
+    assert m.edges("top").shape == (6, etype.nodes_per_edge)
+    pm = plate_with_hole(1.0, 4.0, 8, 16, etype)
+    assert _area(pm) == pytest.approx(16.0 - np.pi / 4, rel=2e-3 if etype is ElemType.Q4 else 1e-5)

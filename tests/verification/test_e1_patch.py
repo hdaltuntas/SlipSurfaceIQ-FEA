@@ -1,7 +1,5 @@
-"""E1 — patch tests (T3, T6): constant strain must be reproduced exactly (error < 1e-10).
-
-Q4/Q8 patch tests are added together with those elements in Faz 2.
-"""
+"""E1 — patch tests (T3, T6, Q4 with B-bar, Q8): constant strain must be reproduced
+exactly (error < 1e-10) on distorted meshes."""
 
 from __future__ import annotations
 
@@ -36,7 +34,10 @@ def _model(mesh, analysis, bcs=(), fix=(), loads=()):
     )
 
 
-@pytest.mark.parametrize("etype", [ElemType.T3, ElemType.T6])
+ALL = [ElemType.T3, ElemType.T6, ElemType.Q4, ElemType.Q8]
+
+
+@pytest.mark.parametrize("etype", ALL)
 @pytest.mark.parametrize("seed", [0, 1])
 def test_displacement_patch_plane_strain(etype, seed):
     mesh = distort(rectangle(2.0, 1.0, 4, 3, etype, pattern="alternate"), 0.12, seed)
@@ -56,7 +57,7 @@ def test_displacement_patch_plane_strain(etype, seed):
     assert np.max(np.abs(sig - sig_exact)) < 1e-10 * np.max(np.abs(sig_exact))
 
 
-@pytest.mark.parametrize("etype", [ElemType.T3, ElemType.T6])
+@pytest.mark.parametrize("etype", ALL)
 def test_traction_patch_plane_strain(etype):
     """Constant stress via boundary tractions with only rigid-body constraints."""
     sx, sy, txy = 30.0, -50.0, 12.0
@@ -84,7 +85,7 @@ def test_traction_patch_plane_strain(etype):
     assert np.max(np.abs(sig - exact)) < 1e-9 * np.max(np.abs(exact))
 
 
-@pytest.mark.parametrize("etype", [ElemType.T3, ElemType.T6])
+@pytest.mark.parametrize("etype", ALL)
 def test_displacement_patch_axisymmetric(etype):
     """u_r = c r, u_z = d z gives constant strain [c, d, c, 0] in axisymmetry."""
     c, d = 2.0e-4, -1.0e-3

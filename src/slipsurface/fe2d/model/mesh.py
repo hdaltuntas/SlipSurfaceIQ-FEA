@@ -8,6 +8,7 @@ Node ordering conventions
 -------------------------
 * T3: corners counter-clockwise.
 * T6: corners 0-1-2 counter-clockwise, then mid-side nodes 3 (0-1), 4 (1-2), 5 (2-0).
+* Q4: corners 0-1-2-3 counter-clockwise. Q8: then mid-sides 4 (0-1), 5 (1-2), 6 (2-3), 7 (3-0).
 * Edge sets: rows of ``nodes_per_edge`` node ids; for quadratic edges ``[end_a, end_b, mid]``.
 """
 
@@ -121,6 +122,18 @@ class Mesh:
                 if bad.size:
                     raise MeshError(
                         f"block '{b.tag}': {bad.size} element(s) with non-positive area "
+                        f"(clockwise or degenerate), first index {int(bad[0])}"
+                    )
+            if b.etype in (ElemType.Q4, ElemType.Q8) and b.ne:
+                x = self.coords[b.conn[:, :4]]
+                a2 = np.zeros(b.ne)
+                for i in range(4):
+                    j = (i + 1) % 4
+                    a2 += x[:, i, 0] * x[:, j, 1] - x[:, j, 0] * x[:, i, 1]
+                bad = np.flatnonzero(a2 <= 0.0)
+                if bad.size:
+                    raise MeshError(
+                        f"block '{b.tag}': {bad.size} quadrilateral(s) with non-positive area "
                         f"(clockwise or degenerate), first index {int(bad[0])}"
                     )
         for name, ids in self.node_sets.items():
