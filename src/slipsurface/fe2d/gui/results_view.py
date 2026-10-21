@@ -37,14 +37,32 @@ def to_pyvista(result: SolveResult, stage: str | int | None = None, deform: floa
     st = result.last if stage is None else result.stage(stage)
     mesh = result.model.mesh
     blocks = [b for b in mesh.continuum_blocks() if b.etype in _VTK]
-    cells = np.concatenate(
-        [np.hstack([np.full((b.ne, 1), b.etype.nen), b.conn]).ravel() for b in blocks]
+    masks = [st.active.get(b.tag, np.ones(b.ne, dtype=bool)) for b in blocks]
+    cells = (
+        np.concatenate(
+            [
+                np.hstack([np.full((int(m.sum()), 1), b.etype.nen), b.conn[m]]).ravel()
+                for b, m in zip(blocks, masks)
+            ]
+        )
+        if blocks
+        else np.empty(0, dtype=np.int64)
     )
-    types = np.concatenate([np.full(b.ne, _VTK[b.etype], dtype=np.uint8) for b in blocks])
-    u = np.nan_to_num(st.u)
-    pts = np.column_stack([mesh.coords + deform * u, np.zeros(mesh.nn)])
+    types = (
+        np.concatenate(
+            [np.full(m.sum(), _VTK[b.etype], dtype=np.uint8) for b, m in zip(blocks, masks)]
+        )
+        if blocks
+        else np.empty(0, dtype=np.uint8)
+    )
+    u = st.u
+    pts = np.column_stack([mesh.coords + deform * np.nan_to_num(u), np.zeros(mesh.nn)])
     grid = pv.UnstructuredGrid(cells, types, pts)
-    s = spr(mesh, st.sig, {k: g.xg for k, g in result.geom.items()})
+    s = (
+        spr(mesh, st.sig, {k: g.xg for k, g in result.geom.items()}, active=st.active)
+        if st.sig
+        else np.full((mesh.nn, 4), np.nan)
+    )
     p = principal_stresses(s)
     grid.point_data["u"] = np.column_stack([u, np.zeros(mesh.nn)])
     grid.point_data["|u|"] = np.linalg.norm(u, axis=1)
@@ -54,11 +72,14 @@ def to_pyvista(result: SolveResult, stage: str | int | None = None, deform: floa
         grid.point_data[name] = p[name]
     if st.q:
         grid.point_data["eps_p"] = np.maximum(
-            0.0, nodal_average(mesh, {k: v[..., :1] for k, v in st.q.items()})[:, 0]
+            0.0,
+            nodal_average(mesh, {k: v[..., :1] for k, v in st.q.items()}, active=st.active)[:, 0],
         )
     if st.plastic:
-        grid.cell_data["plastic"] = np.concatenate(
-            [(st.plastic[b.tag] > 0).mean(axis=1) for b in blocks]
+        grid.cell_data["plastic"] = (
+            np.concatenate([(st.plastic[b.tag][m] > 0).mean(axis=1) for b, m in zip(blocks, masks)])
+            if blocks
+            else np.empty(0)
         )
     return grid
 

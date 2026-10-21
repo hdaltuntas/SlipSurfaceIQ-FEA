@@ -7,6 +7,8 @@ default for results/exports, extrapolation kept on the outer boundary).
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -46,9 +48,19 @@ def element_nodal_values(
     return corner
 
 
-def nodal_average(mesh: Mesh, gp_values: dict[str, NDArray[np.float64]]) -> NDArray[np.float64]:
-    """Average extrapolated element values at shared nodes -> (nn, ncomp); NaN if unused."""
+def nodal_average(
+    mesh: Mesh,
+    gp_values: dict[str, NDArray[np.float64]],
+    *,
+    active: dict[str, NDArray[np.bool_]] | None = None,
+) -> NDArray[np.float64]:
+    """Average extrapolated values; NaN on unused nodes.
+
+    ``active`` excludes removed elements, including their retained history. Omitted
+    masks retain the legacy all-active behavior; stored arrays are never modified.
+    """
     ncomp = next(iter(gp_values.values())).shape[-1]
+    mesh, gp_values, _ = _active_fields(mesh, gp_values, active)
     acc = np.zeros((mesh.nn, ncomp))
     cnt = np.zeros(mesh.nn)
     for b in mesh.continuum_blocks():
@@ -126,6 +138,8 @@ def spr(
     gp_values: dict[str, NDArray[np.float64]],
     gp_coords: dict[str, NDArray[np.float64]],
     boundary: str = "extrapolate",
+    *,
+    active: dict[str, NDArray[np.bool_]] | None = None,
 ) -> NDArray[np.float64]:
     """Superconvergent patch recovery (Zienkiewicz & Zhu) -> nodal values (nn, ncomp).
 
@@ -142,8 +156,12 @@ def spr(
     mesh boundary, where patch recovery is known to be least accurate (on the Kirsch
     problem it is up to 2x worse there, while 2-3x better inside for T6/Q8);
     ``boundary="spr"`` uses the patch values everywhere.
+    ``active`` restricts patches and boundary detection to the selected stage.
     """
     ncomp = next(iter(gp_values.values())).shape[-1]
+    mesh, gp_values, gp_coords = _active_fields(mesh, gp_values, active, gp_coords)
+    if not gp_values:
+        return np.full((mesh.nn, ncomp), np.nan)
     nn = mesh.nn
     acc = np.zeros((nn, ncomp))
     cnt = np.zeros(nn)
@@ -248,3 +266,22 @@ def spr(
     elif boundary != "spr":
         raise ValueError("boundary must be 'extrapolate' or 'spr'")
     return out
+
+
+def _active_fields(mesh, gp_values, active, gp_coords=None):
+    """Subset element rows without changing the stored stage history or node IDs."""
+    if not active:
+        return mesh, gp_values, gp_coords
+    blocks, values, coords = [], {}, {}
+    for b in mesh.continuum_blocks():
+        mask = np.asarray(active.get(b.tag, np.ones(b.ne, dtype=bool)), dtype=bool)
+        if mask.shape != (b.ne,):
+            raise ValueError(f"active mask for '{b.tag}' must have shape ({b.ne},)")
+        if not mask.any():
+            continue
+        blocks.append(replace(b, conn=b.conn[mask], region=b.region[mask]))
+        if b.tag in gp_values:
+            values[b.tag] = gp_values[b.tag][mask]
+            if gp_coords is not None:
+                coords[b.tag] = gp_coords[b.tag][mask]
+    return replace(mesh, blocks=tuple(blocks)), values, coords

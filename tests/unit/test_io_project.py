@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -168,3 +169,25 @@ def test_not_a_project(tmp_path):
     with pytest.raises(ModelError):
         ResultsFile(save_mesh(unstructured_mesh(Domain().add_polygon([(0, 0), (1, 0), (0, 1)]),
                                                 h=0.5), tmp_path / "mesh_only.h5"))  # fmt: skip
+
+
+@pytest.mark.parametrize("change", ["geometry", "material", "stage"])
+def test_project_rejects_results_from_different_model(staged, tmp_path, change):
+    model, result = staged
+    if change == "geometry":
+        other = replace(model, mesh=replace(model.mesh, coords=2 * model.mesh.coords))
+    elif change == "material":
+        other = replace(model, materials={"soil": api.MaterialSpec.elastic("soil", 1e4, 0.3)})
+    else:
+        other = replace(model, stages=[api.Stage("different")])
+    target = tmp_path / "untouched.ssproj"
+    target.write_bytes(b"original")
+    with pytest.raises(ModelError, match="different model"):
+        save_project(target, other, result)
+    assert target.read_bytes() == b"original"
+
+
+def test_project_accepts_equivalent_model_copy(staged, tmp_path):
+    model, result = staged
+    path = save_project(tmp_path / "copy.ssproj", replace(model), result)
+    assert load_project(path).results is not None

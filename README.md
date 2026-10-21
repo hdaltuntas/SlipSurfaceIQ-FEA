@@ -5,7 +5,10 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Status: Faz 4 (sızma, drenajsız analiz, MCC, Hoek-Brown) — Kapı 1, 2, 3 ve 4 geçti.**
+**Status: Faz 4 tamamlandı; Faz 5 masaüstü arayüzü başladı. Kapı 1–4 geçti; Kapı 5 açık.**
+
+Faz 3 sonuç/kayıt düzeltmeleri ve Faz 5 kapsamı: [durum ve sıradaki işler](docs/phase5-status.md).
+Masaüstü: `pip install -e ".[desktop]"`, ardından `slipsurface model.ssproj`.
 
 ## Install (development)
 
@@ -144,7 +147,7 @@ points become one-node sets; `boundary` and `all` are always present. See
 
 | Layer | Package | Depends on |
 |---|---|---|
-| L6 | `api/` (`cli/`, `gui/` later) | L0–L5 |
+| L6 | `api/`, `gui/` — optional desktop and result viewer | L0–L5 |
 | L5 | `io/` — project JSON, HDF5 results, `.ssproj`, VTU | L0–L4 |
 | L4 | `post/` — stress recovery, principal stresses | L0–L3 |
 | L3 | `fem/` — elements, materials, assembly, stage driver | L0–L2 |

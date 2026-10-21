@@ -48,9 +48,9 @@ def save_project(path: str | Path, model: Model, results: SolveResult | None = N
     """Write ``model`` (and ``results``) to a ``.ssproj`` archive."""
     path = Path(path)
     if results is not None and results.model is not model:
-        # results must belong to this model (same mesh)
-        if results.model.mesh.nn != model.mesh.nn:
-            raise ModelError("results were computed for a different mesh")
+        # Equal node counts do not imply the same geometry, loads or materials.
+        if model_to_dict(results.model) != model_to_dict(model):
+            raise ModelError("results were computed for a different model")
     with tempfile.TemporaryDirectory() as td:
         tdp = Path(td)
         (tdp / "model.json").write_text(

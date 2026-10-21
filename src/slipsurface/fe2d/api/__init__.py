@@ -21,6 +21,7 @@ Example::
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -63,11 +64,13 @@ def nodal_stress(
     """Nodal stresses (nn, 4): ``method="spr"`` (patch recovery) or ``"average"``."""
     st = result.last if stage is None else result.stage(stage)
     mesh = result.model.mesh
+    if method not in ("average", "spr"):
+        raise ValueError(f"unknown recovery method '{method}'")
+    if not st.sig:
+        return np.full((mesh.nn, 4), np.nan)
     if method == "average":
-        return nodal_average(mesh, st.sig)
-    if method == "spr":
-        return spr(mesh, st.sig, {k: g.xg for k, g in result.geom.items()})
-    raise ValueError(f"unknown recovery method '{method}'")
+        return nodal_average(mesh, st.sig, active=st.active)
+    return spr(mesh, st.sig, {k: g.xg for k, g in result.geom.items()}, active=st.active)
 
 
 def export_vtu(
@@ -76,7 +79,7 @@ def export_vtu(
     stage: str | int | None = None,
     method: str = "spr",
 ) -> Path:
-    """Write displacements, nodal stresses (core sign convention) and plastic state.
+    """Write active-stage cells, displacements, stresses and plastic state.
 
     Point data: displacement, sxx/syy/szz/txy, s1/s3/q (recovered with ``method``),
     eps_p (equivalent plastic strain, averaged). Cell data: plastic (fraction of
@@ -99,12 +102,26 @@ def export_vtu(
     cd = {}
     if st.q:
         pd["eps_p"] = np.maximum(
-            0.0, nodal_average(mesh, {k: v[..., :1] for k, v in st.q.items()})[:, 0]
+            0.0,
+            nodal_average(mesh, {k: v[..., :1] for k, v in st.q.items()}, active=st.active)[:, 0],
         )
     if st.plastic:
-        blocks = [b for b in mesh.continuum_blocks() if b.tag in st.plastic]
-        cd["plastic"] = np.concatenate([(st.plastic[b.tag] > 0).mean(axis=1) for b in blocks])
-    return write_vtu(path, mesh, pd, cd)
+        values = []
+        for b in mesh.blocks:
+            if b.etype in (ElemType.IFACE4, ElemType.IFACE6):
+                continue  # zero-thickness joints are not VTU volume/line cells
+            if b.tag in st.plastic:
+                value = (st.plastic[b.tag] > 0).mean(axis=1)
+            else:
+                value = np.full(b.ne, np.nan)
+            value = value[st.active.get(b.tag, np.ones(b.ne, dtype=bool))]
+            values.append(value)
+        cd["plastic"] = np.concatenate(values)
+    blocks = []
+    for b in mesh.blocks:
+        mask = st.active.get(b.tag, np.ones(b.ne, dtype=bool))
+        blocks.append(replace(b, conn=b.conn[mask], region=b.region[mask]))
+    return write_vtu(path, replace(mesh, blocks=tuple(blocks)), pd, cd)
 
 
 __all__ = [
