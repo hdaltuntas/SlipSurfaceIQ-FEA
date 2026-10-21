@@ -162,6 +162,13 @@ def main():
         default=None,
         help="explicit soil tensile strength [kPa]; omitted means no Rankine flow",
     )
+    parser.add_argument("--rankine-at-apex", action="store_true")
+    parser.add_argument(
+        "--apex-stiffness-ratio",
+        type=float,
+        default=0.0,
+        help="optional approximate apex iteration stiffness; 0 keeps exact tangent",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not np.isfinite(args.size) or args.size <= 0:
@@ -170,12 +177,20 @@ def main():
         parser.error("--excavation-factor must be in (0, 1]")
     if args.max_iterations < 1:
         parser.error("--max-iterations must be positive")
+    if args.rankine_at_apex and args.soil_tension is not None:
+        parser.error("choose either --rankine-at-apex or --soil-tension")
+    if not 0 <= args.apex_stiffness_ratio <= 1:
+        parser.error("--apex-stiffness-ratio must be in [0, 1]")
     if args.soil_tension is not None and (
         not np.isfinite(args.soil_tension) or args.soil_tension < 0
     ):
         parser.error("--soil-tension must be finite and nonnegative")
     m = model(
-        args.size, mixed=args.mixed, gauss_order=args.gauss_order, soil_tension=args.soil_tension
+        args.size,
+        mixed=args.mixed,
+        gauss_order=args.gauss_order,
+        soil_tension=args.soil_tension,
+        rankine_at_apex=args.rankine_at_apex,
     )
     if args.elastic_soil:
         soil = m.materials["sand"]
@@ -193,7 +208,15 @@ def main():
         )
     if args.no_line_search:
         m = replace(m, settings=replace(m.settings, line_search=False))
-    m = replace(m, settings=replace(m.settings, method=args.method, max_iter=args.max_iterations))
+    m = replace(
+        m,
+        settings=replace(
+            m.settings,
+            method=args.method,
+            max_iter=args.max_iterations,
+            apex_stiffness_ratio=args.apex_stiffness_ratio,
+        ),
+    )
     if args.elastic_interfaces:
         m = replace(
             m,

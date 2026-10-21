@@ -1,5 +1,7 @@
 """Prescribed homogeneous tension, elastic unloading and reloading at a common apex."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -58,3 +60,20 @@ def test_omitted_cutoff_cannot_accept_the_same_tension_path():
         api.run(_model(api.ElemType.Q8, None))
     assert 0.0 <= caught.value.lam < 1.0
     assert caught.value.history.steps[-1].termination == "material_return"
+
+
+@pytest.mark.parametrize("ratio", [0.0, 1e-8, 1e-6, 1e-4])
+def test_apex_iteration_stiffness_follows_same_loading_unloading_path(ratio):
+    m = _model(api.ElemType.Q8, 0.0)
+    m.materials["sand"] = api.MaterialSpec.mohr_coulomb(
+        "sand", 3e4, 0.3, 0, 30, 0, rankine_at_apex=True
+    )
+    m.settings = replace(m.settings, apex_stiffness_ratio=ratio)
+    result = api.run(m)
+    elastic = MohrCoulomb(3e4, 0.3, 0, 30, 0)
+    expected = [np.zeros(4), elastic.elastic_D() @ [-1e-4, -1e-4, 0, 0], np.zeros(4)]
+    for stage, stress, e in zip(result.stages, expected, [4e-4, 3e-4, 4e-4]):
+        np.testing.assert_allclose(stage.u, e * m.mesh.coords, atol=1e-12)
+        for values in stage.sig.values():
+            np.testing.assert_allclose(values, np.broadcast_to(stress, values.shape), atol=1e-9)
+        np.testing.assert_allclose(stage.reactions.sum(axis=0), 0, atol=1e-9)

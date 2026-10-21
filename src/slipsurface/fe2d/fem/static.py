@@ -33,7 +33,7 @@ import numpy as np
 import scipy.sparse as sp
 from numpy.typing import NDArray
 
-from ..core.enums import Analysis, ElemType
+from ..core.enums import Analysis, ElemType, PlasticFlag
 from ..core.errors import MaterialIntegrationError, ModelError
 from ..core.log import get_logger
 from ..core.units import GAMMA_W
@@ -47,6 +47,7 @@ from .elements.base import GeomCache
 from .linsolve import factorize
 from .loads import TractionFn, assemble_nodal_loads, k0_stress_field, pressure_edge_forces
 from .materials import build as build_material
+from .materials.mohr_coulomb import MohrCoulomb
 from .nonlinear import Problem, StageHistory, solve_stage
 from .state import SolverState
 from .structural import GROUP_TYPES, BarGroup, BeamGroup, InterfaceGroup
@@ -473,6 +474,39 @@ class StaticSolver:
         K = {s.group.tag: s.group.elastic_K(s.ids) for s in sysm.struct}
         return D, K
 
+    def _iteration_tangents(
+        self, sysm: System, D: dict, sig: dict, flags: dict, ratio: float
+    ) -> dict:
+        """Optional apex-only quasi-Newton stiffness; never mutate true tangents.
+
+        This is NOT the derivative of the internal force. It does not add stress,
+        hardening or energy and cannot guarantee global nonsingularity.
+        All arrays here are indexed by the active elements of each block.
+        """
+        if ratio == 0.0:
+            return D
+        out = dict(D)
+        for c in sysm.cont:
+            if not c.ids.size or D[c.tag].ndim != 4:
+                continue
+            mask = np.zeros(D[c.tag].shape[:2], dtype=bool)
+            for cm, pos in c.groups:
+                if not isinstance(cm, MohrCoulomb) or not cm.has_apex:
+                    continue
+                s, fl = sig[c.tag][pos], flags[c.tag][pos]
+                tol = 1e-10 * max(abs(cm.apex), 1.0)
+                mask[pos] = (
+                    np.all(np.abs(s[..., :3] - cm.apex) <= tol, axis=-1)
+                    & (np.abs(s[..., 3]) <= tol)
+                    & ((fl == PlasticFlag.APEX) | (fl == PlasticFlag.TENSION))
+                    & np.all(D[c.tag][pos] == 0.0, axis=(-2, -1))
+                )
+            if mask.any():
+                out[c.tag] = D[c.tag].copy()
+                elastic = np.broadcast_to(c.De[:, None], D[c.tag].shape)
+                out[c.tag][mask] = ratio * elastic[mask]
+        return out
+
     def _factor_free(self, sysm: System, Kmat: sp.csr_matrix, symmetric: bool) -> object:
         f, p = sysm.dm.free, sysm.dm.prescribed
         Kf = Kmat[f]
@@ -684,6 +718,7 @@ class StaticSolver:
         # or array sizes. Excavation (even swapping equally sized sets) invalidates
         # the previous stage's committed tangent and structural DOF layout.
         D_comm = self._D_committed if self._D_committed_key == sysm.key else None
+        solve_settings = settings or self.model.settings
 
         def integrate(du: NDArray[np.float64]) -> tuple[Trial, NDArray[np.float64]]:
             return self.integrate(committed, du, sysm, lay)
@@ -700,12 +735,18 @@ class StaticSolver:
             if kind == "tangent":
                 t: Trial = trial  # type: ignore[assignment]
                 D, K = t.D, t.K
+                stresses, flags = t.sig, t.flag
             else:
                 D, K = D_comm  # type: ignore[misc]
+                stresses = {c.tag: committed.sig[c.tag][c.ids] for c in sysm.cont}
+                flags = {c.tag: committed.plastic[c.tag][c.ids] for c in sysm.cont}
                 if set(K) != {s.group.tag for s in sysm.struct} or set(D) != {
                     c.tag for c in sysm.cont if c.ids.size
                 }:
                     D, K = self._elastic_DK(sysm)
+            D = self._iteration_tangents(
+                sysm, D, stresses, flags, solve_settings.apex_stiffness_ratio
+            )
             return self._factor_free(sysm, self._stiffness(sysm, D, K), sysm.symmetric)
 
         def commit(trial: object, du_total: NDArray[np.float64]) -> None:
@@ -720,7 +761,7 @@ class StaticSolver:
         prob = Problem(dm.ndof, dm.free, dm.prescribed, integrate, factor, commit)
         try:
             _, _, hist = solve_stage(
-                prob, f_ext, f0, du_presc, settings or self.model.settings, sysm.linear, lam_end
+                prob, f_ext, f0, du_presc, solve_settings, sysm.linear, lam_end
             )
         finally:
             self._D_committed = D_comm

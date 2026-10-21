@@ -44,6 +44,11 @@ class MaterialSpec:
                 raise ModelError(f"material '{self.name}': need 0 <= psi <= phi < 90")
             if self.params["c"] < 0.0:
                 raise ModelError(f"material '{self.name}': c must be >= 0")
+        if self.params.get("rankine_at_apex", False):
+            if self.model != "mohr_coulomb" or self.params["phi"] <= 0 or "sig_t" in self.params:
+                raise ModelError("rankine_at_apex needs Mohr-Coulomb, phi > 0 and no sig_t")
+        if self.params.get("rankine_at_apex", False) not in (False, True):
+            raise ModelError("rankine_at_apex must be boolean")
 
     @classmethod
     def elastic(
@@ -65,11 +70,20 @@ class MaterialSpec:
         sig_t: float | None = None,
         gamma: float = 0.0,
         gamma_sat: float | None = None,
+        *,
+        rankine_at_apex: bool = False,
     ) -> MaterialSpec:
-        """Mohr-Coulomb; ``sig_t`` = tensile strength (``None``: apex c·cot(phi) only)."""
+        """MC with optional associated Rankine flow.
+
+        ``sig_t=None`` adds no Rankine flow. ``rankine_at_apex=True`` explicitly
+        adds it at c·cot(phi), recalculated from the current strengths under SRF.
+        A numeric ``sig_t`` instead sets an independent, fixed tensile strength.
+        """
         p = {"E": E, "nu": nu, "c": c, "phi": phi, "psi": psi}
         if sig_t is not None:
             p["sig_t"] = sig_t
+        if rankine_at_apex:
+            p["rankine_at_apex"] = rankine_at_apex
         return cls(name, "mohr_coulomb", p, gamma, gamma if gamma_sat is None else gamma_sat)
 
     @classmethod

@@ -172,6 +172,19 @@ def _return_principal(
                 C_out[i, j] = D[i, j]
         return _EL
 
+    # Explicit associated Rankine flow completes the zero-dilation MC apex.
+    # Mean stress alone is NOT an apex classifier for general dilatant MC or
+    # a lower tensile cut-off. Keep the cone/KKT check, including all 9 normals.
+    if has_apex and has_t and m == 1.0 and np.mean(s_tr) >= st:
+        apex_scale = max(abs((k - 1.0) * st), abs(sc), 1e-300)
+        coincident = abs((k - 1.0) * st - sc) <= 64 * np.finfo(np.float64).eps * apex_scale
+        if coincident and _in_cone(s_tr - st, DBv, np.arange(9), 9, 1e-10):
+            for i in range(3):
+                s_out[i] = st
+                for j in range(3):
+                    C_out[i, j] = 0.0
+            return _TE
+
     sets = np.full((6, 2), -1, dtype=np.int64)
     nset = np.zeros(6, dtype=np.int64)
     sets[0, 0] = 0
@@ -349,6 +362,12 @@ def _mc_gp(
     rs = np.empty(3)
     Cs = np.empty((3, 3))
     flag = _return_principal(ps, lam, G, k, m, sc, st, has_apex, has_t, rs, Cs)
+    if rs[0] == rs[1] == rs[2] and np.all(Cs == 0.0):
+        # A fixed isotropic corner is rotation invariant. Avoid c*c+s*s
+        # roundoff producing spurious derivatives of a constant stress.
+        sig[0], sig[1], sig[2], sig[3] = rs[0], rs[0], rs[0], 0.0
+        Dalg[:, :] = 0.0
+        return flag
     q = np.empty(3)
     for i in range(3):
         q[i] = rs[pos[i]]
@@ -408,6 +427,8 @@ class MohrCoulomb(LinearElastic):
     no cut-off: the MC apex ``c cot(phi)`` limits tension).
     An explicit cut-off at the MC apex retains its associated Rankine potential;
     it is not equivalent to omitting the cut-off for non-associated MC flow.
+    ``rankine_at_apex=True`` places that cut-off at the current MC apex exactly,
+    including after strength reduction. It is an explicit additional flow rule.
     Internal variable q[0]: accumulated equivalent plastic strain.
     """
 
@@ -422,6 +443,8 @@ class MohrCoulomb(LinearElastic):
         phi: float,
         psi: float = 0.0,
         sig_t: float | None = None,
+        *,
+        rankine_at_apex: bool = False,
     ) -> None:
         super().__init__(E, nu, phi)
         if not 0.0 <= phi < 90.0 or not 0.0 <= psi <= phi:
@@ -436,6 +459,13 @@ class MohrCoulomb(LinearElastic):
         self.has_apex = phi > 0.0
         apex = self.sc / (self.k - 1.0) if self.has_apex else math.inf
         self.apex = apex
+        if rankine_at_apex not in (False, True):
+            raise ValueError("rankine_at_apex must be boolean")
+        if rankine_at_apex:
+            if sig_t is not None or not self.has_apex:
+                raise ValueError("rankine_at_apex needs phi > 0 and no explicit sig_t")
+            sig_t = apex
+        self.rankine_at_apex = bool(rankine_at_apex)
         if sig_t is None or sig_t > apex:
             self.has_t, self.st = False, math.inf
         else:
@@ -514,7 +544,8 @@ class MohrCoulomb(LinearElastic):
                         "c": self.c,
                         "phi": self.phi,
                         "psi": self.psi,
-                        "sig_t": self.st if self.has_t else None,
+                        "sig_t": self.st if self.has_t and not self.rankine_at_apex else None,
+                        "rankine_at_apex": self.rankine_at_apex,
                     },
                     "apex": self.apex if self.has_apex else None,
                     "failed_count": int(invalid.size),

@@ -5,9 +5,9 @@ c'/(gamma H) = 0.05, phi' = 20°, psi = 0, gamma = 20 kN/m3, E = 1e5 kPa, nu = 0
 Reference: simplified Bishop with a circular-slip search (computed here; Griffiths &
 Lane quote 1.38 from the Bishop & Morgenstern charts). Criterion: FS within 3 %.
 
-Historical FE factors are not qualified: the local-return guard exposes a constitutive
-failure in the upper SRF bracket. This benchmark remains a strict expected failure
-until that issue is resolved without counting a failed material return as collapse.
+The legacy no-Rankine model remains an expected local-return failure. A separate
+explicit Rankine-at-apex extension is checked against the same 3% Bishop criterion;
+this adds apex flow without reducing the MC elastic stress domain.
 """
 
 from __future__ import annotations
@@ -75,30 +75,61 @@ def test_bishop_reference():
 @pytest.mark.xfail(
     strict=True,
     raises=MaterialIntegrationError,
-    reason="P4 reopened: local MC return failure cannot define an SRF collapse bracket",
+    reason="Legacy P4 without Rankine apex flow: local return failure is not a collapse bracket",
 )
-def test_slope_factor_of_safety():
+def test_legacy_slope_without_rankine_apex_flow():
+    _check_slope(_slope_model())
+
+
+def _slope_model(h=1.5, *, rankine_at_apex=False, apex_stiffness_ratio=0.0):
     d = Domain().add_polygon(
         [(0, 0), (RUN * H + CREST, 0), (RUN * H + CREST, H), (RUN * H, H)],
         edge_names=["base", "right", "crest", "face"],
     )
-    mesh = unstructured_mesh(d, h=1.5)
-    model = api.Model(
+    mesh = unstructured_mesh(d, h=h)
+    return api.Model(
         analysis=api.Analysis.PLANE_STRAIN,
         mesh=mesh,
         materials={
-            "soil": api.MaterialSpec.mohr_coulomb("soil", 1e5, 0.3, C, PHI, 0.0, gamma=GAMMA)
+            "soil": api.MaterialSpec.mohr_coulomb(
+                "soil",
+                1e5,
+                0.3,
+                C,
+                PHI,
+                0.0,
+                gamma=GAMMA,
+                rankine_at_apex=rankine_at_apex,
+            )
         },
         region_material={1: "soil"},
         fixities=(api.Fixity("base", True, True), api.Fixity("right", True, False)),
         initial=api.InitialStress("gravity"),
+        settings=api.SolverSettings(apex_stiffness_ratio=apex_stiffness_ratio),
     )
+
+
+def _check_slope(model):
     res = strength_reduction(model)
     fs_le = bishop_min()
     assert abs(res.factor - fs_le) / fs_le < 0.03, f"FS {res.factor:.3f} vs Bishop {fs_le:.3f}"
     assert res.F_failed - res.factor <= 0.01 + 1e-12
     # the failure mechanism localises along the slope (toe region moves most)
     u = np.linalg.norm(np.nan_to_num(res.u_failed), axis=1)
-    x_max = mesh.coords[np.argmax(u), 0]
+    x_max = model.mesh.coords[np.argmax(u), 0]
     assert 0.0 <= x_max <= RUN * H + 2.0
+    return res
 
+
+@pytest.mark.parametrize("h,ratio", [(1.5, 0.0), (1.5, 1e-6), (1.0, 0.0)])
+def test_slope_factor_of_safety(h, ratio):
+    model = _slope_model(h, rankine_at_apex=True, apex_stiffness_ratio=ratio)
+    res = _check_slope(model)
+    # The accepted endpoint must satisfy the reduced constitutive model,
+    # including when the Newton matrix uses an approximate apex stiffness.
+    from slipsurface.fe2d.fem.materials import build
+
+    reduced = build(model.materials["soil"].with_strength_factor(res.factor))
+    for sig in res.at_factor.sig.values():
+        assert np.max(reduced.yield_function(sig)) < 1e-7
+    assert all(np.all(flag != 255) for flag in res.at_factor.plastic.values())

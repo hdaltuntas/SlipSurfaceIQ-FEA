@@ -70,15 +70,17 @@ dönüş ve VTU geçerliliği.
 | P1 | Rijit düzgün şerit temel, drenajsız (φ = 0), yer değiştirme kontrollü, ağırlıksız | Prandtl, q_ult = (2 + π) su | < %3 | %0.97 (h_min = 0.05); %1.35 / %0.53 (0.1 / 0.025) — yukarıdan yakınsıyor |
 | P2 | Kalın cidarlı silindir, iç basınç, Tresca, εz = 0 | Hill (1950): p(r_c), u_b = 2(1−ν²)k r_c²/(E b) | Basınç–genişleme < %2 | T6 %0.004, Q8 ve Q4 (B-bar) de %2 içinde; plastik yarıçap GP bayraklarıyla |
 | P3 | Hidrostatik gerilmede dairesel tünel, MC, ψ = 0 / 15° / 30° | Salençon (1969) plastik yarıçap; çeper deplasmanı akış kuralı ODE'si | < %3 | u_a %0.43–0.57, R_pl %0.4 |
-| P4 | Homojen şev 2:1, c/γH = 0.05, φ = 20°, ψ = 0, SRF | Griffiths & Lane (1999) Örn. 1; Bishop (testte dairesel arama: 1.378) | FS farkı < %3 | **Yeniden açık:** F=1.5625 üst sınırında yerel MC dönüş hatası; önceki FE faktörleri doğrulanmış kabul edilmiyor |
+| P4 | Homojen şev 2:1, c/γH = 0.05, φ = 20°, ψ = 0, SRF; açık Rankine-apex akışı | Griffiths & Lane (1999) Örn. 1; Bishop (testte dairesel arama: 1.378) | FS farkı < %3 | Açık model tamamlamasıyla geçti: h=1.5 F=1.396484, h=1.0 F=1.376953; eski kesmesiz model ayrı strict xfail |
 | P5 | Tek eleman (eksenel simetrik) üç eksenli basınç, çekme yolu, çekme kesmesi; MC ψ ≠ φ | Kapalı form gerilme izi ve hacimsel davranış | < %0.1 | yuvarlama hatası düzeyinde |
 | — | Tam NR kuadratik yakınsama (Tresca ilişkili; MC ilişkisiz → simetrik olmayan LU) | log r_{i+1} – log r_i eğimi ≈ 2 | eğim > 1.6 | ✔ (ör. 1.8e-2 → 8.8e-7 → 3e-13); mNR doğrusal (eğim ≈ 1) |
 
 Ek: NR, mNR, hibrit, başlangıç rijitliği ve NR + line search aynı çözüme 1e-5 göreli
 farkla ulaşır (`test_newton_convergence.py`).
 
-P4'ün %3 ölçütü korunarak yalnızca yerel malzeme hatası için strict xfail
-uygulanır; bu bir geçiş değildir. Ayrıntılar: [nonlinear-diagnostics.md](nonlinear-diagnostics.md).
+P4'ün %3 ölçütü ve mekanizma kontrolü açık Rankine-apex modelinde korunur. Eski
+kesmesiz modele yalnızca yerel malzeme hatası için strict xfail uygulanır; bu bir
+geçiş değildir. Genel Kapı 2 kapsamındaki bu sınır korunur. Yöntem, tam/ yaklaşık
+tanjant ayrımı ve karşılaştırma: [coincident-tension-cutoff.md](coincident-tension-cutoff.md).
 
 ### Bünye modeli birim testleri (`tests/unit/test_materials.py`)
 

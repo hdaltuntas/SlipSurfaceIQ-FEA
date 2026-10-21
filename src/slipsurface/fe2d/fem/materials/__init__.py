@@ -14,7 +14,15 @@ def build(spec: MaterialSpec) -> ConstitutiveModel:
     if spec.model == "elastic":
         return LinearElastic(p["E"], p["nu"], p.get("phi"))
     if spec.model == "mohr_coulomb":
-        return MohrCoulomb(p["E"], p["nu"], p["c"], p["phi"], p.get("psi", 0.0), p.get("sig_t"))
+        return MohrCoulomb(
+            p["E"],
+            p["nu"],
+            p["c"],
+            p["phi"],
+            p.get("psi", 0.0),
+            p.get("sig_t"),
+            rankine_at_apex=bool(p.get("rankine_at_apex", False)),
+        )
     if spec.model == "drucker_prager":
         match = DP_MATCH[int(p.get("match", 0))]
         return DruckerPrager.from_mc(p["E"], p["nu"], p["c"], p["phi"], p.get("psi", 0.0), match)

@@ -15,7 +15,7 @@ from slipsurface.fe2d.mesh import DistanceSize, Domain, recombine_mesh, unstruct
 from slipsurface.fe2d.mesh.structures import add_beams, insert_interface
 
 
-def model(h=0.5, *, mixed=False, gauss_order=None, soil_tension=None):
+def model(h=0.5, *, mixed=False, gauss_order=None, soil_tension=None, rankine_at_apex=False):
     domain = Domain().add_polygon(
         [(-20, -20), (20, -20), (20, 0), (-20, 0)], 1, edge_names=["bottom", "right", "top", "left"]
     )
@@ -28,7 +28,17 @@ def model(h=0.5, *, mixed=False, gauss_order=None, soil_tension=None):
     mesh = add_beams(mesh, "wall", "pile")
     mesh = insert_interface(mesh, "wall", "pile_left", "left")
     mesh = insert_interface(mesh, "wall", "pile_right", "right")
-    soil = api.MaterialSpec.mohr_coulomb("sand", 3e4, 0.3, 0, 30, 0, sig_t=soil_tension, gamma=18)
+    soil = api.MaterialSpec.mohr_coulomb(
+        "sand",
+        3e4,
+        0.3,
+        0,
+        30,
+        0,
+        sig_t=soil_tension,
+        gamma=18,
+        rankine_at_apex=rankine_at_apex,
+    )
     return api.Model(
         analysis=api.Analysis.PLANE_STRAIN,
         mesh=mesh,

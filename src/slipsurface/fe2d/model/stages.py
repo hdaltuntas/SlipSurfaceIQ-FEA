@@ -80,3 +80,10 @@ class SolverSettings:
     fast_iter: int = 4  # converged in <= fast_iter iterations -> grow the step x1.5
     line_search: bool = False
     hybrid_ratio: float = 0.5  # hybrid: switch mNR -> NR if ||R_i||/||R_i-1|| > ratio
+    # Optional approximate Newton matrix at a fixed MC apex. The constitutive
+    # derivative and residual remain exact; 0 disables this numerical device.
+    apex_stiffness_ratio: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.apex_stiffness_ratio <= 1.0:
+            raise ValueError("apex_stiffness_ratio must be finite and in [0, 1]")
