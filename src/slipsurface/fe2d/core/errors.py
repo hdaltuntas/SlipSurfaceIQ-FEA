@@ -26,6 +26,10 @@ class SingularSystemError(SolverError):
 class MaterialIntegrationError(SolverError):
     """A local constitutive return failed; its trial state must not be committed."""
 
+    def __init__(self, message: str, *, details: dict | None = None) -> None:
+        self.details = details
+        super().__init__(message)
+
 
 class NonConvergence(SolverError):
     """Nonlinear failure; ``lam`` is last committed, ``history`` holds attempts if available."""

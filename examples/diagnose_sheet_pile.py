@@ -35,6 +35,8 @@ class DiagnosticSolver(StaticSolver):
         super().__init__(*args, **kwargs)
         self.audit_enabled = audit
         self.audits = []
+        self.material_failure_first = None
+        self.material_failure_last = None
 
     def audit_state(self, state, sysm, lam):
         if not self.audit_enabled:
@@ -71,8 +73,12 @@ class DiagnosticSolver(StaticSolver):
     def integrate(self, state, du, sysm, lay):
         try:
             return super().integrate(state, du, sysm, lay)
-        except MaterialIntegrationError:
+        except MaterialIntegrationError as exc:
             self.material_return_failures = getattr(self, "material_return_failures", 0) + 1
+            record = {"stage": self.current_stage, "details": exc.details}
+            if self.material_failure_first is None:
+                self.material_failure_first = record
+            self.material_failure_last = record
             raise
 
     def solve_stage_ctx(self, state, ctx, lay, settings=None):
@@ -226,6 +232,10 @@ def main():
             history=asdict(exc.history) if exc.history is not None else None,
         )
     report.update(material_return_failures=getattr(solver, "material_return_failures", 0))
+    report.update(
+        material_failure_first=solver.material_failure_first,
+        material_failure_last=solver.material_failure_last,
+    )
     if args.audit:
         quality = mesh_quality(m.mesh)
         report.update(

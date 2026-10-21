@@ -472,9 +472,54 @@ class MohrCoulomb(LinearElastic):
                   self.has_apex, self.has_t, sig, D, flag)  # fmt: skip
         invalid = np.flatnonzero(flag == 255)
         if invalid.size:
+            points = []
+            for i in invalid[:8]:
+                mean = float(np.mean(sig_tr[i, :3]))
+                # At psi=0 every MC potential is traceless. Isotropic elasticity
+                # then preserves mean stress during return, while MC admissibility
+                # requires mean <= apex. This is a sufficient obstruction only;
+                # other failures must not be labelled as having no local solution.
+                tol = 1e-10 * max(
+                    1.0, float(np.max(np.abs(sig_tr[i]))), abs(self.apex) if self.has_apex else 0.0
+                )
+                obstructed = (
+                    self.psi == 0.0 and not self.has_t and self.has_apex and mean > self.apex + tol
+                )
+                points.append(
+                    {
+                        "batch_index": int(i),
+                        "reason": (
+                            "zero_dilation_trial_above_apex"
+                            if obstructed
+                            else "active_set_not_found"
+                        ),
+                        "sig_n": sig_n[i].tolist(),
+                        "deps": deps[i].tolist(),
+                        "q_n": q_n[i].tolist(),
+                        "sig_trial": sig_tr[i].tolist(),
+                        "trial_mean": mean,
+                        "trial_yield": float(self.yield_function(sig_tr[i : i + 1])[0]),
+                        "mean_apex_tolerance": tol,
+                    }
+                )
             raise MaterialIntegrationError(
                 f"Mohr-Coulomb: no admissible return at {invalid.size} Gauss point(s); "
-                f"batch indices {invalid[:8].tolist()} (c={self.c}, phi={self.phi}, psi={self.psi})"
+                f"batch indices {invalid[:8].tolist()} "
+                f"(c={self.c}, phi={self.phi}, psi={self.psi})",
+                details={
+                    "model": "MohrCoulomb",
+                    "params": {
+                        "E": self.E,
+                        "nu": self.nu,
+                        "c": self.c,
+                        "phi": self.phi,
+                        "psi": self.psi,
+                        "sig_t": self.st if self.has_t else None,
+                    },
+                    "apex": self.apex if self.has_apex else None,
+                    "failed_count": int(invalid.size),
+                    "points": points,
+                },
             )
         q = q_n.copy()
         pl = flag != 0
@@ -489,4 +534,3 @@ def equivalent_plastic_strain(dep: NDArray[np.float64]) -> NDArray[np.float64]:
     ev = dep[:, :3].sum(axis=1) / 3.0
     d = dep[:, :3] - ev[:, None]
     return np.asarray(np.sqrt(2.0 / 3.0 * ((d * d).sum(axis=1) + 0.5 * dep[:, 3] ** 2)))
-

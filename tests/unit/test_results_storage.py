@@ -89,7 +89,13 @@ def test_h5_reads_history_without_new_diagnostics(tmp_path, solved):
         group = root["stages/0"]
         data = json.loads(group["history"].asstr()[()])
         for step in data["steps"]:
-            for key in ("termination", "force_norms", "energy_ratios", "detail"):
+            for key in (
+                "termination",
+                "force_norms",
+                "energy_ratios",
+                "detail",
+                "material_failure",
+            ):
                 step.pop(key)
         del group["history"]
         group.create_dataset("history", data=json.dumps(data), dtype=h5py.string_dtype("utf-8"))

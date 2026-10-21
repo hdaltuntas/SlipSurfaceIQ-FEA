@@ -23,7 +23,7 @@ def test_failed_attempts_keep_history_and_rollback(cause):
     def integrate(du):
         total = committed[0] + du[0]
         if cause == "material_return" and total > 0.4:
-            raise MaterialIntegrationError("test local return")
+            raise MaterialIntegrationError("test local return", details={"test_trial": total})
         # Load capacity 0.4. Larger trial loads cannot reach equilibrium.
         return total, np.array([min(total, 0.4)])
 
@@ -65,11 +65,15 @@ def test_failed_attempts_keep_history_and_rollback(cause):
     assert hist.steps[-1].converged is False
     if cause in ("material_return", "singular_tangent"):
         assert all(step.detail for step in failed)
+    if cause == "material_return":
+        assert all(step.material_failure["test_trial"] > 0.4 for step in failed)
+        assert all(step.material_failure is None for step in hist.steps if step.converged)
 
 
 def test_old_step_records_have_diagnostic_defaults():
     record = StepRecord(**{"lam": 0.5, "iterations": 2, "residuals": [1.0, 0.0], "converged": True})
     assert record.termination == ""
+    assert record.material_failure is None
     assert record.force_norms == record.energy_ratios == []
     assert StepRecord(**asdict(record)) == record
 
@@ -201,10 +205,20 @@ def test_srf_local_failure_is_not_a_collapse_bracket(monkeypatch, wrapped):
     def fail(*args, **kwargs):
         if wrapped:
             hist = StageHistory(
-                [StepRecord(0.1, 0, [], False, "material_return", detail="local test failure")]
+                [
+                    StepRecord(
+                        0.1,
+                        0,
+                        [],
+                        False,
+                        "material_return",
+                        detail="local test failure",
+                        material_failure={"test_trial": 1.0},
+                    )
+                ]
             )
             raise NonConvergence(0.0, history=hist)
-        raise MaterialIntegrationError("local test failure")
+        raise MaterialIntegrationError("local test failure", details={"test_trial": 1.0})
 
     m = api.Model(
         analysis=api.Analysis.PLANE_STRAIN,
@@ -215,5 +229,6 @@ def test_srf_local_failure_is_not_a_collapse_bracket(monkeypatch, wrapped):
         fixities=(api.Fixity("bottom", True, True),),
     )
     monkeypatch.setattr(StaticSolver, "solve_increment", fail)
-    with pytest.raises(MaterialIntegrationError, match="local.*failure|local.*failed"):
+    with pytest.raises(MaterialIntegrationError, match="local.*failure|local.*failed") as caught:
         api.strength_reduction(m)
+    assert caught.value.details == {"test_trial": 1.0}

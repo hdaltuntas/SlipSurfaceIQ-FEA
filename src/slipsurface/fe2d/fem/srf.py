@@ -94,7 +94,8 @@ def strength_reduction(
                 raise MaterialIntegrationError(
                     f"SRF F={F:.6g}: local constitutive return failed; "
                     "cannot use this trial as a collapse bracket. "
-                    + exc.history.steps[-1].detail
+                    + exc.history.steps[-1].detail,
+                    details=exc.history.steps[-1].material_failure,
                 ) from exc
             ok, lam = False, exc.lam
         except MaterialIntegrationError:

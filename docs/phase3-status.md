@@ -12,6 +12,7 @@ Referans: *SlipSurface 2D — Teknik Mimari ve Yol Haritası*, Faz 3 ve Ek A.
 | HDF5 ve .ssproj | Mevcut, kayıt testleri var | Aşama bazlı okuma, karma eleman/plastik çıktı gidiş-dönüşü, atomik kayıt |
 | S4 konsol palplanş | **Ön yapısal kontroller geçti; tam doğrulama açık** | Bağımsız Timoshenko/Winkler ve Rankine kontrolleri geçti; yerel MC dönüş korumasıyla ağ/integrasyon karşılaştırmaları yenilendi, tam doğrulama yok |
 | P4 / Kapı 2 | **Yeniden açık** | Yerel MC dönüş hatası SRF göçme sınırı sayılamıyor; eski P4 FE faktörlerinin doğrulaması geri çekildi |
+| Yerel ret girdilerinin tekrarı | İki kayıt için neden ayrıştırıldı | Palplanş/P4: ψ=0, Rankine yok, deneme ortalaması apex üzerinde; 128 yerel parçayla da toplam artış tamamlanmıyor; küresel çözümsüzlük iddiası yok |
 | Açık Rankine kesmesi / ortak apex | Yerel kapsam doğrulandı | Analitik gerilme/tanjant ve T3/T6/Q4/Q8 yükleme-boşaltma; açık σt=0 ile dört high palplanş koşusu tamamlandı, bağımsız S4 hâlâ açık |
 | Kapı 3 | **Açık** | Tam S4 geçmeden Faz 4'e geçme |
 | T3+Q4 / T6+Q8 karma ağ | Deneysel | Patch, konsol, plastik basınç, aşama, su, ara yüz ve kayıt kontrolleri geçti; nonlinear palplanş integrasyon/ağ duyarlılığı açık |
@@ -65,7 +66,7 @@ GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışın
 
 ## Son doğrulama
 
-- Linux / Python 3.12: benchmark dışı tam koşuda **270 geçti**, **P4 1 strict xfail**;
+- Linux / Python 3.12: benchmark dışı tam koşuda **276 geçti**, **P4 1 strict xfail**;
   bu beklenen başarısızlık geçiş olarak sayılmıyor. PyVista eksikliği
   nedeniyle görüntüleyici modülü **1 atlandı**, performans testleri **2 hariç**.
 - NumPy 2.2.6 / SciPy 1.15.3 ile güncel malzeme, ortak apex, Newton tanısı,
@@ -75,6 +76,8 @@ GUI ve donanıma bağlı performans kapısı bu çalışma kapsamının dışın
   (ana toplamla örtüşür).
 - Global algoritmik tanjantın sekiz karma continuum/beam/interface durumu ile
   Newton yakınsaması aynı eski ortamda **12 geçti** (ana toplamla örtüşür).
+- Gerçek palplanş/P4 ret girdileri, 128 parçalı yerel tekrar, fiziksel GP eşlemesi,
+  geçmiş/SRF hata verisi ve eski HDF5 varsayılanları kontrol edildi.
 - Ruff, `git diff --check`, wheel derlemesi ve ayrı klasöre kurulu wheel'den API/topoloji
   import kontrolü başarılı.
 - Zeminli örneğin başarısızlıkları bu test toplamlarına başarı olarak eklenmedi;

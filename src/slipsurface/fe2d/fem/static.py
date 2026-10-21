@@ -34,7 +34,7 @@ import scipy.sparse as sp
 from numpy.typing import NDArray
 
 from ..core.enums import Analysis, ElemType
-from ..core.errors import ModelError
+from ..core.errors import MaterialIntegrationError, ModelError
 from ..core.log import get_logger
 from ..core.units import GAMMA_W
 from ..model.boundary import Displacement, WaterCondition
@@ -419,11 +419,24 @@ class StaticSolver:
                 for cm, pos in c.groups:
                     ni = cm.n_int  # type: ignore[attr-defined]
                     nq = max(ni, 1)
-                    sg, qg, Dg, fg = cm.integrate(  # type: ignore[attr-defined]
-                        s_n[pos].reshape(-1, 4),
-                        deps[pos].reshape(-1, 4),
-                        q_n[pos][..., :nq].reshape(-1, nq),
-                    )
+                    try:
+                        sg, qg, Dg, fg = cm.integrate(  # type: ignore[attr-defined]
+                            s_n[pos].reshape(-1, 4),
+                            deps[pos].reshape(-1, 4),
+                            q_n[pos][..., :nq].reshape(-1, nq),
+                        )
+                    except MaterialIntegrationError as exc:
+                        if exc.details is not None:
+                            exc.details["block"] = c.tag
+                            for point in exc.details.get("points", []):
+                                local, gp = divmod(point["batch_index"], ngp)
+                                elem = int(pos[local])
+                                point.update(
+                                    element_id=int(c.ids[elem]),
+                                    gauss_point=gp,
+                                    coordinates=c.geom.xg[elem, gp].tolist(),
+                                )
+                        raise
                     s_out[pos] = sg.reshape(pos.size, ngp, 4)
                     if ni:
                         q_out[pos, :, :ni] = qg.reshape(pos.size, ngp, ni)
@@ -924,4 +937,3 @@ def solve(model: Model, extra_tractions: dict[str, tuple] | None = None) -> Solv
 
 
 __all__ = ["Analysis", "SolveResult", "StageResult", "StaticSolver", "Trial", "solve", "Stage"]
-

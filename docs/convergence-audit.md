@@ -4,6 +4,12 @@ Bu çalışma, palplanş örneğinde tekillik, kilitlenme, yumuşama, eleman kal
 çözüm yöntemi önerilerini ayrı kontrollerle inceler. Üretim çözücüsünün yöntemi,
 toleransları veya malzeme kuralları bu tanı çalışmasıyla değiştirilmedi.
 
+Yerel ret girdilerinin sonraki bağımsız tekrarı, hem palplanş hem P4 için ψ=0,
+Rankine akışı olmayan seçimin bazı deneme artışlarında ortalama gerilmeyi apex'e
+indiremediğini gösterdi. Kayıtlar, iz dengesi çıkarımı ve alt adım tablosu:
+[nonlinear-diagnostics.md](nonlinear-diagnostics.md#yerel-girdilerin-bağımsız-tekrarı).
+Bu sonuç, bütün ağ/eleman kararlılığının kanıtı veya küresel dengenin yokluğu değildir.
+
 ## Mevcut model ve yöntemler
 
 - Zemin ν=0.30, c=0, φ=30°, ψ=0; ideal elastoplastik MC. İç değişkene bağlı

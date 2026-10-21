@@ -57,6 +57,7 @@ class StepRecord:
     force_norms: list[float] = field(default_factory=list)
     energy_ratios: list[float | None] = field(default_factory=list)
     detail: str = ""
+    material_failure: dict | None = None
 
 
 @dataclass
@@ -128,6 +129,7 @@ def solve_stage(
         energy_ratios: list[float | None] = []
         termination = "max_iterations"
         detail = ""
+        material_failure = None
         converged = False
         fact = None
         use_nr = s.method == "NR"
@@ -233,9 +235,19 @@ def solve_stage(
                 else "singular_tangent"
             )
             detail = str(exc)
+            if isinstance(exc, MaterialIntegrationError):
+                material_failure = exc.details
         hist.steps.append(
             StepRecord(
-                lam_t, it, res_hist, converged, termination, force_norms, energy_ratios, detail
+                lam_t,
+                it,
+                res_hist,
+                converged,
+                termination,
+                force_norms,
+                energy_ratios,
+                detail,
+                material_failure,
             )
         )
         if not converged:

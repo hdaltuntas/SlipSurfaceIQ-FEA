@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -34,10 +36,60 @@ def test_zero_dilation_apex_failure_never_returns_elastic_trial(strain):
     sig_n, q_n = np.zeros((2, 4)), np.zeros((2, 1))
     deps = np.array([[-strain, -strain, -strain, 0.0], [strain, strain, strain, 0.0]])
     before = [a.copy() for a in (sig_n, deps, q_n)]
-    with pytest.raises(MaterialIntegrationError, match=r"batch indices \[1\]"):
+    with pytest.raises(MaterialIntegrationError, match=r"batch indices \[1\]") as caught:
         mc.integrate(sig_n, deps, q_n)
+    details = caught.value.details
+    assert details["failed_count"] == 1
+    point = details["points"][0]
+    assert point["reason"] == "zero_dilation_trial_above_apex"
+    assert point["trial_mean"] > details["apex"] + point["mean_apex_tolerance"]
+    # The diagnostic is self-contained: replay reproduces the same rejection.
+    saved = json.loads(json.dumps(details, allow_nan=False))
+    with pytest.raises(MaterialIntegrationError):
+        MohrCoulomb(**saved["params"]).integrate(
+            np.array([point["sig_n"]]), np.array([point["deps"]]), np.array([point["q_n"]])
+        )
     for a, b in zip((sig_n, deps, q_n), before):
         np.testing.assert_array_equal(a, b)
+
+
+def test_return_failure_payload_is_bounded():
+    mc = MohrCoulomb(3e4, 0.3, 0, 30, 0)
+    with pytest.raises(MaterialIntegrationError) as caught:
+        mc.integrate(np.zeros((20, 4)), np.tile([1e-4, 1e-4, 0, 0], (20, 1)), np.zeros((20, 1)))
+    assert caught.value.details["failed_count"] == 20
+    assert len(caught.value.details["points"]) == 8
+
+
+@pytest.mark.parametrize(
+    "case",
+    json.loads(
+        (Path(__file__).parents[1] / "verification/data/material_return_failures.json").read_text(
+            encoding="utf-8"
+        )
+    ),
+    ids=lambda case: case["case"],
+)
+def test_recorded_returns_have_trace_obstruction_even_with_subdivisions(case):
+    data = case["details"]
+    point = data["points"][0]
+    mc = MohrCoulomb(**data["params"])
+    sig_n = np.array([point["sig_n"]])
+    deps = np.array([point["deps"]])
+    q_n = np.array([point["q_n"]])
+    assert mc.yield_function(sig_n)[0] < 1e-8
+    for count in (1, 128):
+        sig, q = sig_n.copy(), q_n.copy()
+        completed = 0
+        with pytest.raises(MaterialIntegrationError) as caught:
+            for _ in range(count):
+                sig, q, _, _ = mc.integrate(sig, deps / count, q)
+                completed += 1
+        assert completed < count
+        assert caught.value.details["points"][0]["reason"] == "zero_dilation_trial_above_apex"
+        # Every accepted partial return respects the original trace balance.
+        expected_mean = np.mean((sig_n + completed / count * deps @ mc.elastic_D().T)[0, :3])
+        assert np.mean(sig[0, :3]) == pytest.approx(expected_mean, abs=1e-9)
 
 
 def test_zero_dilation_compressive_shear_still_has_admissible_return():
