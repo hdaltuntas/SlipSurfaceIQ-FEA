@@ -362,27 +362,18 @@ def _return_principal(
 
 
 @njit
-def _mc_gp(
-    sig_tr: NDArray,
-    lam: float,
-    G: float,
-    k: float,
-    m: float,
-    sc: float,
-    st: float,
-    has_apex: bool,
-    has_t: bool,
-    sig: NDArray,
-    Dalg: NDArray,
-) -> int:
-    sxx, syy, szz, txy = sig_tr[0], sig_tr[1], sig_tr[2], sig_tr[3]
+def principal_frame(sig: NDArray) -> tuple:
+    """In-plane spectral decomposition of a (4,) stress. Returns the principal values
+    ``p = (a, b, z)`` (a >= b in plane), ``cos/sin`` of the in-plane axis angle, the
+    sorting permutation ``pos[orig] = sorted position`` and the sorted values ``ps``
+    (descending, tension positive)."""
+    sxx, syy, szz, txy = sig[0], sig[1], sig[2], sig[3]
     cen = 0.5 * (sxx + syy)
     rad = math.sqrt((0.5 * (sxx - syy)) ** 2 + txy * txy)
     th = 0.5 * math.atan2(2.0 * txy, sxx - syy)
     c, s = math.cos(th), math.sin(th)
     p = np.empty(3)
     p[0], p[1], p[2] = cen + rad, cen - rad, szz
-    # sort descending: o[i] = original index of i-th largest, pos[orig] = sorted position
     o = np.argsort(-p)
     pos = np.empty(3, dtype=np.int64)
     for i in range(3):
@@ -390,9 +381,23 @@ def _mc_gp(
     ps = np.empty(3)
     for i in range(3):
         ps[i] = p[o[i]]
-    rs = np.empty(3)
-    Cs = np.empty((3, 3))
-    flag = _return_principal(ps, lam, G, k, m, sc, st, has_apex, has_t, rs, Cs)
+    return p, c, s, pos, ps
+
+
+@njit
+def from_principal(
+    p: NDArray,
+    c: float,
+    s: float,
+    pos: NDArray,
+    rs: NDArray,
+    Cs: NDArray,
+    G: float,
+    sig: NDArray,
+    Dalg: NDArray,
+) -> None:
+    """Rotate the returned sorted principal stress ``rs`` and its 3x3 tangent ``Cs`` back
+    to x-y (writes ``sig`` and the 4x4 ``Dalg``, including the in-plane spin term)."""
     q = np.empty(3)
     for i in range(3):
         q[i] = rs[pos[i]]
@@ -400,7 +405,6 @@ def _mc_gp(
     sig[1] = q[0] * s * s + q[1] * c * c
     sig[2] = q[2]
     sig[3] = (q[0] - q[1]) * s * c
-    # tangent in the (a, b, z, shear) principal frame
     Cp = np.zeros((4, 4))
     for i in range(3):
         for j in range(3):
@@ -422,6 +426,27 @@ def _mc_gp(
             for l in range(4):
                 acc += TC[i, l] * T[j, l]
             Dalg[i, j] = acc
+
+
+@njit
+def _mc_gp(
+    sig_tr: NDArray,
+    lam: float,
+    G: float,
+    k: float,
+    m: float,
+    sc: float,
+    st: float,
+    has_apex: bool,
+    has_t: bool,
+    sig: NDArray,
+    Dalg: NDArray,
+) -> int:
+    p, c, s, pos, ps = principal_frame(sig_tr)
+    rs = np.empty(3)
+    Cs = np.empty((3, 3))
+    flag = _return_principal(ps, lam, G, k, m, sc, st, has_apex, has_t, rs, Cs)
+    from_principal(p, c, s, pos, rs, Cs, G, sig, Dalg)
     return flag
 
 

@@ -30,3 +30,9 @@ class NonConvergence(SolverError):
         self.lam = lam
         self.history = history  # StageHistory of the failed stage (step records)
         super().__init__(message or f"no convergence; last converged load factor = {lam:.4f}")
+
+
+class LocalIntegrationError(SolverError):
+    """A constitutive update failed for the given strain increment (e.g. the local Newton
+    of an implicit return diverged). The global solver treats the iterate as divergent and
+    backtracks / cuts the load step."""

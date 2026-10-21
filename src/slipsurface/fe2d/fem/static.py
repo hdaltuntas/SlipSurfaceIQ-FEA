@@ -33,7 +33,7 @@ import numpy as np
 import scipy.sparse as sp
 from numpy.typing import NDArray
 
-from ..core.enums import Analysis, ElemType
+from ..core.enums import Analysis, Drainage, ElemType
 from ..core.errors import ModelError
 from ..core.log import get_logger
 from ..core.units import GAMMA_W
@@ -54,6 +54,7 @@ from .structural import GROUP_TYPES, BarGroup, BeamGroup, InterfaceGroup
 
 log = get_logger("static")
 _M = np.array([1.0, 1.0, 1.0, 0.0])
+_MM = np.outer(_M, _M)
 _CONT = (ElemType.T3, ElemType.T6, ElemType.Q4, ElemType.Q8)
 _WT_TOL = 1e-9  # [m] a Gauss point on the water table (round-off) counts as dry
 
@@ -77,6 +78,9 @@ class StageResult:
     interfaces: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, ip, 2)
     struct_flags: dict[str, NDArray[np.uint8]] = field(default_factory=dict)
     lam: float = 1.0  # load factor reached (load split)
+    # (ne, ngp) excess pore pressure of undrained A/B elements [kPa, compression +]; only
+    # blocks where it is non-zero (the steady part is in ``pore``)
+    excess_pore: dict[str, NDArray[np.float64]] = field(default_factory=dict)
     head: NDArray[np.float64] | None = None  # (nn,) total head of a seepage stage [m]
     flow: dict[str, float] = field(default_factory=dict)  # seepage inflow per BC set [m3/s/m]
 
@@ -111,6 +115,8 @@ class _BlockMat:
     k0: NDArray[np.float64]  # (ne,)
     k: NDArray[np.float64] | None = None  # (ne, 2) saturated conductivity kx, ky [m/s]
     vg: NDArray[np.float64] | None = None  # (ne, 3) van Genuchten alpha, n, kr_min
+    kw: NDArray[np.float64] | None = None  # (ne,) Kw/n of undrained A/B elements (0: drained)
+    total: NDArray[np.bool_] | None = None  # (ne,) undrained C: total stress, no pore pressure
 
 
 @dataclass
@@ -131,6 +137,13 @@ class _ContSys:
     groups: list[tuple[object, NDArray[np.int64]]]  # positions within ids
     gamma: NDArray[np.float64]  # (n, ngp) unit weight at Gauss points
     p: NDArray[np.float64]  # (n, ngp) pore pressure
+    kw: NDArray[np.float64] | None = None  # (n,) Kw/n (undrained A/B), None if all drained
+
+    def D_total(self, D: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Effective tangent ``D`` (n, [ngp,] 4, 4) plus the pore-water stiffness."""
+        if self.kw is None:
+            return D
+        return D + self.kw.reshape((-1,) + (1,) * (D.ndim - 1)) * _MM
 
 
 @dataclass
@@ -164,6 +177,7 @@ class Trial:
     st: dict[str, dict[str, NDArray[np.float64]]]
     K: dict[str, NDArray[np.float64]]
     sflag: dict[str, NDArray[np.uint8]]
+    pe: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # excess pore pressure
 
 
 @dataclass
@@ -235,8 +249,13 @@ class StaticSolver:
         return self._model_cache[key]
 
     def layout(
-        self, override: dict[int, str], materials: dict[str, MaterialSpec] | None = None
+        self,
+        override: dict[int, str],
+        materials: dict[str, MaterialSpec] | None = None,
+        drained: bool = True,
     ) -> _Layout:
+        """Material layout; ``drained=True`` (initial stage, ``Stage.drained``) switches
+        the pore-water stiffness of undrained A/B materials off."""
         mats = materials if materials is not None else self.model.materials
         rm = {**self.model.region_material, **override}
         blocks = []
@@ -248,6 +267,8 @@ class StaticSolver:
             k0 = np.empty(b.ne)
             kk = np.empty((b.ne, 2))
             vg = np.empty((b.ne, 3))
+            kw = np.zeros(b.ne)
+            total = np.zeros(b.ne, dtype=bool)
             groups = []
             for r in np.unique(b.region):
                 spec = mats[rm[int(r)]]
@@ -262,12 +283,18 @@ class StaticSolver:
                 k0[ids] = k0v
                 kk[ids] = spec.k_sat
                 vg[ids] = spec.vg
+                if spec.drainage is Drainage.UNDRAINED_C:
+                    total[ids] = True
+                elif spec.drainage is not Drainage.DRAINED and not drained:
+                    kw[ids] = _water_stiffness(spec, De[ids[0]])
                 groups.append((cm, ids))
                 linear &= not getattr(cm, "plastic", False)
                 symmetric &= bool(getattr(cm, "symmetric", True))
-            blocks.append(_BlockMat(groups, De, g, gs, k0, kk, vg))
-        key = tuple(sorted(rm.items())) + tuple(
-            (k, repr(sorted(mats[v].params.items()))) for k, v in sorted(rm.items())
+            blocks.append(_BlockMat(groups, De, g, gs, k0, kk, vg, kw, total))
+        key = (
+            (drained,)
+            + tuple(sorted(rm.items()))
+            + tuple((k, repr(sorted(mats[v].params.items()))) for k, v in sorted(rm.items()))
         )
         return _Layout(key, blocks, linear, symmetric)
 
@@ -428,8 +455,13 @@ class StaticSolver:
                 p = GAMMA_W * np.maximum(h - gs.xg[..., 1], 0.0)
                 below = h - gs.xg[..., 1] > _WT_TOL
             gam = np.where(below, bm.gamma_sat[ids][:, None], bm.gamma[ids][:, None])
+            if bm.total is not None and bm.total[ids].any():  # undrained C: total stresses
+                p = np.where(bm.total[ids][:, None], 0.0, p)
             De = bm.De if ids.size == b.ne else bm.De[ids]
-            cont.append(_ContSys(b.tag, ids, gs, ed, De, groups, gam, p))
+            kw = None
+            if bm.kw is not None and bm.kw[ids].any():
+                kw = bm.kw[ids]
+            cont.append(_ContSys(b.tag, ids, gs, ed, De, groups, gam, p, kw))
         struct = []
         linear, symmetric = lay.linear, lay.symmetric
         for g in self.groups:
@@ -479,7 +511,7 @@ class StaticSolver:
     def integrate(
         self, state: SolverState, du: NDArray[np.float64], sysm: System, lay: _Layout
     ) -> tuple[Trial, NDArray[np.float64]]:
-        sig, q, D, flag = {}, {}, {}, {}
+        sig, q, D, flag, pe = {}, {}, {}, {}, {}
         fint = np.zeros(sysm.dm.ndof)
         for c in sysm.cont:
             if c.ids.size == 0:
@@ -510,9 +542,17 @@ class StaticSolver:
                         q_out[pos, :, :ni] = qg.reshape(pos.size, ngp, ni)
                     D_out[pos] = Dg.reshape(pos.size, ngp, 4, 4)
                     f_out[pos] = fg.reshape(pos.size, ngp)
+            # undrained A/B: excess pore pressure from the volumetric strain increment,
+            # total stress = effective - m pe enters the internal force
+            pe_out = self._pex(state, c.tag)[c.ids]
+            if c.kw is not None:
+                pe_out = pe_out - c.kw[:, None] * deps[..., :3].sum(axis=-1)
+                D_out = c.D_total(D_out)
+            s_tot = s_out - pe_out[..., None] * _M if np.any(pe_out) else s_out
             sig[c.tag], q[c.tag], D[c.tag], flag[c.tag] = s_out, q_out, D_out, f_out
+            pe[c.tag] = pe_out
             fint += np.bincount(
-                c.edofs.ravel(), internal_force(c.geom, s_out).ravel(), minlength=sysm.dm.ndof
+                c.edofs.ravel(), internal_force(c.geom, s_tot).ravel(), minlength=sysm.dm.ndof
             )
         st, K, sflag = {}, {}, {}
         for s in sysm.struct:
@@ -520,7 +560,12 @@ class StaticSolver:
             tst, fe, Ke, fl = g.integrate(state.struct[g.tag], s.ids, du[s.edofs], s.p)
             st[g.tag], K[g.tag], sflag[g.tag] = tst, Ke, fl
             fint += np.bincount(s.edofs.ravel(), fe.ravel(), minlength=sysm.dm.ndof)
-        return Trial(sig, q, D, flag, st, K, sflag), fint
+        return Trial(sig, q, D, flag, st, K, sflag, pe), fint
+
+    def _pex(self, state: SolverState, tag: str) -> NDArray[np.float64]:
+        if tag not in state.pex:
+            state.pex[tag] = np.zeros(state.sig[tag].shape[:2])
+        return state.pex[tag]
 
     def _fint(self, state: SolverState, sysm: System, lay: _Layout) -> NDArray[np.float64]:
         return self.integrate_committed(state, sysm, lay)[1]
@@ -550,7 +595,7 @@ class StaticSolver:
             if not c.ids.size:
                 continue
             ngp = c.geom.ngp
-            out = np.broadcast_to(c.De[:, None], (c.ids.size, ngp, 4, 4)).copy()
+            out = np.broadcast_to(c.D_total(c.De)[:, None], (c.ids.size, ngp, 4, 4)).copy()
             if c.tag in Drec:
                 ids0, D0 = Drec[c.tag]
                 if D0.ndim == 3:
@@ -575,7 +620,7 @@ class StaticSolver:
         return D, K
 
     def _elastic_DK(self, sysm: System) -> tuple[dict, dict]:
-        D = {c.tag: c.De for c in sysm.cont}
+        D = {c.tag: c.D_total(c.De) for c in sysm.cont}
         K = {s.group.tag: s.group.elastic_K(s.ids) for s in sysm.struct}
         return D, K
 
@@ -700,6 +745,7 @@ class StaticSolver:
                 **{g.tag: np.zeros(g.ne, dtype=bool) for g in self.groups},
             },
             u_ref=np.zeros((self.mesh.nn, 3)),
+            pex={b.tag: np.zeros((b.ne, self.geom[b.tag].ngp)) for b in self.blocks},
         )
 
     def _gather_u(self, state: SolverState, dm: DofMap) -> NDArray[np.float64]:
@@ -724,7 +770,7 @@ class StaticSolver:
         for b in self.blocks:
             new = active[b.tag] & ~state.active[b.tag]
             gone = ~active[b.tag] & state.active[b.tag]
-            for arr in (state.sig[b.tag], state.q[b.tag]):
+            for arr in (state.sig[b.tag], state.q[b.tag], self._pex(state, b.tag)):
                 arr[new | gone] = 0.0
             state.plastic[b.tag][new | gone] = 0
         for g in self.groups:
@@ -801,6 +847,8 @@ class StaticSolver:
                 state.sig[c.tag][c.ids] = t.sig[c.tag]
                 state.q[c.tag][c.ids] = t.q[c.tag]
                 state.plastic[c.tag][c.ids] = t.flag[c.tag]
+                if c.tag in t.pe:
+                    self._pex(state, c.tag)[c.ids] = t.pe[c.tag]
         for s in sysm.struct:
             tag = s.group.tag
             for k, v in t.st[tag].items():
@@ -825,6 +873,14 @@ class StaticSolver:
         converged step and :class:`NonConvergence` is raised)."""
         dm = sysm.dm
         _, f0 = self.integrate_committed(state, sysm, lay)
+        # drained elements of this layout lose their excess pore pressure: f0 still holds
+        # it, so the dissipation is applied gradually over the stage
+        for c in sysm.cont:
+            pe = self._pex(state, c.tag)
+            if c.kw is None:
+                pe[c.ids] = 0.0
+            else:
+                pe[c.ids[c.kw == 0.0]] = 0.0
         base = state.commit()
         committed = base
         u_start = state.u.copy()
@@ -865,7 +921,7 @@ class StaticSolver:
             )
         finally:
             self._D_committed = D_comm
-            for k in ("u", "sig", "q", "plastic", "struct", "struct_flag"):
+            for k in ("u", "sig", "q", "plastic", "struct", "struct_flag", "pex"):
                 setattr(state, k, getattr(committed, k))
         return state, hist
 
@@ -893,11 +949,16 @@ class StaticSolver:
         rot = np.full(self.mesh.nn, np.nan)
         has_rot = dm.node_dofs[:, 2] >= 0
         rot[has_rot] = state.reported_u()[has_rot, 2]
-        pore = {}
+        pore, excess = {}, {}
         for c in sysm.cont:
             pp = np.full(state.sig[c.tag].shape[:2], np.nan)
             pp[c.ids] = c.p
             pore[c.tag] = pp
+            pe = self._pex(state, c.tag)
+            if np.any(pe):
+                ex = pe.copy()
+                ex[~state.active[c.tag]] = np.nan
+                excess[c.tag] = ex
         beams, bars, ifs = {}, {}, {}
         for g in self.groups:
             act = state.active[g.tag]
@@ -930,6 +991,7 @@ class StaticSolver:
             interfaces=ifs,
             struct_flags={k: v.copy() for k, v in state.struct_flag.items()},
             lam=lam,
+            excess_pore=excess,
             head=None if sysm.seepage is None else sysm.seepage.head.copy(),
             flow={} if sysm.seepage is None else dict(sysm.seepage.inflow),
         )
@@ -947,7 +1009,7 @@ class StaticSolver:
         active = self.active_masks(init.active_regions, init.active_structures)
         sysm = self.build_system(lay, active, init.water, model.displacements)
         self.apply_activation(state, active, sysm.dm)
-        ctx = _StageCtx(Stage("initial"), {}, active, init.water, model.displacements,
+        ctx = _StageCtx(Stage("initial", drained=True), {}, active, init.water, model.displacements,
                         init.mode in ("gravity", "k0_field"))  # fmt: skip
         timings: dict[str, float] = {"setup": self.t_setup}
         hist = None
@@ -1048,13 +1110,14 @@ class StaticSolver:
         results = []
         override: dict[int, str] = {}
         lay = self._layout
+        drained = True
         assert lay is not None
         stages = model.stages if stop_after is None else model.stages[: stop_after + 1]
         for st in stages:
             t1 = time.perf_counter()
-            if st.material_override != override:
-                override = dict(st.material_override)
-                lay = self.layout(override)
+            if st.material_override != override or st.drained != drained:
+                override, drained = dict(st.material_override), st.drained
+                lay = self.layout(override, drained=drained)
                 self._D_committed = None
                 prev = self._ctx
                 assert prev is not None
@@ -1070,6 +1133,14 @@ class StaticSolver:
             self.system, self._ctx, self._layout = sysm, ctx, lay
         self.state = state
         return SolveResult(model=model, geom=self.geom, initial=initial, stages=results)
+
+
+def _water_stiffness(spec: MaterialSpec, De: NDArray[np.float64]) -> float:
+    """Kw/n of an undrained A/B material: ``params['Kw_n']`` or 100 K'."""
+    if "Kw_n" in spec.params:
+        return float(spec.params["Kw_n"])
+    K = (De[0, 0] + 2.0 * De[0, 1]) / 3.0
+    return 100.0 * float(K)
 
 
 def solve(model: Model, extra_tractions: dict[str, tuple] | None = None) -> SolveResult:

@@ -186,6 +186,7 @@ def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
             load_split=s["load_split"],
             reset_displacements=s["reset_displacements"],
             displacements=tuple(Displacement(**d) for d in s.get("displacements", [])),
+            drained=bool(s.get("drained", False)),
         )
         for s in doc["stages"]
     ]

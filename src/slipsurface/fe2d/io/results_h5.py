@@ -10,7 +10,8 @@ Layout of a results file::
     /stages/<k>               k = 0 (initial), 1, 2, ...; attrs: name, lam, timings (JSON),
                               history (JSON: per step lam, iterations, residuals, converged)
         u (nn, 2), rotation (nn,), reactions (nn, 3), head (nn,) [seepage stages]
-        sig/<tag> (ne, ngp, 4), q/<tag>, plastic/<tag>, active/<tag>, pore/<tag>
+        sig/<tag> (ne, ngp, 4), q/<tag>, plastic/<tag>, active/<tag>, pore/<tag>,
+        excess_pore/<tag> [undrained stages]
         beams/<tag> (ne, 2, 3), bars/<tag> (ne,), interfaces/<tag> (ne, ip, 2),
         struct_flags/<tag>
 
@@ -40,7 +41,7 @@ FORMAT = "slipsurface-results"
 FORMAT_VERSION = 1
 _COMP = {"compression": "gzip", "compression_opts": 4, "shuffle": True}
 _DICT_FIELDS = ("sig", "q", "plastic", "active", "pore", "beams", "bars", "interfaces",
-                "struct_flags")  # fmt: skip
+                "struct_flags", "excess_pore")  # fmt: skip
 
 
 def _h5py() -> Any:

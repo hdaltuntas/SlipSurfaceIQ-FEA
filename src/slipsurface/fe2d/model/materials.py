@@ -44,12 +44,21 @@ class MaterialSpec:
             raise ModelError(f"material '{self.name}': nu must be in (-1, 0.5)")
         if "E" in self.params and self.params["E"] <= 0.0:
             raise ModelError(f"material '{self.name}': E must be positive")
+        object.__setattr__(self, "drainage", Drainage(self.drainage))
+        if self.drainage is Drainage.UNDRAINED_C and self.model == "mcc":
+            raise ModelError(f"material '{self.name}': undrained (C) needs total-stress parameters")
         if self.model in ("mohr_coulomb", "drucker_prager"):
             phi, psi = self.params["phi"], self.params.get("psi", 0.0)
             if not (0.0 <= psi <= phi < 90.0):
                 raise ModelError(f"material '{self.name}': need 0 <= psi <= phi < 90")
             if self.params["c"] < 0.0:
                 raise ModelError(f"material '{self.name}': c must be >= 0")
+        if self.model == "hoek_brown":
+            p = self.params
+            if p["sigci"] <= 0 or not 0 < p["GSI"] <= 100 or p["mi"] <= 0:
+                raise ModelError(f"material '{self.name}': need sigci > 0, 0 < GSI <= 100, mi > 0")
+            if not 0.0 <= p.get("D", 0.0) <= 1.0 or not 0.0 <= p.get("psi", 0.0) < 90.0:
+                raise ModelError(f"material '{self.name}': need 0 <= D <= 1, 0 <= psi < 90")
 
     @classmethod
     def elastic(
@@ -98,6 +107,57 @@ class MaterialSpec:
         cls, name: str, E: float, nu: float, sy: float, H: float = 0.0, gamma: float = 0.0
     ) -> MaterialSpec:
         return cls(name, "von_mises", {"E": E, "nu": nu, "sy": sy, "H": H}, gamma, gamma)
+
+    @classmethod
+    def hoek_brown(
+        cls,
+        name: str,
+        E: float,
+        nu: float,
+        sigci: float,
+        GSI: float,
+        mi: float,
+        D: float = 0.0,
+        psi: float = 0.0,
+        gamma: float = 0.0,
+        gamma_sat: float | None = None,
+    ) -> MaterialSpec:
+        """Generalised Hoek-Brown (2002): intact UCS ``sigci`` [kPa], GSI, mi, disturbance
+        D; MC-type plastic potential with dilation ``psi`` [deg]."""
+        p = {"E": E, "nu": nu, "sigci": sigci, "GSI": GSI, "mi": mi, "D": D, "psi": psi}
+        return cls(name, "hoek_brown", p, gamma, gamma if gamma_sat is None else gamma_sat)
+
+    @classmethod
+    def mcc(
+        cls,
+        name: str,
+        nu: float,
+        M: float,
+        lam: float,
+        kappa: float,
+        e0: float,
+        OCR: float = 1.0,
+        gamma: float = 0.0,
+        gamma_sat: float | None = None,
+        drainage: Drainage = Drainage.DRAINED,
+        p_min: float = 1.0,
+        p_ref: float = 100.0,
+    ) -> MaterialSpec:
+        """Modified Cam-Clay (lambda, kappa: slopes in e - ln p'; OCR sets the initial
+        preconsolidation pressure from the initial stress state)."""
+        p = {"nu": nu, "M": M, "lam": lam, "kappa": kappa, "e0": e0, "OCR": OCR,
+             "p_min": p_min, "p_ref": p_ref}  # fmt: skip
+        return cls(name, "mcc", p, gamma, gamma if gamma_sat is None else gamma_sat, drainage)
+
+    def with_drainage(self, drainage: Drainage, Kw_n: float | None = None) -> MaterialSpec:
+        """Copy with another drainage type; ``Kw_n`` overrides the water bulk stiffness
+        (method A/B, default 100 K')."""
+        import dataclasses
+
+        p = dict(self.params)
+        if Kw_n is not None:
+            p["Kw_n"] = Kw_n
+        return dataclasses.replace(self, params=p, drainage=drainage)
 
     def with_strength_factor(self, F: float) -> MaterialSpec:
         """Strength reduced by F: c/F, tan(phi)/F, psi -> min(psi, phi_F) (SRF)."""

@@ -21,6 +21,9 @@ class Stage:
     # prescribed displacements for this stage (total values, added to Model.displacements);
     # they are reached linearly over the stage's load steps
     displacements: tuple[Displacement, ...] = ()
+    # "ignore undrained behaviour": undrained (A/B) materials act drained in this stage and
+    # the excess pore pressure built up so far dissipates (consolidated end state)
+    drained: bool = False
 
     def __post_init__(self) -> None:
         if self.active_regions is not None:

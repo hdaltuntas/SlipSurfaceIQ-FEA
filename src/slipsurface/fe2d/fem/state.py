@@ -24,6 +24,9 @@ class SolverState:
     struct_flag: dict[str, NDArray[np.uint8]] = field(default_factory=dict)
     active: dict[str, NDArray[np.bool_]] = field(default_factory=dict)  # block tag -> (ne,)
     u_ref: NDArray[np.float64] | None = None  # (nn, 3) displacement datum for reporting
+    # continuum tag -> (ne, ngp) excess pore pressure of undrained (A/B) elements,
+    # compression positive [kPa]
+    pex: dict[str, NDArray[np.float64]] = field(default_factory=dict)
 
     def commit(self) -> SolverState:
         return copy.deepcopy(self)

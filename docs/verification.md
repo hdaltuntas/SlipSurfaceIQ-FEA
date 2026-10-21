@@ -1,4 +1,4 @@
-# Doğrulama — Kapı 1 (Faz 1), Kapı 2 (Faz 2) ve Kapı 3 (Faz 3)
+# Doğrulama — Kapı 1 (Faz 1), Kapı 2 (Faz 2), Kapı 3 (Faz 3) ve Kapı 4 (Faz 4)
 
 Tüm testler `tests/verification/` altında pytest olarak koşar; performans ölçütü
 `tests/benchmarks/` altındadır (`pytest -m benchmark`).
@@ -124,3 +124,43 @@ düzeyinde aynı; `.ssproj`'dan yüklenen model analizi 1e-12 içinde tekrarlar.
 * Plastik kazı aşamaları tam NR'de adım başına 5–8 iterasyon gerektirebiliyor;
   `SolverSettings(line_search=True)` belirgin biçimde hızlandırıyor (S4: 44 s → 22 s).
 * Göçme yükü takibi (arc-length) v2'de; v1'de göçme = adım alt sınırında yakınsamama.
+
+## Kapı 4 — sızma, drenajsız analiz ve ileri bünye modelleri (Faz 4)
+
+| Kod | Test | Referans | Ölçüt | Sonuç |
+|---|---|---|---|---|
+| W1 | Palplanş altında sınırlı akış, T = 10 m tabaka, S/T = 0.3 / 0.6 / 0.8 | Harr (1962) konformal dönüşüm, q/(kH) = K(m′)/2K(m) | Debi < %2 | %0.2 – %0.6 |
+| W2 | Dikdörtgen baraj, serbest yüzey + sızma yüzü, iki van Genuchten seti | Dupuit–Forchheimer debisi (Charny 1951, debi için kesin) | < %3 | %1.2 – %2.0 (doymamış bölgedeki akış; dik vG eğrisinde küçülüyor) |
+| W3 | Sıfır gradyanlı sızma (her yerde aynı yük) | Eşdeğer freatik çizginin hidrostatik basıncı; aşamalı analizin tamamı | < 10⁻⁸ | < 10⁻⁸ (boşluk suyu, gerilme, deplasman) |
+| C1 | MCC drenajlı üç eksenli basınç, NC, p₀ = 200 kPa, εa → %15 | MCC hız denklemlerinin drenajlı yolda sıkı toleranslı ODE integrasyonu | q–εa < %1 | en büyük %0.48 (ilk adımlar), εa = %15'te %0.06 |
+| C2 | MCC drenajsız üç eksenli basınç, yöntem A (Kw/n = 100 K′) | Kapalı form efektif gerilme yolu p′/p₀ = (M²/(M²+η²))^Λ (logaritmik elastisite kayması dahil) | p′–q < %2 | %0.13; toplam ortalama gerilme p′ + p_aşırı = p₀ + q/3 (10⁻⁸) |
+| C3 | Genelleştirilmiş Hoek–Brown kaya kütlesinde dairesel tünel (GSI 40, mi 10, σci 20 MPa, p₀ 10 MPa, pᵢ 0.5 MPa), ψ = 0 / 10° / 20° | Carranza-Torres (2004) tipi çözüm, testte açık türetim (plastik bölge kapalı form, deplasman akış kuralı ODE'si) | Duvar deplasmanı < %3 | %1.1 / %1.3 / %1.6; plastik yarıçap %0.3–0.4 |
+
+C1'deki sapma hipoelastik kayma modülünün adım başında dondurulmasından gelen birinci
+mertebe zaman integrasyonu hatasıdır (adım yarıya inince yarıya iner). C3'teki sapmanın
+çoğu 25a'daki sonlu (gerilme yüklü) dış sınırdandır: 50a ile pᵢ = 0 durumunda %2.5 → %1.8.
+
+### Drenajsız analiz (`tests/unit/test_undrained.py`)
+
+* Ödometrik yükleme, yöntem A ve B, varsayılan ve verilen Kw/n: aşırı boşluk suyu basıncı
+  Q·Kw/(Kw + Dc), efektif gerilme ve oturma kapalı form ile 10⁻⁸ içinde; ardından
+  `Stage(drained=True)` ile aşırı boşluk suyu sönümlenir ve drenajlı oturma Q·H/Dc elde edilir.
+* Yöntem C: boşluk suyu basıncı yok, toplam düşey gerilme γ_doygun·z (+Q).
+* Aşırı boşluk suyu HDF5'e yazılır; `Stage.drained` proje JSON'unda korunur.
+
+### Bünye modeli birim testleri (Faz 4)
+
+* MCC: dönüş sonrası akma yüzeyi üzerinde (10⁻⁸), tutarlı teğet sonlu farklarla 10⁻⁵
+  içinde, elastik boşaltmada sertleşme donuk.
+* Hoek–Brown: üç parametre seti (ψ = 0, 5°, 10°), ana yüzey, iki kenar ve tepe (çekme
+  dayanımı) dönüşleri; akma koşulu 10⁻⁸·σci, σ1 ≤ σt, tutarlı teğet sonlu farklarla 10⁻⁴
+  içinde, dönüş idempotent.
+
+### Faz 4 bilinen sınırlamalar
+
+* Drenajsız MCC'de yüzeye yakın, p′ ≈ 0 olan zeminde drenajsız dayanım da ≈ 0'dır; yüzey
+  temeli küçük yüklerde göçer (gerçek davranış). Logaritmik elastisitedeki küçük kayma
+  `p_min` (varsayılan 1 kPa) yalnızca p′ = 0'da sonlu rijitlik sağlar.
+* SRF (mukavemet azaltma) MC/DP ve ara yüzlere uygulanır; Hoek–Brown ve MCC azaltılmaz.
+* Konsolidasyon (zamana bağlı) v2 kapsamında; v1'de drenajsız → `drained=True` aşaması
+  yalnızca uç durumları verir.

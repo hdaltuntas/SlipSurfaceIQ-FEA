@@ -5,7 +5,7 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Status: Faz 3 (aşamalı inşaat ve yapısal elemanlar) — Kapı 1, 2 ve 3 geçti.**
+**Status: Faz 4 (sızma, drenajsız analiz, MCC, Hoek-Brown) — Kapı 1, 2, 3 ve 4 geçti.**
 
 ## Install (development)
 
@@ -90,6 +90,27 @@ gradually, activated elements start stress free, bars with their pretension). An
 interface that is not active ties its duplicated nodes (full continuity). Results go to
 HDF5 (`api.write_results`, lazy `api.ResultsFile`). See `examples/sheet_pile_staged.py`.
 
+### Seepage, undrained analysis, Cam-Clay and Hoek-Brown
+
+```python
+w = api.WaterCondition.seepage(                      # steady saturated-unsaturated flow
+    heads={"up": 10.0, "down": 4.0},
+    seepage_faces=("toe",))                           # pore pressures feed the stage
+clay = api.MaterialSpec.mcc("clay", nu=0.25, M=1.2, lam=0.2, kappa=0.04, e0=1.0,
+                            OCR=1.2, gamma=18, gamma_sat=19,
+                            drainage=api.Drainage.UNDRAINED_A)   # Kw/n = 100 K' default
+rock = api.MaterialSpec.hoek_brown("rock", E=2e6, nu=0.25, sigci=2e4, GSI=40, mi=10, psi=5)
+stages = [api.Stage("load", loads=...),                         # undrained: excess pore p.
+          api.Stage("consolidated", loads=..., drained=True)]   # excess pore p. dissipates
+res.stages[0].excess_pore["soil"]   # (ne, ngp) kPa, compression positive
+res.stages[0].head                  # nodal total head of a seepage stage
+```
+
+Drainage types: `UNDRAINED_A` (effective parameters + pore-water stiffness),
+`UNDRAINED_B` (effective stiffness, undrained strength as `c = su`, `phi = 0`),
+`UNDRAINED_C` (total-stress parameters, no pore pressure). `Stage.drained=True`
+switches undrained behaviour off for that stage.
+
 ### Unstructured mesh (Delaunay + Ruppert)
 
 ```python
@@ -131,7 +152,7 @@ points become one-node sets; `boundary` and `all` are always present. See
 | L1 | `model/` — immutable model definition | L0 |
 | L0 | `core/` — units, enums, errors, logging | NumPy |
 
-## Verification (Kapı 1, 2, 3)
+## Verification (Kapı 1–4)
 
 See [`docs/verification.md`](docs/verification.md).
 

@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
-from ..core.errors import NonConvergence, SingularSystemError
+from ..core.errors import LocalIntegrationError, NonConvergence, SingularSystemError
 from ..core.log import get_logger
 from ..model.stages import SolverSettings
 
@@ -137,17 +137,23 @@ def solve_stage(
         it = 0
         try:
             for it in range(s.max_iter + 1):
-                trial, fint = prob.integrate(du - du_total)
-                R = lam_t * f_ext + (1.0 - lam_t) * f0 - fint
-                Rf = R[free]
-                f_reac = (fint - f0)[pres] if pres.size else np.zeros(0)
-                f_ref = max(
-                    n_dfext * lam_t,
-                    float(np.linalg.norm(f_reac)),
-                    float(np.linalg.norm(fint[driven])) if driven.size else 0.0,
-                    1e-10 * f_scale,
-                )
-                rel = float(np.linalg.norm(Rf)) / f_ref
+                try:
+                    trial, fint = prob.integrate(du - du_total)
+                except LocalIntegrationError:
+                    if it == 0:
+                        raise
+                    rel = np.inf  # constitutive update failed: treat as divergent iterate
+                else:
+                    R = lam_t * f_ext + (1.0 - lam_t) * f0 - fint
+                    Rf = R[free]
+                    f_reac = (fint - f0)[pres] if pres.size else np.zeros(0)
+                    f_ref = max(
+                        n_dfext * lam_t,
+                        float(np.linalg.norm(f_reac)),
+                        float(np.linalg.norm(fint[driven])) if driven.size else 0.0,
+                        1e-10 * f_scale,
+                    )
+                    rel = float(np.linalg.norm(Rf)) / f_ref
                 res_hist.append(rel)
                 if it == 0 and rel < 1e-3 * s.tol_force and not driven.size:
                     converged = True
@@ -263,7 +269,11 @@ def _line_search(
     for _ in range(3):
         trial_du = du_step.copy()
         trial_du[free] += s_cur * ddu
-        _, fint = prob.integrate(trial_du)
+        try:
+            _, fint = prob.integrate(trial_du)
+        except LocalIntegrationError:
+            s_cur = max(0.5 * s_cur, 0.1)  # shorten the step and stop searching
+            break
         g = float(ddu @ (lam * f_ext + (1 - lam) * f0 - fint)[free])
         if abs(g) <= 0.8 * abs(g0):
             break

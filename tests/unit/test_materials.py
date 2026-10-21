@@ -170,3 +170,78 @@ def test_mohr_coulomb_apex_region_non_associated(psi, st, rng):
     s, _, _, f = mc0.integrate(np.zeros((1, 4)), bad @ np.linalg.inv(mc0._D).T, np.zeros((1, 1)))
     assert f[0] == PlasticFlag.APEX
     assert np.allclose(s[0, :3], 10.0 * math.sqrt(3))  # apex c cot(phi), phi = 30°
+
+
+def test_mcc_return_tangent_and_unloading(rng):
+    from slipsurface.fe2d.fem.materials import ModifiedCamClay
+
+    mcc = ModifiedCamClay(0.25, 1.2, 0.2, 0.04, 1.0, OCR=1.2)
+    n = 300
+    p0 = rng.uniform(50, 300, n)
+    sig_n = np.zeros((n, 4))
+    sig_n[:, :3] = -p0[:, None]
+    sig_n[:, :3] += rng.normal(0, 0.15, (n, 3)) * p0[:, None]
+    sig_n[:, 3] = rng.normal(0, 0.1, n) * p0
+    q_n = np.zeros((n, 2))
+    deps = rng.normal(0, 1, (n, 4)) * 4e-3
+    sig, q, D, fl = mcc.integrate(sig_n, deps, q_n)
+    pc0 = mcc.initial_pc(sig_n)
+    assert np.allclose(q[:, 1][fl == 0], pc0[fl == 0])  # fresh points get p_c from OCR
+    f = mcc.yield_function(sig, q[:, 1])
+    assert f.max() < 1e-8 * q[:, 1].max() ** 2
+    pl = np.flatnonzero(fl > 0)
+    assert pl.size > 20 and np.abs(f[pl]).max() < 1e-8 * q[:, 1].max() ** 2
+    qn1 = np.column_stack([np.zeros(n), pc0])
+    for i in pl[:25]:
+        Dfd = _fd_tangent(mcc, sig_n[i], deps[i], qn1[i], h=1e-8)
+        assert np.abs(Dfd - D[i]).max() < 1e-5 * np.abs(D[i]).max()
+    # elastic unloading from a plastic state: hardening frozen, stress back inside
+    s2, q2, _, fl2 = mcc.integrate(sig[pl], -0.3 * deps[pl], q[pl])
+    back = fl2 == 0
+    assert back.sum() > 0.5 * pl.size
+    assert np.array_equal(q2[back, 1], q[pl][back, 1])
+
+
+def _hb_cases():
+    from slipsurface.fe2d.fem.materials import HoekBrown, hb_parameters
+
+    out = []
+    for gsi, mi, psi in [(50, 10, 0.0), (75, 25, 10.0), (30, 7, 5.0)]:
+        mb, s, a = hb_parameters(gsi, mi)
+        out.append(HoekBrown(5e6, 0.25, 5e4, mb, s, a, psi))
+    return out
+
+
+@pytest.mark.parametrize("case", [0, 1, 2])
+def test_hoek_brown_return_and_tangent(case, rng):
+    hb = _hb_cases()[case]
+    n = 400
+    sig_n = np.zeros((n, 4))
+    sig_n[:, :3] = -rng.uniform(0, 2e4, (n, 1)) - rng.uniform(0, 3e3, (n, 3))
+    sig_n[:, 3] = rng.normal(0, 2e3, n)
+    deps = rng.normal(0, 1, (n, 4)) * 3e-3
+    deps[: n // 4, :3] += 2e-3  # some returns towards the tensile apex
+    sig, q, D, fl = hb.integrate(sig_n, deps, np.zeros((n, 1)))
+    f = hb.yield_function(sig)
+    assert f.max() < 1e-8 * hb.sci
+    from slipsurface.fe2d.post.recovery import principal_stresses
+
+    ps = principal_stresses(sig)
+    assert ps["s1"].max() <= hb.st * (1 + 1e-9) + 1e-9
+    assert set(np.unique(fl)) >= {0, int(PlasticFlag.SHEAR)}
+    # returned point: the plastic strain follows the MC-type potential g = m s1 - s3
+    # (checked through the consistent tangent against finite differences)
+    sh = np.flatnonzero(fl == PlasticFlag.SHEAR)
+    for i in sh[:30]:
+        Dfd = _fd_tangent(hb, sig_n[i], deps[i], np.zeros(1), h=1e-9)
+        assert np.abs(Dfd - D[i]).max() < 1e-4 * np.abs(hb._D).max(), i
+
+
+def test_hoek_brown_closest_point_is_idempotent(rng):
+    hb = _hb_cases()[0]
+    sig_n = np.zeros((200, 4))
+    sig_n[:, :3] = -1e4
+    deps = rng.normal(0, 1, (200, 4)) * 5e-3
+    sig, *_ = hb.integrate(sig_n, deps, np.zeros((200, 1)))
+    sig2, _, _, fl2 = hb.integrate(sig, np.zeros_like(deps), np.zeros((200, 1)))
+    assert np.allclose(sig2, sig, rtol=0, atol=1e-8 * hb.sci)

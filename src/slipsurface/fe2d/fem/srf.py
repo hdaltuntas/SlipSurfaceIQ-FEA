@@ -86,7 +86,7 @@ def strength_reduction(
         for g in ifaces:  # joints are reduced with the soil (as in RS2 / PLAXIS)
             g.set_strength_factor(F)
         solver._sys_cache.clear()  # symmetry flag may change with F
-        lay = solver.layout(ctx.override, materials=mats)
+        lay = solver.layout(ctx.override, materials=mats, drained=ctx.stage.drained)
         state = base_state.commit()
         solver._D_committed = None
         sysm = solver.build_system(lay, ctx.active, ctx.water, ctx.displacements)
