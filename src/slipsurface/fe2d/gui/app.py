@@ -44,7 +44,7 @@ from ..core.errors import ModelError
 from ..io.report import export_beam_csv, export_csv, export_html
 from .boundary_editor import BoundaryDialog
 from .canvas import ConvergencePlot, MeshCanvas
-from .dialogs import MaterialDialog, NewModelDialog, StageDialog, sample_model
+from .dialogs import MaterialDialog, NewModelDialog, StageDialog
 from .icons import icon
 from .structure_editor import StructureDialog
 from .worker import SolveWorker
@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress)
         self.setCentralWidget(root)
         self.status.showMessage("Hazır · Birimler kN, m, kPa · Gerilmede çekme pozitif")
-        self.set_model(sample_model())
+        self.set_model(None)
 
     def _build_dock(self):
         """Left dock: Belge Görüntüleyici (aşama listesi + özet) ve Görüntüleme
@@ -263,6 +263,9 @@ class MainWindow(QMainWindow):
         return self.worker is not None
 
     def set_model(self, model, result=None, path=None, dirty=False):
+        if model is None:
+            self._set_empty_state(path, dirty)
+            return
         model.validate()
         self.model, self.result, self.path, self.dirty = model, result, path, dirty
         self.stages.blockSignals(True)
@@ -295,6 +298,38 @@ class MainWindow(QMainWindow):
         else:
             self.progress.setValue(0)
         self.draw()
+
+    def _set_empty_state(self, path=None, dirty=False):
+        """No model yet: blank scene, clear stage list, hint at first steps."""
+        self.model = self.result = None
+        self.path = path
+        self.dirty = dirty
+        self.stages.blockSignals(True)
+        self.stages.clear()
+        self.stages.blockSignals(False)
+        self.summary.setText(
+            "Boş proje.\n\nBaşlamak için:\n"
+            "· Dosya > Yeni ile dikdörtgen zemin modeli\n"
+            "· Geometri / CAD ile çizimden ağ\n"
+            "· Dosya > Aç ile mevcut proje"
+        )
+        for a in self.export_actions:
+            a.setEnabled(False)
+        self.setWindowTitle(f"SlipSurfaceIQ-FEA · {Path(path).name if path else 'Boş proje'}")
+        self.plot.reset()
+        self.progress.setValue(0)
+        self.canvas.scene().clear()
+        self.canvas.model = self.canvas.stage = None
+        self.legend.setText("")
+        self.statusBar().showMessage("Boş proje · Dosya > Yeni ya da Geometri / CAD ile başlayın")
+
+    def _require_model(self):
+        if self.model is None:
+            self.status.showMessage(
+                "Model yok · Dosya > Yeni, Geometri / CAD ya da Dosya > Aç ile başlayın", 8000
+            )
+            return False
+        return True
 
     def selected_stage(self):
         if self.result is None:
@@ -402,14 +437,14 @@ class MainWindow(QMainWindow):
         self.set_model(tunnel_model(), dirty=True)
 
     def edit_boundaries(self):
-        if self.busy:
+        if self.busy or not self._require_model():
             return
         dialog = BoundaryDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)
 
     def edit_materials(self):
-        if self.busy:
+        if self.busy or not self._require_model():
             return
         dialog = MaterialDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -428,21 +463,21 @@ class MainWindow(QMainWindow):
             self.show_error(str(exc))
 
     def edit_structures(self):
-        if self.busy:
+        if self.busy or not self._require_model():
             return
         dialog = StructureDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)
 
     def edit_stages(self):
-        if self.busy:
+        if self.busy or not self._require_model():
             return
         dialog = StageDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)
 
     def start_solve(self):
-        if self.busy:
+        if self.busy or not self._require_model():
             return
         self.result = None
         for a in self.export_actions:

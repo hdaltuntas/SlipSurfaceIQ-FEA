@@ -93,6 +93,7 @@ def test_failure_restores_controls_without_result(application, monkeypatch):
 
     monkeypatch.setattr(worker.api, "run", fail)
     window = MainWindow()
+    window.set_model(sample_model(nx=1, ny=1))
     window.start_solve()
     finish(window, application)
     assert window.result is None
@@ -171,4 +172,20 @@ def test_invalid_json_project_reports_file_name(application, tmp_path):
         window.open_path(bad)
     assert "bad.json" in str(info.value)
     assert "JSON" in str(info.value)
+    window.close()
+
+
+def test_startup_is_empty_project_and_actions_need_a_model(application):
+    """The window opens with an empty project, not a bundled example."""
+    window = MainWindow()
+    assert window.model is None
+    assert window.result is None
+    assert window.stages.count() == 0
+    assert "Boş proje" in window.windowTitle()
+    window.start_solve()  # guarded: no solve, no crash, no worker
+    assert window.busy is False
+    window.edit_materials()  # guarded, stays empty
+    assert window.model is None
+    window.set_model(sample_model(nx=2, ny=2))
+    assert window.model is not None and window.stages.count() > 0
     window.close()
