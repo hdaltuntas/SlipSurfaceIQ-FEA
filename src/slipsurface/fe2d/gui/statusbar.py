@@ -18,7 +18,7 @@ TOGGLE_CSS = (
 
 
 class CadStatusBar(QStatusBar):
-    def __init__(self, parent=None, with_toggles: bool = True) -> None:
+    def __init__(self, parent=None, with_toggles: bool = True, shortcuts: bool = True) -> None:
         super().__init__(parent)
         self.showMessage("Hazır · Birimler kN, m, kPa · Gerilmede çekme pozitif")
         self.coords = QLabel("x: —   y: —")
@@ -31,6 +31,7 @@ class CadStatusBar(QStatusBar):
                 ("SNAP", "F9", "Izgara noktalarına yakala"),
                 ("GRID", "F7", "Izgarayı göster"),
                 ("ORTHO", "F8", "Yatay/düşey kısıtla"),
+                ("OSNAP", "F3", "Nesne uç/orta noktalarını yakala"),
             ):
                 b = QToolButton()
                 b.setText(name)
@@ -39,14 +40,19 @@ class CadStatusBar(QStatusBar):
                 b.setToolTip(f"{tip} ({key})")
                 self.addPermanentWidget(b)
                 self.toggles[name.lower()] = b
-                sc = QShortcut(QKeySequence(key), parent or self)
-                sc.setContext(Qt.WindowShortcut)
-                sc.activated.connect(b.toggle)
+                if shortcuts:
+                    sc = QShortcut(QKeySequence(key), parent or self)
+                    sc.setContext(Qt.WindowShortcut)
+                    sc.activated.connect(b.toggle)
 
     def attach(self, canvas) -> None:
         """Bind toggles to a CAD canvas (the one used for drawing)."""
         self._canvas = canvas
         canvas.cursor_changed.connect(lambda t: self.showMessage(t, 8000))
+        osnap = self.toggles.get("osnap")
+        if osnap is not None:
+            osnap.setChecked(canvas.object_snapping)
+            osnap.toggled.connect(lambda on: setattr(canvas, "object_snapping", on))
         snap = self.toggles.get("snap")
         grid = self.toggles.get("grid")
         ortho = self.toggles.get("ortho")
@@ -59,9 +65,7 @@ class CadStatusBar(QStatusBar):
             grid.blockSignals(True)
             grid.setChecked(canvas.grid_visible)
             grid.blockSignals(False)
-            grid.toggled.connect(
-                canvas.set_grid_visible
-            )
+            grid.toggled.connect(canvas.set_grid_visible)
         if ortho is not None:
             ortho.blockSignals(True)
             ortho.setChecked(canvas.ortho)

@@ -1,5 +1,8 @@
 # CAD arayüz düzeltmeleri — 22 Ekim 2026
 
+> Güncel ana pencere düzeni: [Bütünleşik modelleyici](integrated-modeler.md).
+> Bu sayfadaki ayrı CAD penceresi görüntüleri önceki sürüme aittir.
+
 Release yayını kapalıdır. Bu değişiklikler kullanıcı arayüz kabulünün yerine geçmez.
 
 ## Düzeltilen sorunlar

@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QToolBar,
     QVBoxLayout,
@@ -91,11 +92,8 @@ class MainWindow(QMainWindow):
         right = QVBoxLayout(view)
         from .statusbar import CadStatusBar
 
-        self.status = CadStatusBar(self)
+        self.status = CadStatusBar(self, shortcuts=False)
         self.setStatusBar(self.status)
-        for toggle in self.status.toggles.values():
-            toggle.setEnabled(False)
-            toggle.setToolTip("Çizim araçları Geometri / CAD penceresinde kullanılabilir.")
         self.canvas = MeshCanvas()
         self.canvas.queried.connect(self.status.showMessage)
         self.canvas.mouse_world.connect(self.status.show_coords)
@@ -104,7 +102,30 @@ class MainWindow(QMainWindow):
         self.legend.setStyleSheet("padding:8px;color:#526677")
         right.addWidget(self.legend)
         split.addWidget(view)
-        layout.addWidget(split, 1)
+        self.result_page = QWidget()
+        result_layout = QVBoxLayout(self.result_page)
+        result_layout.setContentsMargins(0, 0, 0, 0)
+        result_layout.addWidget(split, 1)
+        self.workspace = QStackedWidget()
+        self.workspace.addWidget(self.result_page)
+        from .cad import CadDialog
+
+        self.cad = CadDialog(parent=self, embedded=True)
+        self.cad.model_ready.connect(self._accept_cad_model)
+        self.cad.worker_stopped.connect(self._cad_worker_stopped)
+        self.workspace.addWidget(self.cad)
+        self.status.attach(self.cad.canvas)
+        self.cad.canvas.mouse_world.connect(self.status.show_coords)
+        for name, checkbox in [
+            ("snap", self.cad.snap),
+            ("grid", self.cad.grid_toggle),
+            ("ortho", self.cad.ortho),
+            ("osnap", self.cad.osnap),
+        ]:
+            toggle = self.status.toggles[name]
+            checkbox.toggled.connect(toggle.setChecked)
+            toggle.toggled.connect(checkbox.setChecked)
+        layout.addWidget(self.workspace, 1)
         tabs = QTabWidget()
         self.plot = ConvergencePlot()
         tabs.addTab(self.plot, "Yakınsama")
@@ -117,7 +138,7 @@ class MainWindow(QMainWindow):
         split.setSizes([600, 150])
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        layout.addWidget(self.progress)
+        result_layout.addWidget(self.progress)
         self.setCentralWidget(root)
         self.status.showMessage("Hazır · Birimler kN, m, kPa · Gerilmede çekme pozitif")
         self.set_model(None)
@@ -133,8 +154,19 @@ class MainWindow(QMainWindow):
         self.fields = QComboBox()
         self.fields.addItems(
             [
-                "|u|", "ux", "uy", "sxx", "syy", "szz", "txy",
-                "s1", "s3", "q", "plastic", "pore", "excess_pore",
+                "|u|",
+                "ux",
+                "uy",
+                "sxx",
+                "syy",
+                "szz",
+                "txy",
+                "s1",
+                "s3",
+                "q",
+                "plastic",
+                "pore",
+                "excess_pore",
             ]
         )
         self.fields.currentTextChanged.connect(self.draw)
@@ -175,6 +207,7 @@ class MainWindow(QMainWindow):
         dock_split.addWidget(options)
         dock_split.setSizes([420, 380])
         dock = QDockWidget("Proje", self)
+        self.project_dock = dock
         dock.setObjectName("project_dock")
         dock.setWidget(dock_split)
         dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
@@ -222,6 +255,25 @@ class MainWindow(QMainWindow):
             toolbar.addAction(a)
             file_menu.addAction(a)
             self.edit_actions.append(a)
+        file_menu.addAction(action("Parametrik dikdörtgen model…", self.new_mesh_model))
+        for title, method in [
+            ("Çizim aç…", "open_drawing"),
+            ("Çizim kaydet…", "save_drawing"),
+            ("DXF al…", "import_dxf"),
+            ("DXF ver…", "export_dxf"),
+        ]:
+            file_menu.addAction(
+                action(title, lambda _=False, m=method: self.drawing_file_action(m))
+            )
+        edit_menu = self.menuBar().addMenu("Düzenle")
+        for title, method in [
+            ("Geri al", "undo"),
+            ("Yinele", "redo"),
+            ("Seçileni sil", "delete_entity"),
+        ]:
+            edit_menu.addAction(
+                action(title, lambda _=False, m=method: self.drawing_file_action(m))
+            )
         toolbar.addSeparator()
         for title, slot in [
             ("Geometri / CAD", self.edit_geometry),
@@ -239,9 +291,24 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(False)
         toolbar.addAction(self.run_action)
         toolbar.addAction(self.stop_action)
-        toolbar.addAction(
-            action("Görünüme sığdır", lambda: self.canvas.fit_model(), None, "zoom_all")
-        )
+        toolbar.addAction(action("Görünüme sığdır", self.fit_active_view, "F2", "zoom_all"))
+        toolbar.addAction(action("Ağ / Sonuçlar", self.show_results, "F6"))
+        geometry_menu = self.menuBar().addMenu("Geometri")
+        for title, kind in [
+            ("Çokgen bölge", "region"),
+            ("Boşluk", "hole"),
+            ("Ağ kısıt çizgisi", "line"),
+        ]:
+            geometry_menu.addAction(action(title, lambda _=False, k=kind: self.draft_tool(k)))
+        support_menu = self.menuBar().addMenu("Destek")
+        for title, kind in [
+            ("Kazık çiz", "pile"),
+            ("Tünel çiz", "tunnel"),
+            ("Kaplama çiz", "liner"),
+            ("Ankraj / zemin çivisi çiz", "bolt"),
+        ]:
+            support_menu.addAction(action(title, lambda _=False, k=kind: self.draft_tool(k)))
+        support_menu.addAction(action("Mevcut ağdaki yapı özellikleri…", self.edit_mesh_structures))
         examples_menu = self.menuBar().addMenu("Örnekler")
         demo_action = action("Dört aşamalı tünel", self.open_tunnel_example)
         examples_menu.addAction(demo_action)
@@ -267,13 +334,15 @@ class MainWindow(QMainWindow):
 
     @property
     def busy(self):
-        return self.worker is not None
+        return self.worker is not None or (hasattr(self, "cad") and self.cad.worker is not None)
 
     def set_model(self, model, result=None, path=None, dirty=False):
         if model is None:
             self._set_empty_state(path, dirty)
             return
         model.validate()
+        self.cad.load_model(model)
+        self.show_results()
         self.model, self.result, self.path, self.dirty = model, result, path, dirty
         self.stages.blockSignals(True)
         self.stages.clear()
@@ -310,6 +379,8 @@ class MainWindow(QMainWindow):
     def _set_empty_state(self, path=None, dirty=False):
         """No model yet: blank scene, clear stage list, hint at first steps."""
         self.model = self.result = None
+        self.cad.load_model(None)
+        self.edit_geometry()
         self.path = path
         self.dirty = dirty
         self.stages.blockSignals(True)
@@ -329,9 +400,15 @@ class MainWindow(QMainWindow):
         self.canvas.scene().clear()
         self.canvas.model = self.canvas.stage = None
         self.legend.setText("")
-        self.statusBar().showMessage("Boş proje · Dosya > Yeni ya da Geometri / CAD ile başlayın")
+        self.statusBar().showMessage(
+            "Modelleyici · Geometri veya Destek menüsünden çizime başlayın"
+        )
 
     def _require_model(self):
+        if self.cad.mesh_outdated:
+            self.edit_geometry()
+            self.status.showMessage("Çizim değişti · Önce Ağ üret ile hesap modelini güncelleyin.")
+            return False
         if self.model is None:
             self.status.showMessage(
                 "Model yok · Dosya > Yeni, Geometri / CAD ya da Dosya > Aç ile başlayın", 8000
@@ -378,7 +455,7 @@ class MainWindow(QMainWindow):
             BeamDiagramDialog(self.result, self.selected_stage(), self).exec()
 
     def discard_changes(self):
-        if not self.dirty:
+        if not self.dirty and not self.cad.unsaved:
             return True
         return (
             QMessageBox.question(
@@ -392,6 +469,11 @@ class MainWindow(QMainWindow):
         )
 
     def new_model(self):
+        if self.busy or not self.discard_changes():
+            return
+        self.set_model(None)
+
+    def new_mesh_model(self):
         if self.busy or not self.discard_changes():
             return
         dialog = NewModelDialog(self)
@@ -412,7 +494,15 @@ class MainWindow(QMainWindow):
         if self.busy:
             raise RuntimeError("Çözüm sürerken proje değiştirilemez.")
         try:
-            if Path(path).suffix.lower() == ".ssproj":
+            if str(path).lower().endswith(".sscad.json"):
+                from ..cad.geometry import Drawing
+
+                drawing = Drawing.from_dict(json.loads(Path(path).read_text("utf-8")))
+                self.set_model(None)
+                self.cad.commit(drawing)
+                self.cad.saved_drawing = drawing
+                self.cad.canvas.fit_drawing()
+            elif Path(path).suffix.lower() == ".ssproj":
                 project = api.load_project(path)
                 self.set_model(project.model, project.results, path)
             else:
@@ -423,11 +513,20 @@ class MainWindow(QMainWindow):
     def save_path(self, path):
         if self.busy:
             raise RuntimeError("Çözüm sürerken kayıt yapılamaz.")
+        if self.cad.mesh_outdated:
+            raise ValueError(
+                "Çizim değişti; önce ağı üretin veya Çizim kaydet ile taslağı saklayın."
+            )
         api.save_project(self.model, path, self.result)
         self.set_model(self.model, self.result, path, False)
         self.statusBar().showMessage(f"Kaydedildi: {Path(path).name}")
 
     def save_dialog(self):
+        if self.busy:
+            return
+        if self.cad.mesh_outdated or self.model is None:
+            self.cad.save_drawing()
+            return
         path, _ = QFileDialog.getSaveFileName(
             self, "Proje kaydet", str(self.path or "model.ssproj"), "SlipSurface (*.ssproj)"
         )
@@ -445,6 +544,9 @@ class MainWindow(QMainWindow):
         self.set_model(tunnel_model(), dirty=True)
 
     def edit_boundaries(self):
+        if self.workspace.currentWidget() is self.cad:
+            self.cad.inspector.setCurrentIndex(1)
+            return
         if self.busy or not self._require_model():
             return
         dialog = BoundaryDialog(self.model, self)
@@ -459,18 +561,63 @@ class MainWindow(QMainWindow):
             self.set_model(dialog.updated, path=self.path, dirty=True)
 
     def edit_geometry(self):
-        if self.busy or not self.discard_changes():
+        if self.worker is not None:
             return
-        try:
-            from .cad import CadDialog
+        self.workspace.setCurrentWidget(self.cad)
+        self.project_dock.hide()
+        self.cad.set_tool_group(False)
+        for toggle in self.status.toggles.values():
+            toggle.setEnabled(True)
+        self.workflow.set_current(0, emit=False)
+        self.status.showMessage("Modelleyici · Nokta seç / koordinat gir · F2: tüm çizim · F6: ağ")
+        self.cad.canvas.viewport().update()
 
-            dialog = CadDialog(self.model, self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                self.set_model(dialog.updated, dirty=True)
-        except Exception as exc:
-            self.show_error(str(exc))
+    def show_results(self):
+        self.workspace.setCurrentWidget(self.result_page)
+        self.project_dock.show()
+        for toggle in self.status.toggles.values():
+            toggle.setEnabled(False)
+
+    def fit_active_view(self):
+        if self.workspace.currentWidget() is self.cad:
+            self.cad.canvas.fit_drawing()
+        else:
+            self.canvas.fit_model()
+
+    def drawing_file_action(self, method):
+        if not self.busy:
+            self.edit_geometry()
+            getattr(self.cad, method)()
+
+    def draft_tool(self, kind):
+        if self.busy:
+            return
+        self.edit_geometry()
+        if kind in {"region", "hole", "line"}:
+            self.cad.start_tool(kind)
+        else:
+            self.workflow.set_current(2, emit=False)
+            self.cad.start_engineering_tool(kind)
+
+    def _accept_cad_model(self, model):
+        history = self.cad.undo_stack[:], self.cad.redo_stack[:]
+        self.set_model(model, dirty=True)
+        self.cad.undo_stack, self.cad.redo_stack = history
+        self.status.showMessage("Ağ ve destekler hazır · Aşamaları kontrol edip Çöz ile ilerleyin.")
+
+    def _cad_worker_stopped(self):
+        if self._closing:
+            self.close()
 
     def edit_structures(self):
+        if self.busy:
+            return
+        self.edit_geometry()
+        self.workflow.set_current(2, emit=False)
+        self.cad.inspector.setCurrentIndex(2)
+        self.cad.set_tool_group(True)
+
+    def edit_mesh_structures(self):
         if self.busy or not self._require_model():
             return
         dialog = StructureDialog(self.model, self)
@@ -487,6 +634,8 @@ class MainWindow(QMainWindow):
     def start_solve(self):
         if self.busy or not self._require_model():
             return
+        self.show_results()
+        self.cad.setEnabled(False)
         self.result = None
         for a in self.export_actions:
             a.setEnabled(False)
@@ -497,6 +646,7 @@ class MainWindow(QMainWindow):
         try:
             worker = SolveWorker(self.model, self)
         except Exception as exc:
+            self.cad.setEnabled(True)
             self.show_error(str(exc))
             return
         self.worker = worker
@@ -543,6 +693,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_finished(self):
+        self.cad.setEnabled(True)
         worker, self.worker = self.worker, None
         worker.deleteLater()
         for a in [*self.edit_actions, self.run_action]:
@@ -585,7 +736,11 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "İşlem tamamlanamadı", text)
 
     def closeEvent(self, event):
-        if self.busy:
+        if self.cad.worker is not None:
+            self._closing = True
+            self.cad.reject()
+            event.ignore()
+        elif self.busy:
             self._closing = True
             self.cancel_solve()
             event.ignore()
