@@ -65,7 +65,7 @@ class WorkflowBar(QWidget):
                 path.lineTo(r.left() + ARROW, r.center().y())
             path.closeSubpath()
             if i == self.current:
-                fill, text, edge = QColor("#5aa9f0"), QColor("white"), QColor("#2f80cf")
+                fill, text, edge = QColor("#156798"), QColor("white"), QColor("#2f80cf")
             elif i == self.hover:
                 fill, text, edge = QColor("#dcebfb"), QColor("#1b3a63"), QColor("#8fb4e3")
             else:
@@ -95,5 +95,6 @@ class WorkflowBar(QWidget):
 
     def mousePressEvent(self, ev) -> None:
         i = self._index_at(ev.position())
-        if i >= 0:
-            self.set_current(i)
+        if i >= 0 and ev.button() == Qt.MouseButton.LeftButton:
+            self.set_current(i, emit=False)
+            self.step_changed.emit(i)

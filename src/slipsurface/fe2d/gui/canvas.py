@@ -43,6 +43,7 @@ class MeshCanvas(QGraphicsView):
         principal=False,
         plastic_points=False,
     ):
+        changed_model = self.model is not model
         self.model, self.stage = model, stage
         self.scene().clear()
         self.cell_count = 0
@@ -94,7 +95,11 @@ class MeshCanvas(QGraphicsView):
         pen = QPen(QColor("#42657b"), 0)
         for (block, e, xy), value in zip(cells, values):
             t = (value - lo) / (hi - lo) if not constant and np.isfinite(value) else 0.5
-            color = QColor.fromHsvF(0.62 * (1 - np.clip(t, 0, 1)), 0.65, 0.9)
+            if stage is None:
+                region_colors = ("#c5dfe8", "#dfd4b8", "#cbdcc4", "#d7cce5")
+                color = QColor(region_colors[(int(value) - 1) % len(region_colors)])
+            else:
+                color = QColor.fromHsvF(0.62 * (1 - np.clip(t, 0, 1)), 0.65, 0.9)
             poly = QPolygonF([QPointF(float(x), float(-y)) for x, y in xy])
             item = self.scene().addPolygon(poly, pen, color)
             item.setToolTip(f"{block.tag} · {e} · {field if stage else 'Bölge'}: {value:.8g}")
@@ -122,7 +127,8 @@ class MeshCanvas(QGraphicsView):
         if stage is not None and result is not None:
             self.draw_overlays(result, stage, coords, principal, plastic_points)
             self.legend += self.overlay_note
-        self.fit_model()
+        if changed_model:
+            self.fit_model()
 
     def draw_overlays(self, result, stage, coords, principal, plastic):
         extent = max(float(np.ptp(coords, axis=0).max()), 1e-9)

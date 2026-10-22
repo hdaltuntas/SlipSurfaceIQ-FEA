@@ -68,6 +68,9 @@ class ModelFileError(ModelError):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        from .preferences import apply_theme
+
+        apply_theme()
         self.setWindowTitle("SlipSurfaceIQ-FEA · Masaüstü")
         self.resize(1280, 840)
         self.setIconSize(QSize(24, 24))
@@ -83,13 +86,16 @@ class MainWindow(QMainWindow):
         self.workflow = WorkflowBar(STEPS)
         self.workflow.step_changed.connect(self._activate_step)
         layout.addWidget(self.workflow)
-        split = QSplitter()
+        split = QSplitter(Qt.Orientation.Vertical)
         view = QWidget()
         right = QVBoxLayout(view)
         from .statusbar import CadStatusBar
 
         self.status = CadStatusBar(self)
         self.setStatusBar(self.status)
+        for toggle in self.status.toggles.values():
+            toggle.setEnabled(False)
+            toggle.setToolTip("Çizim araçları Geometri / CAD penceresinde kullanılabilir.")
         self.canvas = MeshCanvas()
         self.canvas.queried.connect(self.status.showMessage)
         self.canvas.mouse_world.connect(self.status.show_coords)
@@ -98,7 +104,6 @@ class MainWindow(QMainWindow):
         self.legend.setStyleSheet("padding:8px;color:#526677")
         right.addWidget(self.legend)
         split.addWidget(view)
-        split.setSizes([1000, 1000])
         layout.addWidget(split, 1)
         tabs = QTabWidget()
         self.plot = ConvergencePlot()
@@ -106,8 +111,10 @@ class MainWindow(QMainWindow):
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         tabs.addTab(self.log, "Çözüm günlüğü")
-        tabs.setMaximumHeight(210)
-        layout.addWidget(tabs)
+        split.addWidget(tabs)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 0)
+        split.setSizes([600, 150])
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         layout.addWidget(self.progress)
@@ -298,6 +305,7 @@ class MainWindow(QMainWindow):
         else:
             self.progress.setValue(0)
         self.draw()
+        self.status.showMessage("Model hazır · Birimler kN, m, kPa")
 
     def _set_empty_state(self, path=None, dirty=False):
         """No model yet: blank scene, clear stage list, hint at first steps."""
