@@ -55,7 +55,11 @@ Ana dal ve PR #1 farklı HDF5/.ssproj şemaları geliştirmişti. İkisi de koru
 `open_project_results` eski manifestli `.ssproj` formatına aittir. Yeni formatta
 `load_project` kullanılır. Sonuçsuz dosyalar da açılır.
 
-## Faz 5 kapanış teslimi
+## Faz 5 geliştirme durumu — yayın durduruldu
+
+22 Ekim 2026 kullanıcı değerlendirmesinde arayüz kullanılabilirliği kabul
+edilmedi. Faz 5 açıktır; aşağıdaki teknik özellikler tamamlanmış kullanıcı
+deneyimi anlamına gelmez. [Açık işler](next-steps.md).
 
 [Faz 5 sürüm kaydı](phase5-release.md): zaman çizelgesi, mekanik sınır ve yer değiştirme
 formları, ara yüz oluşturma/özellik/silme, asal oklar ve plastik GP, sorgu çizgileri,

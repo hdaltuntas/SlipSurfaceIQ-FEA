@@ -1,9 +1,10 @@
-name: publish-pypi
+name: package-check-publishing-paused
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
+
+# Publishing withdrawn after user usability review (2026-10-22).
+# This workflow only builds/checks packages. Restore publishing only after acceptance.
 
 permissions:
   contents: read
@@ -24,18 +25,3 @@ jobs:
         with:
           name: publish-distributions
           path: dist/*
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/slipsurface-fe2d
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: publish-distributions
-          path: dist
-      # Requires a PyPI Trusted Publisher for this exact repository/workflow/environment.
-      - uses: pypa/gh-action-pypi-publish@release/v1

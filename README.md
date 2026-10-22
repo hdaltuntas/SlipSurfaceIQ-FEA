@@ -5,7 +5,11 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Durum: Faz 5 işlevleri, dört aşamalı GUI/API kabulü ve Windows portable testi tamamlandı.**
+**Durum: Faz 5 geliştirme sürüyor; arayüz kullanıma hazır değil. Yayın durduruldu.**
+
+22 Ekim 2026 kullanıcı değerlendirmesiyle v1.0.0 yayını geri çekildi.
+Otomatik testlerin geçmesi kullanıcı kabulü değildir. Arayüz kullanılabilirliği
+düzeltilip kullanıcı tarafından kabul edilmeden yeni release yayımlanmayacak.
 
 [İnceleme ve test kaydı](docs/phase4-review.md) ·
 [Masaüstü arayüzü / çalıştırma](docs/phase5-desktop.md) ·

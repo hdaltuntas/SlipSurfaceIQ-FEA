@@ -4,10 +4,9 @@ on:
   pull_request:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
-  release:
-    types: [published]
+
+# Development artifacts only; release publication is paused pending user acceptance.
 
 permissions:
   contents: read
@@ -55,37 +54,6 @@ jobs:
           name: python-distributions
           path: python-dist/*
           retention-days: 90
-
-  release-assets:
-    if: github.event_name == 'release'
-    needs: [build, clean-windows-smoke]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-portable
-          path: release
-      - uses: actions/download-artifact@v4
-        with:
-          name: python-distributions
-          path: release
-      - uses: actions/download-artifact@v4
-        with:
-          name: clean-windows-smoke-evidence
-          path: evidence
-      - name: Verify and attach tested release files
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          cd release
-          sha256sum --check SHA256SUMS.txt
-          cp ../evidence/smoke-result.json windows-smoke-result.json
-          sha256sum SlipSurfaceIQ-FEA-Windows-x64.zip *.whl *.tar.gz windows-smoke-result.json > SHA256SUMS.txt
-          gh release upload "$RELEASE_TAG" ./* --clobber
 
   clean-windows-smoke:
     needs: build

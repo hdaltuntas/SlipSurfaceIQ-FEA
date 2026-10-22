@@ -1,7 +1,7 @@
 # Güncel durum ve sıradaki işler
 
-Son kullanıcı talimatı: **Main'e gönder ve devam et.**
-Bu talimat, önceki oturumun “Faz 4'e geçme” kararının yerini alır.
+Son kullanıcı talimatı (22 Ekim 2026): **Arayüz kullanışlı değil; release hazır
+değil, yayını kaldır.** Faz 5 yeniden açık; yeni release ve PyPI yayını durduruldu.
 Bu depo Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** projesidir.
 
 ## Mevcut teslim
@@ -35,7 +35,7 @@ Bu depo Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** projesidir.
 - Faz 5 işlevsel GUI/API kabulü geçti. Paket ve PyPI yayın durumu
   [sürüm kaydında](phase5-release.md) ayrı tutulur. S4/P4 istisnaları gizlenmez.
 
-## Faz 5 kapanışı
+## Faz 5 — kullanıcı kabulü bekleniyor
 
 Mekanik sınırlar, aşama yer değiştirmeleri, ara yüz kütüphanesi, zaman çizelgesi,
 plastik GP/asal oklar, sorgu çizgisi ve liner N–V–M eklendi. Boş GUI'den dört aşamalı
@@ -43,6 +43,17 @@ tünel kabulü API ile birebir eşleşti. Windows portable ve temiz makine smoke
 wheel/sdist ve PyPI Trusted Publisher iş akışı hazır. Linux/Windows CI 10/10 ve
 bağımsız Windows portable testi geçti. Test kanıtı, yayın durumu ve korunan
 istisnalar [phase5-release.md](phase5-release.md) içindedir.
+
+Bu otomatik kontroller kullanıcı kabulünün yerine geçmez. Kullanıcının Windows
+ekran görüntüsünde açık zeminde kaybolan menü/araç yazıları, zayıf kontrol
+kontrastı ve model alanını daraltan panel yerleşimi görülüyor. Sıradaki işler:
+
+1. Windows açık/koyu tema ve ekran ölçeklerinde okunabilir menü/araç/sekme renkleri.
+2. Geometri, malzeme, sınır/yük, aşama ve sonuç adımlarının anlaşılır düzenlenmesi.
+3. Model alanı, aşama listesi ve çözüm günlüğünün dengeli, ayarlanabilir yerleşimi.
+4. Gerçek Windows ekranında görsel kontrol ve kullanıcı kullanılabilirlik kabulü.
+
+Bu kabul alınmadan Faz 5 kapatılmayacak veya yeni release yayımlanmayacak.
 
 Önceki Faz 3 ölçümleri `phase3-status.md`, `s4-comparison.md` ve `docs/data/s4/`
 altında tarihsel kanıt olarak korunur; yeni tümleşik dalın test sonucu inceleme

@@ -1,4 +1,13 @@
-# SlipSurfaceIQ-FEA 1.0.0 — Faz 5
+# Faz 5 — yayın geri çekildi, geliştirme sürüyor
+
+**22 Ekim 2026: Kullanıcı arayüzü kullanışlı bulmadı; v1.0.0 hazır kabul edilmiyor.**
+GitHub release listesi boş; v1.0.0 yayını kaldırılmış durumda. Otomatik paket
+yayını ve PyPI yükleme adımı durduruldu. Aşağıdaki sonuçlar tarihsel teknik test
+kanıtıdır; kullanıcı kabulü veya Faz 5 kapanışı anlamına gelmez.
+
+Öncelik: Windows tema/kontrast sorunları, görünmeyen araç yazıları, panel
+yerleşimi ve anlaşılır modelleme akışı. Kullanıcı kabulünden sonra yeni yayın
+ayrıca değerlendirilecek. [Açık işler](next-steps.md).
 
 Native PySide6 masaüstü: CAD/DXF → T6 ağ; malzeme/bölge, liner/bolt/ara yüz,
 mekanik sınır ve aşama su/yük/yer değiştirme düzenleyicileri; aşama zaman çizelgesi;
@@ -9,7 +18,7 @@ sorgu çizgileri ve yönü tanımlı liner N–V–M grafikleri; proje/CSV/VTU/H
 
 ![Liner moment grafiği](images/phase5-liner.png)
 
-## Kapı 5 kabulü
+## Otomatik GUI/API eşitlik testi — kullanıcı kabulü değil
 
 `test_phase5_acceptance.py` boş CAD formundan 16 kenarlı dairesel tünel yaklaşımı,
 çevre kaya bölgesi ve taç bolt çizgisini oluşturur. Gerilme başlangıcı → %40
@@ -61,9 +70,7 @@ maksimum yer değiştirme 0.02792259577890792 m. Paket içindeki NumPy kullanıl
 Yayın öncesi incelemede sdist'e derleme ortamının eklenmesi giderildi; kaynak paket
 beyaz listeyle sınırlandı. Her derleme dosya içeriğini ve 20 MB boyut sınırını denetler.
 
-PyPI iş akışı `publish.yml`, GitHub release yayımlandığında veya elle çalıştırıldığında
-OIDC Trusted Publishing kullanır. PyPI tarafında şu yayıncı tanımlanmış olmalıdır:
-`hdaltuntas / SlipSurfaceIQ-FEA / publish.yml / pypi`, proje `slipsurface-fe2d`.
-PyPI yayını, bu yayıncı tanımı ve yayın işinin başarısına bağlıdır; iş akışının
-hazır olması gerçek PyPI yayını anlamına gelmez. Nihai dağıtımlar ve yayın kanıtı
-[v1.0.0 sürüm sayfasında](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/releases/tag/v1.0.0) tutulur.
+PyPI denemesi `invalid-publisher` ile başarısız oldu; başarılı bir PyPI yayını yok.
+`publish.yml` artık yalnızca elle çağrılan paket kontrolüdür: PyPI yükleme işi,
+OIDC yetkisi ve release tetikleyicisi kaldırıldı. `portable.yml` geliştirme paketi
+ve smoke testi üretir; GitHub release oluşturmaz veya dosya yüklemez.
