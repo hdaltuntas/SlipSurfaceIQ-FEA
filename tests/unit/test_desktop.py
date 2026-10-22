@@ -12,6 +12,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QDockWidget
 
 from slipsurface.fe2d import api
 from slipsurface.fe2d.gui.app import MainWindow
@@ -111,3 +112,47 @@ def test_stage_editor_preserves_loads_and_water(application):
     assert dialog.updated.stages[0].water == model.stages[0].water
     assert model.stages[0].name == "Yükleme"
     dialog.close()
+
+
+def test_le_shell_layout_workflow_dock_and_statusbar(application):
+    """The LE modeler shell: workflow bar, left dock and CAD status bar."""
+    window = MainWindow()
+    assert window.workflow.steps == [
+        "Geometri",
+        "Malzemeler",
+        "Yapılar",
+        "Sınırlar",
+        "Aşamalar",
+    ]
+    assert window.status.toggles and set(window.status.toggles) == {"snap", "grid", "ortho"}
+    assert window.status.coords.text().startswith("x:")
+    docks = window.findChildren(QDockWidget)
+    assert any(d.objectName() == "project_dock" for d in docks)
+    assert window.fields.count() > 0 and window.deform.value() == 1.0
+    window.close()
+
+
+def test_cad_command_box_absolute_relative_polar(application):
+    from slipsurface.fe2d.gui.cad import CadDialog
+
+    dialog = CadDialog()
+    for text in ("0 0", "@4,0", "@3<90"):
+        dialog.cmd.setText(text)
+        dialog._command()
+    assert dialog.pending == [(0.0, 0.0), (4.0, 0.0), (4.0, 3.0)]
+    dialog.cmd.setText("")
+    dialog._command()
+    (entity,) = dialog.document.entities
+    assert entity.points == ((0.0, 0.0), (4.0, 0.0), (4.0, 3.0))
+    dialog.close()
+
+
+def test_parse_coordinate_entry_forms():
+    from slipsurface.fe2d.gui.tools import parse_coordinate
+
+    assert parse_coordinate("3,4", None) == (3.0, 4.0)
+    assert parse_coordinate("3 4", (9, 9)) == (3.0, 4.0)
+    assert parse_coordinate("@2,1", (1, 1)) == (3.0, 2.0)
+    assert parse_coordinate("@5<0", (1, 1)) == (6.0, 1.0)
+    assert parse_coordinate("abc", None) is None
+    assert parse_coordinate("@1,2", None) is None
