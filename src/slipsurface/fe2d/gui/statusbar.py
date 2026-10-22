@@ -57,10 +57,10 @@ class CadStatusBar(QStatusBar):
             snap.toggled.connect(lambda on: setattr(canvas, "snapping", on))
         if grid is not None:
             grid.blockSignals(True)
-            grid.setChecked(canvas.grid > 0)
+            grid.setChecked(canvas.grid_visible)
             grid.blockSignals(False)
             grid.toggled.connect(
-                lambda on: setattr(canvas, "grid", canvas.grid if on else 0.0)
+                canvas.set_grid_visible
             )
         if ortho is not None:
             ortho.blockSignals(True)

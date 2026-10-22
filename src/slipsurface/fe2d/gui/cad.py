@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -29,10 +29,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +49,7 @@ class CadCanvas(QGraphicsView):
     finish_requested = Signal()
     cancelled = Signal()
     cursor_changed = Signal(str)
+    entity_selected = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -54,6 +57,8 @@ class CadCanvas(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setBackgroundBrush(QColor("#f4f8fb"))
         self.setMouseTracking(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.entities = ()
         self.pending = []
@@ -61,15 +66,23 @@ class CadCanvas(QGraphicsView):
         self.grid = 0.5
         self.snapping = True
         self.ortho = False
+        self.grid_visible = True
+        self.edge_labels = False
+        self.preview = None
+        self._pan_position = None
+        self.rectangle = False
         self.setSceneRect(-4, -12, 28, 18)
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def set_drawing(self, enabled):
         self.drawing = enabled
-        self.setDragMode(
-            QGraphicsView.DragMode.NoDrag if enabled else QGraphicsView.DragMode.ScrollHandDrag
-        )
-        self.setCursor(Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.OpenHandCursor)
+        self.preview = None
+        self.setCursor(Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.ArrowCursor)
+        self.viewport().update()
+
+    def set_grid_visible(self, visible):
+        self.grid_visible = visible
+        self.viewport().update()
 
     def redraw(self, entities, pending=(), selected=None):
         self.entities, self.pending = entities, list(pending)
@@ -89,7 +102,7 @@ class CadCanvas(QGraphicsView):
             if e.kind != "line":
                 item.setBrush(brush)
             item.setZValue(-e.shape().area if e.kind != "line" else 1)
-            for name, (a, b) in zip(e.edge_names(), e.segments()):
+            for name, (a, b) in zip(e.edge_names(), e.segments()) if self.edge_labels else []:
                 mid = (np.asarray(a) + b) / 2
                 label = self.scene().addSimpleText(name)
                 label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
@@ -115,9 +128,10 @@ class CadCanvas(QGraphicsView):
     def drawBackground(self, painter, rect):
         super().drawBackground(painter, rect)
         step = self.grid
-        # A visual drafting grid; suppress dense grids rather than freezing the view.
-        if not self.snapping or step <= 0 or step * abs(self.transform().m11()) < 12:
+        if not self.grid_visible or step <= 0:
             return
+        while step * abs(self.transform().m11()) < 18:
+            step *= 2
         if rect.width() / step + rect.height() / step > 1500:
             return
         painter.setPen(QPen(QColor("#dfe9ee"), 0))
@@ -138,6 +152,11 @@ class CadCanvas(QGraphicsView):
             rect = QRectF(-2, -8, 16, 10)
         self.setSceneRect(rect)
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        self.setSceneRect(
+            rect.adjusted(
+                -rect.width() * 4, -rect.height() * 4, rect.width() * 4, rect.height() * 4
+            )
+        )
 
     def mapped_point(self, position):
         p = self.mapToScene(position)
@@ -166,27 +185,97 @@ class CadCanvas(QGraphicsView):
         from .tools import parse_coordinate
 
         last = tuple(self.pending[-1]) if self.pending else None
-        q = parse_coordinate(text, last)
-        if q is None:
+        try:
+            q = parse_coordinate(text, last)
+        except (ValueError, OverflowError):
+            return False
+        if q is None or not np.isfinite(q).all():
             return False
         self.point_added.emit(tuple(float(v) for v in q))
         return True
 
+    def drawForeground(self, painter, rect):
+        super().drawForeground(painter, rect)
+        painter.save()
+        painter.resetTransform()
+        origin = QPointF(30, self.viewport().height() - 28)
+        painter.setPen(QPen(QColor("#557287"), 1))
+        painter.drawLine(origin, origin + QPointF(38, 0))
+        painter.drawLine(origin, origin + QPointF(0, -38))
+        painter.drawText(origin + QPointF(42, 4), "X")
+        painter.drawText(origin + QPointF(-4, -44), "Y")
+        painter.drawText(QPointF(14, 22), "XY · metre")
+        painter.restore()
+        if self.drawing and self.preview is not None:
+            x, y = self.preview
+            pen = QPen(QColor("#b65f00"), 1, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            if self.pending:
+                a, b = self.pending[-1]
+                if self.rectangle:
+                    painter.drawRect(QRectF(QPointF(a, -b), QPointF(x, -y)).normalized())
+                else:
+                    painter.drawLine(QPointF(a, -b), QPointF(x, -y))
+            radius = 5 / max(abs(self.transform().m11()), 1e-12)
+            painter.drawRect(QRectF(x - radius, -y - radius, 2 * radius, 2 * radius))
+
     def mouseMoveEvent(self, event):
-        q, mode = self.mapped_point(event.position().toPoint())
+        position = event.position().toPoint()
+        if self._pan_position is not None:
+            delta = position - self._pan_position
+            self._pan_position = position
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+        q, mode = self.mapped_point(position)
+        self.preview = q
         self.cursor_changed.emit(f"x={q[0]:.4f} m   y={q[1]:.4f} m   · {mode}")
+        self.viewport().update()
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event):
-        if self.drawing and event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_position = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+        elif self.drawing and event.button() == Qt.MouseButton.LeftButton:
             q, _ = self.mapped_point(event.position().toPoint())
             self.point_added.emit(q)
             event.accept()
         elif self.drawing and event.button() == Qt.MouseButton.RightButton:
             self.finish_requested.emit()
             event.accept()
+        elif event.button() == Qt.MouseButton.LeftButton:
+            from shapely.geometry import Point
+
+            p = self.mapToScene(event.position().toPoint())
+            point = Point(p.x(), -p.y())
+            tolerance = 8 / max(abs(self.transform().m11()), 1e-12)
+            hits = []
+            for index, entity in enumerate(self.entities):
+                shape = entity.shape()
+                boundary = shape if entity.kind == "line" else shape.boundary
+                distance = boundary.distance(point)
+                if distance <= tolerance:
+                    hits.append((0, distance, index))
+                elif entity.kind != "line" and shape.covers(point):
+                    hits.append((1, shape.area, index))
+            self.entity_selected.emit(min(hits)[2] if hits else -1)
+            event.accept()
         else:
             super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_position = None
+            self.setCursor(
+                Qt.CursorShape.CrossCursor if self.drawing else Qt.CursorShape.ArrowCursor
+            )
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.drawing:
@@ -231,6 +320,10 @@ class MeshWorker(QThread):
 class CadDialog(QDialog):
     def __init__(self, model=None, parent=None):
         super().__init__(parent)
+        from .preferences import apply_theme
+
+        apply_theme()
+        self.rectangle_mode = False
         self.setWindowTitle("SlipSurfaceIQ · Geometri ve ağ")
         self.resize(1320, 880)
         self.document = Drawing.from_dict(model.geometry) if model and model.geometry else Drawing()
@@ -247,6 +340,7 @@ class CadDialog(QDialog):
             "aşamalı kazı için bölge çizin."
         )
         note.setWordWrap(True)
+        note.setStyleSheet("color:#526677; padding:4px;")
         root.addWidget(note)
         self.editor = QWidget()
         editor_layout = QVBoxLayout(self.editor)
@@ -270,7 +364,8 @@ class CadDialog(QDialog):
         form = QFormLayout(side)
         self.entities = QListWidget()
         self.entities.currentRowChanged.connect(self.select_entity)
-        form.addRow(self.entities)
+        self.entities.setMaximumHeight(150)
+        form.addRow("NESNELER", self.entities)
         self.name = QLineEdit("Bolge1")
         self.kind = QComboBox()
         for title, value in [
@@ -302,21 +397,47 @@ class CadDialog(QDialog):
         self.canvas.point_added.connect(self.add_point)
         self.canvas.finish_requested.connect(self.finish_drawing)
         self.canvas.cancelled.connect(self.cancel_drawing)
+        self.canvas.entity_selected.connect(self.select_from_canvas)
+        side.setMaximumWidth(350)
+        side.setMinimumWidth(260)
         split.addWidget(side)
         split.addWidget(self.canvas)
         split.setSizes([310, 950])
+        drawing_tools = QHBoxLayout()
+        for title, callback in [
+            ("Seç · Esc", self.cancel_drawing),
+            ("Çokgen", lambda: self.start_tool("region")),
+            ("Dikdörtgen", lambda: self.start_tool("region", rectangle=True)),
+            ("Boşluk", lambda: self.start_tool("hole")),
+            ("Çoklu çizgi", lambda: self.start_tool("line")),
+            ("Tümünü sığdır", self.canvas.fit_drawing),
+        ]:
+            button = QPushButton(title)
+            button.clicked.connect(callback)
+            drawing_tools.addWidget(button)
+        editor_layout.addLayout(drawing_tools)
         editor_layout.addWidget(split, 1)
         settings = QHBoxLayout()
-        self.ortho = QCheckBox("ORTHO (yatay/düşey)")
+        self.ortho = QCheckBox("Dik çizim · F8")
         self.ortho.toggled.connect(lambda v: setattr(self.canvas, "ortho", v))
         settings.addWidget(self.ortho)
-        self.snap = QCheckBox("Nokta/orta nokta yakala")
+        self.snap = QCheckBox("Yakalama · F9")
         self.snap.setChecked(True)
         self.snap.toggled.connect(lambda v: setattr(self.canvas, "snapping", v))
         settings.addWidget(self.snap)
+        self.grid_toggle = QCheckBox("Izgara · F7")
+        self.grid_toggle.setChecked(True)
+        self.grid_toggle.toggled.connect(self.canvas.set_grid_visible)
+        settings.addWidget(self.grid_toggle)
+        self.labels_toggle = QCheckBox("Kenar adları")
+        self.labels_toggle.toggled.connect(self.toggle_labels)
+        settings.addWidget(self.labels_toggle)
+        for key, widget in [("F7", self.grid_toggle), ("F8", self.ortho), ("F9", self.snap)]:
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.activated.connect(widget.toggle)
         self.values = {}
         for key, title, value, lo, hi in [
-            ("grid", "Izgara (0=kapalı)", 0.5, 0, 10000),
+            ("grid", "Adım (m)", 0.5, 0, 10000),
             ("h", "Hedef h (m)", self.document.h, 0.001, 10000),
             ("E", "E (kPa)", self.document.E, 1, 1e10),
             ("nu", "ν", self.document.nu, 0, 0.4999),
@@ -325,13 +446,15 @@ class CadDialog(QDialog):
             w.setDecimals(4)
             w.setRange(lo, hi)
             w.setValue(value)
-            settings.addWidget(QLabel(title))
-            settings.addWidget(w)
+            if key == "grid":
+                settings.addWidget(QLabel(title))
+                settings.addWidget(w)
+            else:
+                form.addRow(title, w)
             self.values[key] = w
-        self.values["grid"].valueChanged.connect(lambda v: setattr(self.canvas, "grid", v))
-        fit = QPushButton("Sığdır")
-        fit.clicked.connect(self.canvas.fit_drawing)
-        settings.addWidget(fit)
+        self.values["grid"].valueChanged.connect(self.set_grid_spacing)
+        settings.addStretch()
+        self.values["grid"].setMaximumWidth(110)
         editor_layout.addLayout(settings)
         entry = QHBoxLayout()
         entry.addWidget(QLabel("Koordinat:"))
@@ -344,20 +467,36 @@ class CadDialog(QDialog):
         self.cmd.returnPressed.connect(self._command)
         entry.addWidget(self.cmd, 1)
         editor_layout.addLayout(entry)
-        editor_layout.addWidget(
-            QLabel(
-                "Kenar koşulları · ux/uy = sabit · Basınç pozitif içeri (kPa). "
-                "Çizgiler kendiliğinden liner/bolt olmaz."
-            )
+        boundary_page = QWidget()
+        boundary_layout = QVBoxLayout(boundary_page)
+        boundary_hint = QLabel(
+            "ux/uy = sabit · Basınç pozitif içeri (kPa). "
+            "Çizgiler kendiliğinden liner/bolt olmaz."
         )
+        boundary_hint.setWordWrap(True)
+        boundary_layout.addWidget(boundary_hint)
         self.conditions = QTableWidget(0, 4)
         self.conditions.setHorizontalHeaderLabels(["Kenar", "ux sabit", "uy sabit", "Basınç"])
         self.conditions.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.conditions.setMaximumHeight(175)
-        editor_layout.addWidget(self.conditions)
+        boundary_layout.addWidget(self.conditions)
+        inspector = QTabWidget()
+        inspector.setMinimumWidth(300)
+        inspector.setMaximumWidth(390)
+        properties_scroll = QScrollArea()
+        properties_scroll.setWidgetResizable(True)
+        properties_scroll.setWidget(side)
+        inspector.addTab(properties_scroll, "Nesne özellikleri")
+        inspector.addTab(boundary_page, "Kenar koşulları")
+        split.insertWidget(0, inspector)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        split.setSizes([330, 950])
         root.addWidget(self.editor, 1)
-        self.status = QLabel("Sol tık: nokta · Enter/sağ tık: bitir · Esc: çizimi iptal")
+        self.status = QLabel(
+            "Hazır · Sol tık: nesne seç · Orta tuş: kaydır · Tekerlek: yakınlaştır"
+        )
         self.status.setWordWrap(True)
+        self.status.setMinimumHeight(30)
         self.canvas.cursor_changed.connect(self.cursor_status)
         root.addWidget(self.status)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
@@ -365,6 +504,7 @@ class CadDialog(QDialog):
             "Ağ üret ve yeni modele uygula", QDialogButtonBox.ButtonRole.ActionRole
         )
         self.build_button.clicked.connect(self.start_mesh)
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("İptal")
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
         self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
@@ -372,6 +512,30 @@ class CadDialog(QDialog):
         self.redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
         self.redo_shortcut.activated.connect(self.redo)
         self.refresh(fit=True)
+        QTimer.singleShot(0, self.canvas.fit_drawing)
+
+    def toggle_labels(self, enabled):
+        self.canvas.edge_labels = enabled
+        index = self.entities.currentRow()
+        selected = self.document.entities[index].name if index >= 0 else None
+        self.canvas.redraw(self.document.entities, self.pending, selected)
+
+    def set_grid_spacing(self, value):
+        self.canvas.grid = value
+        self.canvas.viewport().update()
+
+    def start_tool(self, kind, rectangle=False):
+        self.kind.setCurrentIndex(self.kind.findData(kind))
+        prefix = {"region": "Bolge", "hole": "Bosluk", "line": "Cizgi"}[kind]
+        names = {entity.name for entity in self.document.entities}
+        number = 1
+        while f"{prefix}{number}" in names:
+            number += 1
+        self.name.setText(f"{prefix}{number}")
+        self.begin_drawing()
+        self.rectangle_mode = self.canvas.rectangle = rectangle
+        if rectangle:
+            self.status.setText("Dikdörtgen: karşılıklı iki köşeyi seçin. Esc: iptal.")
 
     def _command(self):
         text = self.cmd.text().strip()
@@ -380,7 +544,7 @@ class CadDialog(QDialog):
                 self.finish_drawing()
             self.cmd.clear()
             return
-        if not self.pending:
+        if not self.canvas.drawing:
             self.begin_drawing()
         if self.canvas.command(text):
             self.cmd.clear()
@@ -388,8 +552,12 @@ class CadDialog(QDialog):
             self.status.setText("Anlaşılmadı: x,y | @dx,dy | @L<açı")
 
     def cursor_status(self, text):
-        if self.pending:
-            self.status.setText(text + f" · {len(self.pending)} nokta · Enter: bitir")
+        hint = (
+            f" · {len(self.pending)} nokta · Enter: bitir"
+            if self.canvas.drawing
+            else " · Sol tık: seç · Orta tuş: kaydır · Tekerlek: yakınlaştır"
+        )
+        self.status.setText(text + hint)
 
     def current_drawing(self):
         rules = []
@@ -482,8 +650,15 @@ class CadDialog(QDialog):
         self.cancel_drawing()
         self.refresh()
 
+    def select_from_canvas(self, index):
+        if self.entities.currentRow() == index:
+            self.select_entity(index)
+        else:
+            self.entities.setCurrentRow(index)
+
     def select_entity(self, index):
         if not 0 <= index < len(self.document.entities):
+            self.canvas.redraw(self.document.entities, self.pending)
             return
         e = self.document.entities[index]
         self.name.setText(e.name)
@@ -493,14 +668,30 @@ class CadDialog(QDialog):
         self.canvas.redraw(self.document.entities, self.pending, e.name)
 
     def begin_drawing(self):
+        self.rectangle_mode = self.canvas.rectangle = False
         self.pending = []
+        self.canvas.redraw(self.document.entities)
         self.canvas.set_drawing(True)
         self.canvas.setFocus()
         self.status.setText("Sol tıkla noktaları girin; Enter/sağ tıkla bitirin. Esc: iptal.")
 
     def add_point(self, point):
         point = tuple(point)
-        if self.pending and point == self.pending[0] and len(self.pending) >= 3:
+        if self.rectangle_mode and len(self.pending) == 1:
+            x, y = self.pending[0]
+            u, v = point
+            if x == u or y == v:
+                self.status.setText("Dikdörtgenin genişliği ve yüksekliği sıfırdan büyük olmalı.")
+                return
+            self.pending = [(x, y), (u, y), (u, v), (x, v)]
+            self.finish_drawing()
+            return
+        if (
+            self.kind.currentData() != "line"
+            and self.pending
+            and point == self.pending[0]
+            and len(self.pending) >= 3
+        ):
             self.finish_drawing()
             return
         if not self.pending or point != self.pending[-1]:
@@ -508,6 +699,7 @@ class CadDialog(QDialog):
         self.canvas.redraw(self.document.entities, self.pending)
 
     def cancel_drawing(self):
+        self.rectangle_mode = self.canvas.rectangle = False
         self.pending = []
         self.canvas.set_drawing(False)
         self.canvas.redraw(self.document.entities)
