@@ -10,6 +10,7 @@ status bar     hints, coordinates, SNAP / GRID / ORTHO toggles
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api
+from ..core.errors import ModelError
 from ..io.report import export_beam_csv, export_csv, export_html
 from .boundary_editor import BoundaryDialog
 from .canvas import ConvergencePlot, MeshCanvas
@@ -49,6 +51,18 @@ from .worker import SolveWorker
 from .workflow import WorkflowBar
 
 STEPS = ["Geometri", "Malzemeler", "Yapılar", "Sınırlar", "Aşamalar"]
+
+
+class ModelFileError(ModelError):
+    """A project/model file is not valid JSON — report the file, not just the parse."""
+
+    def __init__(self, name: str, exc: json.JSONDecodeError) -> None:
+        where = f"satır {exc.lineno}, kolon {exc.colno}"
+        super().__init__(
+            f"'{name}' JSON olarak okunamadı ({where}). "
+            f"Dosya bir SlipSurfaceIQ-FEA modeli (.ssproj / model JSON) değil "
+            "veya bozuk. Detay: " + str(exc)
+        )
 
 
 class MainWindow(QMainWindow):
@@ -354,11 +368,14 @@ class MainWindow(QMainWindow):
     def open_path(self, path):
         if self.busy:
             raise RuntimeError("Çözüm sürerken proje değiştirilemez.")
-        if Path(path).suffix.lower() == ".ssproj":
-            project = api.load_project(path)
-            self.set_model(project.model, project.results, path)
-        else:
-            self.set_model(api.load_model(path), path=path)
+        try:
+            if Path(path).suffix.lower() == ".ssproj":
+                project = api.load_project(path)
+                self.set_model(project.model, project.results, path)
+            else:
+                self.set_model(api.load_model(path), path=path)
+        except json.JSONDecodeError as exc:
+            raise ModelFileError(Path(path).name, exc) from exc
 
     def save_path(self, path):
         if self.busy:
