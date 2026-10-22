@@ -20,6 +20,7 @@ _ORDERS = {
 
 class MeshCanvas(QGraphicsView):
     queried = Signal(str)
+    mouse_world = Signal(float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -200,6 +201,11 @@ class MeshCanvas(QGraphicsView):
             margin = 0.05 * max(box.width(), box.height())
             self.setSceneRect(box.adjusted(-margin, -margin, margin, margin))
             self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def mouseMoveEvent(self, event):
+        p = self.mapToScene(event.position().toPoint())
+        self.mouse_world.emit(float(p.x()), float(-p.y()))
+        super().mouseMoveEvent(event)
 
     def wheelEvent(self, event):
         self.scale(

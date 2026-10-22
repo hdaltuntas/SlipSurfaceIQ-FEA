@@ -60,6 +60,7 @@ class CadCanvas(QGraphicsView):
         self.drawing = False
         self.grid = 0.5
         self.snapping = True
+        self.ortho = False
         self.setSceneRect(-4, -12, 28, 18)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
 
@@ -151,7 +152,25 @@ class CadCanvas(QGraphicsView):
                     q, mode = self.pending[int(d.argmin())], "Çizim noktası"
         else:
             mode = "Serbest"
+        if self.ortho and self.pending:
+            last = np.asarray(self.pending[-1])
+            d = np.asarray(q) - last
+            q = (last[0] + d[0], last[1]) if abs(d[0]) >= abs(d[1]) else (last[0], last[1] + d[1])
+            mode = "ORTHO"
         return q, mode
+
+    def command(self, text: str):
+        """Coordinate entry from the command box; only while drawing."""
+        if not self.drawing or not text.strip():
+            return False
+        from .tools import parse_coordinate
+
+        last = tuple(self.pending[-1]) if self.pending else None
+        q = parse_coordinate(text, last)
+        if q is None:
+            return False
+        self.point_added.emit(tuple(float(v) for v in q))
+        return True
 
     def mouseMoveEvent(self, event):
         q, mode = self.mapped_point(event.position().toPoint())
@@ -288,6 +307,9 @@ class CadDialog(QDialog):
         split.setSizes([310, 950])
         editor_layout.addWidget(split, 1)
         settings = QHBoxLayout()
+        self.ortho = QCheckBox("ORTHO (yatay/düşey)")
+        self.ortho.toggled.connect(lambda v: setattr(self.canvas, "ortho", v))
+        settings.addWidget(self.ortho)
         self.snap = QCheckBox("Nokta/orta nokta yakala")
         self.snap.setChecked(True)
         self.snap.toggled.connect(lambda v: setattr(self.canvas, "snapping", v))
@@ -311,6 +333,17 @@ class CadDialog(QDialog):
         fit.clicked.connect(self.canvas.fit_drawing)
         settings.addWidget(fit)
         editor_layout.addLayout(settings)
+        entry = QHBoxLayout()
+        entry.addWidget(QLabel("Koordinat:"))
+        self.cmd = QLineEdit()
+        self.cmd.setPlaceholderText("x,y  |  @dx,dy  |  @L<açı  ·  Enter = bitir")
+        self.cmd.setToolTip(
+            "Çizim sırasında klavyeden koordinat: mutlak x,y, göreli @dx,dy, "
+            "kutupsal @uzunluk<açı. Boş Enter = bitir."
+        )
+        self.cmd.returnPressed.connect(self._command)
+        entry.addWidget(self.cmd, 1)
+        editor_layout.addLayout(entry)
         editor_layout.addWidget(
             QLabel(
                 "Kenar koşulları · ux/uy = sabit · Basınç pozitif içeri (kPa). "
@@ -339,6 +372,20 @@ class CadDialog(QDialog):
         self.redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
         self.redo_shortcut.activated.connect(self.redo)
         self.refresh(fit=True)
+
+    def _command(self):
+        text = self.cmd.text().strip()
+        if not text:
+            if self.pending:
+                self.finish_drawing()
+            self.cmd.clear()
+            return
+        if not self.pending:
+            self.begin_drawing()
+        if self.canvas.command(text):
+            self.cmd.clear()
+        else:
+            self.status.setText("Anlaşılmadı: x,y | @dx,dy | @L<açı")
 
     def cursor_status(self, text):
         if self.pending:

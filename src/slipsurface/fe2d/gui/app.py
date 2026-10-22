@@ -1,4 +1,11 @@
-"""SlipSurfaceIQ native desktop entry point (Faz 5.1). No web runtime."""
+"""SlipSurfaceIQ-FEA desktop shell, adapted from the SlipSurfaceIQ-LE modeler.
+
+menu bar
+workflow bar   Geometri › Malzemeler › Yapılar › Sınırlar › Aşamalar
+left dock      Belge Görüntüleyici (aşamalar, model özeti) + Görüntüleme Seçenekleri
+centre         result canvas + field selectors + convergence tabs
+status bar     hints, coordinates, SNAP / GRID / ORTHO toggles
+"""
 
 from __future__ import annotations
 
@@ -6,13 +13,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
+    QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
@@ -22,6 +30,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
+    QPushButton,
     QSplitter,
     QTabWidget,
     QToolBar,
@@ -34,21 +43,12 @@ from ..io.report import export_beam_csv, export_csv, export_html
 from .boundary_editor import BoundaryDialog
 from .canvas import ConvergencePlot, MeshCanvas
 from .dialogs import MaterialDialog, NewModelDialog, StageDialog, sample_model
+from .icons import icon
 from .structure_editor import StructureDialog
 from .worker import SolveWorker
+from .workflow import WorkflowBar
 
-_STYLE = """
-QMainWindow,QDialog {background:#eef3f7;color:#213547}
-QToolBar {background:#fff;border-bottom:1px solid #d4e0e9;padding:7px;spacing:10px}
-QToolButton {padding:6px 10px;border-radius:4px}
-QToolButton:hover {background:#dceef4}
-QListWidget,QPlainTextEdit {background:#fff;border:1px solid #d7e1e9;padding:6px}
-QListWidget::item {padding:10px}
-QListWidget::item:selected {background:#d8edf4;color:#07566f}
-QProgressBar {border:1px solid #d2dfe6;border-radius:3px;text-align:center;background:white}
-QProgressBar::chunk {background:#1689a7}
-QComboBox,QDoubleSpinBox,QLineEdit {padding:5px;background:white;color:#213547}
-"""
+STEPS = ["Geometri", "Malzemeler", "Yapılar", "Sınırlar", "Aşamalar"]
 
 
 class MainWindow(QMainWindow):
@@ -56,75 +56,35 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("SlipSurfaceIQ-FEA · Masaüstü")
         self.resize(1280, 840)
+        self.setIconSize(QSize(24, 24))
         self.model = self.result = None
         self.path = None
         self.worker = None
         self.dirty = False
         self._closing = False
-        self.setStyleSheet(_STYLE)
+        self._build_dock()
         self._actions()
         root = QWidget()
         layout = QVBoxLayout(root)
-        title = QLabel("SlipSurfaceIQ  /  SONLU ELEMANLAR")
-        title.setStyleSheet("font-size:22px;font-weight:600;padding:12px;color:#124d65")
-        layout.addWidget(title)
+        self.workflow = WorkflowBar(STEPS)
+        self.workflow.step_changed.connect(self._activate_step)
+        layout.addWidget(self.workflow)
         split = QSplitter()
-        sidebar = QWidget()
-        left = QVBoxLayout(sidebar)
-        left.addWidget(QLabel("ANALİZ AŞAMALARI"))
-        self.stages = QListWidget()
-        self.stages.currentRowChanged.connect(self.draw)
-        left.addWidget(self.stages)
-        self.summary = QLabel()
-        self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("padding:12px;line-height:1.4;color:#526677")
-        left.addWidget(self.summary)
-        split.addWidget(sidebar)
         view = QWidget()
         right = QVBoxLayout(view)
-        selectors = QHBoxLayout()
-        self.fields = QComboBox()
-        self.fields.addItems(
-            [
-                "|u|",
-                "ux",
-                "uy",
-                "sxx",
-                "syy",
-                "szz",
-                "txy",
-                "s1",
-                "s3",
-                "q",
-                "plastic",
-                "pore",
-                "excess_pore",
-            ]
-        )
-        self.fields.currentTextChanged.connect(self.draw)
-        self.deform = QDoubleSpinBox()
-        self.deform.setRange(0, 1e6)
-        self.deform.setValue(1.0)
-        self.deform.valueChanged.connect(self.draw)
-        selectors.addWidget(QLabel("Alan"))
-        selectors.addWidget(self.fields)
-        selectors.addWidget(QLabel("Deformasyon ×"))
-        selectors.addWidget(self.deform)
-        self.principal = QCheckBox("Asal oklar")
-        self.plastic_points = QCheckBox("Plastik noktalar")
-        for checkbox in [self.principal, self.plastic_points]:
-            checkbox.toggled.connect(self.draw)
-            selectors.addWidget(checkbox)
-        selectors.addStretch()
-        right.addLayout(selectors)
+        from .statusbar import CadStatusBar
+
+        self.status = CadStatusBar(self)
+        self.setStatusBar(self.status)
         self.canvas = MeshCanvas()
-        self.canvas.queried.connect(self.statusBar().showMessage)
+        self.canvas.queried.connect(self.status.showMessage)
+        self.canvas.mouse_world.connect(self.status.show_coords)
         right.addWidget(self.canvas, 1)
         self.legend = QLabel("")
         self.legend.setStyleSheet("padding:8px;color:#526677")
         right.addWidget(self.legend)
         split.addWidget(view)
-        split.setSizes([250, 1000])
+        split.setSizes([1000, 1000])
         layout.addWidget(split, 1)
         tabs = QTabWidget()
         self.plot = ConvergencePlot()
@@ -138,8 +98,84 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 100)
         layout.addWidget(self.progress)
         self.setCentralWidget(root)
-        self.statusBar().showMessage("Hazır · Birimler kN, m, kPa · Gerilmede çekme pozitif")
+        self.status.showMessage("Hazır · Birimler kN, m, kPa · Gerilmede çekme pozitif")
         self.set_model(sample_model())
+
+    def _build_dock(self):
+        """Left dock: Belge Görüntüleyici (aşama listesi + özet) ve Görüntüleme
+        Seçenekleri (alan, deformasyon ölçeği, kaplamalar) — LE modeler layout."""
+        self.stages = QListWidget()
+        self.stages.currentRowChanged.connect(self.draw)
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        self.summary.setStyleSheet("padding:12px;line-height:1.4;color:#526677")
+        self.fields = QComboBox()
+        self.fields.addItems(
+            [
+                "|u|", "ux", "uy", "sxx", "syy", "szz", "txy",
+                "s1", "s3", "q", "plastic", "pore", "excess_pore",
+            ]
+        )
+        self.fields.currentTextChanged.connect(self.draw)
+        self.deform = QDoubleSpinBox()
+        self.deform.setRange(0, 1e6)
+        self.deform.setValue(1.0)
+        self.deform.valueChanged.connect(self.draw)
+        self.principal = QCheckBox("Asal oklar")
+        self.plastic_points = QCheckBox("Plastik noktalar")
+        for checkbox in [self.principal, self.plastic_points]:
+            checkbox.toggled.connect(self.draw)
+        reset = QPushButton("Varsayılanlara dön")
+        reset.clicked.connect(self._reset_display)
+        dock_split = QSplitter(Qt.Orientation.Vertical)
+        left = QVBoxLayout()
+        left.addWidget(QLabel("BELGE GÖRÜNTÜLEYİCİ"))
+        left.addWidget(self.stages, 1)
+        left.addWidget(self.summary)
+        viewer = QWidget()
+        viewer.setLayout(left)
+        right = QVBoxLayout()
+        right.addWidget(QLabel("GÖRÜNTÜLEME SEÇENEKLERİ"))
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Alan"))
+        row.addWidget(self.fields, 1)
+        right.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Deformasyon ×"))
+        row.addWidget(self.deform)
+        right.addLayout(row)
+        right.addWidget(self.principal)
+        right.addWidget(self.plastic_points)
+        right.addStretch(1)
+        right.addWidget(reset)
+        options = QWidget()
+        options.setLayout(right)
+        dock_split.addWidget(viewer)
+        dock_split.addWidget(options)
+        dock_split.setSizes([420, 380])
+        dock = QDockWidget("Proje", self)
+        dock.setObjectName("project_dock")
+        dock.setWidget(dock_split)
+        dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
+        self.resizeDocks([dock], [290], Qt.Orientation.Horizontal)
+
+    def _reset_display(self):
+        self.deform.setValue(1.0)
+        self.principal.setChecked(False)
+        self.plastic_points.setChecked(False)
+        self.fields.setCurrentText("|u|")
+        self.draw()
+
+    def _activate_step(self, i):
+        slot = (
+            self.edit_geometry,
+            self.edit_materials,
+            self.edit_structures,
+            self.edit_boundaries,
+            self.edit_stages,
+        )[i]
+        slot()
 
     def _actions(self):
         toolbar = QToolBar("Çalışma alanı")
@@ -148,8 +184,8 @@ class MainWindow(QMainWindow):
         self.edit_actions = []
         self.export_actions = []
 
-        def action(title, slot, shortcut=None):
-            a = QAction(title, self)
+        def action(title, slot, shortcut=None, ic=None):
+            a = QAction(icon(ic), title, self) if ic else QAction(title, self)
             a.triggered.connect(slot)
             if shortcut:
                 a.setShortcut(shortcut)
@@ -182,7 +218,9 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(False)
         toolbar.addAction(self.run_action)
         toolbar.addAction(self.stop_action)
-        toolbar.addAction(action("Görünüme sığdır", lambda: self.canvas.fit_model()))
+        toolbar.addAction(
+            action("Görünüme sığdır", lambda: self.canvas.fit_model(), None, "zoom_all")
+        )
         examples_menu = self.menuBar().addMenu("Örnekler")
         demo_action = action("Dört aşamalı tünel", self.open_tunnel_example)
         examples_menu.addAction(demo_action)
@@ -202,7 +240,7 @@ class MainWindow(QMainWindow):
             ("Kiriş N–V–M CSV", "beam"),
             ("HTML rapor", "html"),
         ]:
-            a = action(title, lambda checked=False, k=kind: self.export_dialog(k))
+            a = action(title, lambda checked=False, k=kind: self.export_dialog(k), None, "export")
             export_menu.addAction(a)
             self.export_actions.append(a)
 
@@ -507,6 +545,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("SlipSurfaceIQ-FEA")
+    from .preferences import apply_theme
+
+    apply_theme()
     if args.smoke_test:
         from .smoke import smoke_check
 
