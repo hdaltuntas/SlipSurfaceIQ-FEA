@@ -93,6 +93,7 @@ def test_failure_restores_controls_without_result(application, monkeypatch):
 
     monkeypatch.setattr(worker.api, "run", fail)
     window = MainWindow()
+    window.set_model(sample_model(nx=1, ny=1))
     window.start_solve()
     finish(window, application)
     assert window.result is None
@@ -156,3 +157,35 @@ def test_parse_coordinate_entry_forms():
     assert parse_coordinate("@5<0", (1, 1)) == (6.0, 1.0)
     assert parse_coordinate("abc", None) is None
     assert parse_coordinate("@1,2", None) is None
+
+
+def test_invalid_json_project_reports_file_name(application, tmp_path):
+    """A non-JSON file opened as a model reports the file, not a bare parse error."""
+    import pytest
+
+    from slipsurface.fe2d.gui.app import ModelFileError
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("0 0\n8 0\n", encoding="utf-8")
+    window = MainWindow()
+    with pytest.raises(ModelFileError) as info:
+        window.open_path(bad)
+    assert "bad.json" in str(info.value)
+    assert "JSON" in str(info.value)
+    window.close()
+
+
+def test_startup_is_empty_project_and_actions_need_a_model(application):
+    """The window opens with an empty project, not a bundled example."""
+    window = MainWindow()
+    assert window.model is None
+    assert window.result is None
+    assert window.stages.count() == 0
+    assert "Boş proje" in window.windowTitle()
+    window.start_solve()  # guarded: no solve, no crash, no worker
+    assert window.busy is False
+    window.edit_materials()  # guarded, stays empty
+    assert window.model is None
+    window.set_model(sample_model(nx=2, ny=2))
+    assert window.model is not None and window.stages.count() > 0
+    window.close()
