@@ -18,6 +18,16 @@ def validate_edit(model):
     names = [s.name.strip() for s in model.stages]
     if any(not name for name in names) or len(set(names)) != len(names):
         raise ValueError("Aşama adları boş olamaz ve benzersiz olmalıdır.")
+    if model.geometry and model.geometry.get("supports"):
+        # Keep CAD-linked definitions in step with advanced mesh property edits/deletions.
+        assignments = []
+        for assignment in model.geometry["supports"]:
+            tag = f"cad_{assignment['entity']}"
+            spec = model.liners.get(tag) or model.bolts.get(tag)
+            if spec is not None:
+                properties = {key: getattr(spec, key) for key in assignment["properties"]}
+                assignments.append({**assignment, "properties": properties})
+        model = replace(model, geometry={**model.geometry, "supports": assignments})
     return model
 
 

@@ -13,6 +13,7 @@ düzeltilip kullanıcı tarafından kabul edilmeden yeni release yayımlanmayaca
 
 [İnceleme ve test kaydı](docs/phase4-review.md) ·
 [Masaüstü arayüzü / çalıştırma](docs/phase5-desktop.md) ·
+[Ana pencerede CAD, kazık, tünel ve destekler](docs/integrated-modeler.md) ·
 [CAD, DXF, mesnet/yük ve çizimden ağ](docs/phase5-cad.md) ·
 [Malzeme, yapı, yük/su ve aşama kurucuları](docs/phase5-model-editors.md) ·
 [Faz 5 sürüm ve doğrulama kaydı](docs/phase5-release.md).

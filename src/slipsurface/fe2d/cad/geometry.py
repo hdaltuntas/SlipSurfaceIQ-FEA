@@ -17,6 +17,7 @@ from shapely.validation import explain_validity
 
 from .. import api
 from ..mesh import Domain, unstructured_mesh
+from .supports import SupportAssignment, compile_supports
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,7 @@ class Drawing:
     h: float = 1.0
     E: float = 20000.0
     nu: float = 0.3
+    supports: tuple[SupportAssignment, ...] = ()
 
     def __post_init__(self):
         if not np.isfinite([self.h, self.E, self.nu]).all():
@@ -94,11 +96,11 @@ class Drawing:
             raise ValueError("h ve E pozitif, 0 ≤ ν < 0.5 olmalıdır.")
 
     def to_dict(self):
-        return {"version": 1, **asdict(self)}
+        return {"version": 2, **asdict(self)}
 
     @classmethod
     def from_dict(cls, data):
-        if data.get("version") != 1:
+        if data.get("version") not in (1, 2):
             raise ValueError("Desteklenmeyen CAD dosya sürümü.")
         return cls(
             tuple(Entity(**e) for e in data["entities"]),
@@ -106,6 +108,7 @@ class Drawing:
             float(data["h"]),
             float(data["E"]),
             float(data["nu"]),
+            tuple(SupportAssignment(**s) for s in data.get("supports", [])),
         )
 
     @classmethod
@@ -124,6 +127,14 @@ class Drawing:
         names = [e.name for e in self.entities]
         if len(set(names)) != len(names):
             raise ValueError("Geometri adları benzersiz olmalıdır.")
+        assigned = set()
+        by_name = {e.name: e for e in self.entities}
+        for support in self.supports:
+            if support.entity not in by_name or support.entity in assigned:
+                raise ValueError("Destek geometriye bağlı olmalı ve aynı nesneye bir kez atanmalı.")
+            if support.kind in {"pile", "bolt"} and by_name[support.entity].kind != "line":
+                raise ValueError("Kazık ve ankraj/çivi için çizgi geometrisi gereklidir.")
+            assigned.add(support.entity)
         regions = [e for e in self.entities if e.kind == "region"]
         holes = [e for e in self.entities if e.kind == "hole"]
         if not regions:
@@ -212,6 +223,7 @@ class Drawing:
             stages=[api.Stage("CAD yükleme", loads=tuple(loads))],
             geometry=self.to_dict(),
         )
+        model = compile_supports(model, self)
         model.validate()
         return model
 

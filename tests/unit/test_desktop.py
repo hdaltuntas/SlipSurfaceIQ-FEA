@@ -125,7 +125,12 @@ def test_le_shell_layout_workflow_dock_and_statusbar(application):
         "Sınırlar",
         "Aşamalar",
     ]
-    assert window.status.toggles and set(window.status.toggles) == {"snap", "grid", "ortho"}
+    assert window.status.toggles and set(window.status.toggles) == {
+        "snap",
+        "grid",
+        "ortho",
+        "osnap",
+    }
     assert window.status.coords.text().startswith("x:")
     docks = window.findChildren(QDockWidget)
     assert any(d.objectName() == "project_dock" for d in docks)

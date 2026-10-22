@@ -1,5 +1,8 @@
 # Faz 5.2 — native CAD ve çizimden ağ
 
+> Güncel ana pencere düzeni: [Bütünleşik modelleyici](integrated-modeler.md).
+> Bu sayfadaki ayrı CAD penceresi görüntüleri önceki sürüme aittir.
+
 PR #3, `de1f12a` ile `main` dalına birleştirildi. Bu teslim onun üzerine kuruludur.
 **Kapı 5/v1.0 tamamlanmış değildir.**
 
