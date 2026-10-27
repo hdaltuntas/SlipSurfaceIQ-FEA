@@ -111,7 +111,7 @@ class Mesh:
     def validate(self) -> None:
         nn = self.nn
         for b in self.blocks:
-            if b.ne and (b.conn.min() < 0 or b.conn.max() >= nn):
+            if b.ne and (int(np.min(b.conn)) < 0 or int(np.max(b.conn)) >= nn):
                 raise MeshError(f"block '{b.tag}': node index out of range [0, {nn})")
             if b.etype in (ElemType.T3, ElemType.T6) and b.ne:
                 x = self.coords[b.conn[:, :3]]
@@ -137,8 +137,8 @@ class Mesh:
                         f"(clockwise or degenerate), first index {int(bad[0])}"
                     )
         for name, ids in self.node_sets.items():
-            if ids.size and (ids.min() < 0 or ids.max() >= nn):
+            if ids.size and (int(np.min(ids)) < 0 or int(np.max(ids)) >= nn):
                 raise MeshError(f"node set '{name}' has out-of-range ids")
         for name, e in self.edge_sets.items():
-            if e.size and (e.min() < 0 or e.max() >= nn):
+            if e.size and (int(np.min(e)) < 0 or int(np.max(e)) >= nn):
                 raise MeshError(f"edge set '{name}' has out-of-range ids")

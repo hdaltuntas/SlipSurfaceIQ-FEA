@@ -7,6 +7,7 @@ from dataclasses import replace
 import numpy as np
 
 from .. import api
+from ..cad.transfer import forget_mesh_edit, record_mesh_edit
 from ..fem.materials import build
 from ..mesh.structures import add_bar, add_bars_along, add_beams
 
@@ -79,9 +80,11 @@ def put_structure(model, spec, *, edge_set=None, nodes=None):
             raise ValueError("Liner/kiriş yalnız düzlem şekil değiştirmede kullanılabilir.")
         mesh = add_beams(model.mesh, edge_set, spec.name)
         result = replace(model, mesh=mesh, liners={**model.liners, spec.name: spec})
+        edit = {"kind": "liner", "tag": spec.name, "edge_set": edge_set}
     else:
         if nodes is None:
             mesh = add_bars_along(model.mesh, edge_set, spec.name)
+            edit = {"kind": "bolt", "tag": spec.name, "edge_set": edge_set}
         else:
             a, b = map(int, nodes)
             if not (0 <= a < model.mesh.nn and 0 <= b < model.mesh.nn):
@@ -89,6 +92,8 @@ def put_structure(model, spec, *, edge_set=None, nodes=None):
             if np.linalg.norm(model.mesh.coords[a] - model.mesh.coords[b]) <= 1e-12:
                 raise ValueError("Bolt uçları farklı konumlarda olmalıdır.")
             mesh = add_bar(model.mesh, a, b, spec.name)
+            points = [model.mesh.coords[n].tolist() for n in (a, b)]
+            edit = {"kind": "bolt", "tag": spec.name, "points": points}
         result = replace(model, mesh=mesh, bolts={**model.bolts, spec.name: spec})
     block = mesh.block(spec.name)
     if not block.ne:
@@ -98,7 +103,7 @@ def put_structure(model, spec, *, edge_set=None, nodes=None):
         <= 1e-12
     ):
         raise ValueError("Yapı sıfır uzunluklu eleman içeriyor.")
-    return validate_edit(result)
+    return validate_edit(record_mesh_edit(result, edit))
 
 
 def remove_structure(model, tag):
@@ -115,7 +120,7 @@ def remove_structure(model, tag):
         init = replace(init, active_structures=init.active_structures - {tag})
     return validate_edit(
         replace(
-            model,
+            forget_mesh_edit(model, tag),
             mesh=mesh,
             initial=init,
             liners={k: v for k, v in model.liners.items() if k != tag},
@@ -153,8 +158,11 @@ def put_interface(model, spec, edge_set, side="left"):
     if not spec.name.strip() or "," in spec.name or spec.name == "auto":
         raise ValueError("Ara yüz etiketi boş, virgüllü veya auto olamaz.")
     mesh = insert_interface(model.mesh, edge_set, spec.name, side)
+    edit = {"kind": "interface", "tag": spec.name, "edge_set": edge_set, "side": side}
     return validate_edit(
-        replace(model, mesh=mesh, interfaces={**model.interfaces, spec.name: spec})
+        record_mesh_edit(
+            replace(model, mesh=mesh, interfaces={**model.interfaces, spec.name: spec}), edit
+        )
     )
 
 
@@ -198,7 +206,7 @@ def remove_interface(model, tag):
         initial = replace(initial, active_structures=initial.active_structures - {tag})
     return validate_edit(
         replace(
-            model,
+            forget_mesh_edit(model, tag),
             mesh=mesh,
             initial=initial,
             interfaces={k: v for k, v in model.interfaces.items() if k != tag},

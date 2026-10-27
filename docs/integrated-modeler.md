@@ -54,10 +54,34 @@ kesiti çokgenle yaklaştırır; farklı kesitler çokgen/koordinat düzenleyici
   geçmişini temizlemez. Pencere kapanırken kaydedilmemiş çizimler korunur.
 - Çizim değişince eski ağla çözüm ve `.ssproj` kaydı engellenir. Önce yeniden ağ
   üretilmeli veya taslak ayrı kaydedilmelidir.
-- Yeniden ağ, CAD mesnetleri ve destekleriyle yeni ağırlıksız elastik model kurar.
-  Önceki özel malzemeler, analiz aşamaları, ara yüzler ve sonuçlar aktarılmaz;
-  mevcut modele dönülünce bu bilgi çizim ekranında görünür. CAD girdisi olmayan
-  eski projeler açılır, fakat mevcut ağdan otomatik geometri çıkarılmaz.
+- Yeniden ağ, mevcut modelin tanımlarını yeni ağa aktarır (`cad/transfer.py`).
+  Çizim kendi tanımladığı şeylerde belirleyicidir: bölgeler, CAD destekleri,
+  kenar mesnetleri ve CAD basınçları. Diğer her şey adla eşlenir:
+  malzeme kütüphanesi ve bölge atamaları, başlangıç gerilmesi, çözücü ayarları,
+  aşamalar (yük, su, bölge/yapı etkinliği, malzeme değişimi), ek mesnetler ve
+  gelişmiş editörle eklenen ara yüz/liner/bolt'lar. Ara yüz ve yapılar, eklendikleri
+  adlı kenar üzerinde yeniden kurulur. Nokta yükleri ve düğüme bağlı bolt uçları
+  en yakın yeni düğüme taşınır. Yeni çizilen bölge ve destekler her aşamada etkin
+  başlar. Hedefi kalmayan tanımlar çıkarılır ve **Çözüm günlüğü**nde tek tek listelenir.
+  Sonuçlar yeni ağda geçersiz olduğundan silinir. CAD girdisi olmayan eski projeler
+  açılır, fakat mevcut ağdan otomatik geometri çıkarılmaz.
+
+## İş akışı çubuğu ve yerleşim
+
+Menülerin altındaki tam genişlikteki satır, numaralı sekiz adımı gösterir: Geometri ›
+Destekler › Mesnet / yük › Ağ › Malzemeler › Aşamalar › Çöz › Sonuçlar. Tamamlanan
+adımlar ✓ ile yeşil, etkin adım koyu mavidir; sağdaki metin sıradaki adımı söyler.
+Bir adıma tıklamak ilgili çizim sekmesini veya editörü açar. **Ağ** ağı üretir,
+**Çöz** çözümü başlatır. Ağ kümesi düzeyindeki editörler **Model** menüsündedir.
+
+**Görünüm** menüsünden proje paneli ve yakınsama/günlük paneli açılıp kapatılır.
+**Yerleşimi sıfırla** varsayılan düzene döner. Pencere boyutu, panel seçimleri ve
+ayırıcı konumları kapanışta kullanıcı ayarlarına (INI) kaydedilir. Tema, Windows
+koyu modundan bağımsız olarak açık kalır: Qt ≥ 6.8 renk şeması açık olarak
+sabitlenir ve Windows'ta `QT_QPA_PLATFORM=windows:darkmode=0` kullanılır.
+Palet ve stil çiftleri WCAG AA (≥ 4,5:1) kontrast testinden geçer.
+
+![Yönlendirmeli iş akışı](images/workflow-guided.png)
 
 ## Kontroller
 

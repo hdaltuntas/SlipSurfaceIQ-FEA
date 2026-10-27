@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import ezdxf
 import numpy as np
@@ -24,7 +25,8 @@ def read_dxf(path: str | Path, *, metres_per_unit: float) -> Drawing:
         raise ValueError("DXF ölçeği pozitif ve sonlu olmalıdır (metre / DXF birimi).")
     doc = ezdxf.readfile(path)
     entities = []
-    for i, item in enumerate(doc.modelspace(), 1):
+    modelspace: Any = doc.modelspace()
+    for i, item in enumerate(modelspace, 1):
         kind = item.dxftype()
         if kind == "LINE":
             points = [item.dxf.start, item.dxf.end]

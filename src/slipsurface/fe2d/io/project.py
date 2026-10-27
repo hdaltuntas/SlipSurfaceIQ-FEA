@@ -8,6 +8,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import h5py
 
@@ -32,10 +33,11 @@ class Project:
     results: SolveResult | None = None
 
 
-def save_project(model: Model, path: str | Path, results: SolveResult | None = None) -> Path:
+def save_project(model: Model | str | Path, path: Any, results: SolveResult | None = None) -> Path:
     """Atomically save a model and optional matching post-processing results."""
     if isinstance(model, (str, Path)):
         from .ssproj import save_project as legacy_save
+
         return legacy_save(model, path, results)
     model.validate()
     doc = model_to_dict(model, include_mesh=False)
@@ -74,7 +76,9 @@ def load_project(
     with zipfile.ZipFile(path) as probe:
         if "manifest.json" in probe.namelist():
             from .ssproj import load_project as legacy_load
-            return legacy_load(path, with_results=include_results)
+
+            legacy = legacy_load(path, with_results=include_results)
+            return Project(legacy.model, legacy.results)
     with zipfile.ZipFile(path) as archive, tempfile.TemporaryDirectory() as folder:
         names = archive.namelist()
         for name in ("model.json", "mesh.h5", "results.h5"):

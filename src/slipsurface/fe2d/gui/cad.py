@@ -340,6 +340,7 @@ class MeshWorker(QThread):
 class CadDialog(QDialog):
     model_ready = Signal(object)
     worker_stopped = Signal()
+    drawing_changed = Signal()
 
     def __init__(self, model=None, parent=None, *, embedded=False):
         super().__init__(parent)
@@ -363,8 +364,8 @@ class CadDialog(QDialog):
         self._closing = self._cancel_requested = False
         root = QVBoxLayout(self)
         note = QLabel(
-            "Yeni ağ, aşağıdaki mesnet/yüklerle yeni bir elastik model oluşturur. "
-            "Mevcut analiz aşamaları, yapıları ve sonuçları taşınmaz.\n"
+            "Yeni ağ, çizimdeki mesnet/yük ve destekleri uygular. Ana pencerede mevcut "
+            "malzeme, aşama ve ara yüz tanımları yeni ağa aktarılır; sonuçlar silinir.\n"
             "Birimler: m, kPa · Ağırlıksız başlangıç · Boşluk = başlangıçtan itibaren boş; "
             "aşamalı kazı için bölge çizin."
         )
@@ -396,6 +397,7 @@ class CadDialog(QDialog):
             for i in range(toolbar.count()):
                 toolbar.itemAt(i).widget().hide()
         split = QSplitter()
+        self.splitter = split
         side = QWidget()
         form = QFormLayout(side)
         self.entities = QListWidget()
@@ -553,6 +555,8 @@ class CadDialog(QDialog):
         self.conditions = QTableWidget(0, 4)
         self.conditions.setHorizontalHeaderLabels(["Kenar", "ux sabit", "uy sabit", "Basınç"])
         self.conditions.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.conditions.verticalHeader().hide()
+        self.conditions.itemChanged.connect(lambda _item: self.drawing_changed.emit())
         boundary_layout.addWidget(self.conditions)
         inspector = QTabWidget()
         inspector.setMinimumWidth(300)
@@ -767,6 +771,7 @@ class CadDialog(QDialog):
         self.entities.blockSignals(False)
         rules = {r.edge: r for r in self.document.rules}
         names = [n for e in self.document.entities for n in e.edge_names()]
+        self.conditions.blockSignals(True)  # rows are incomplete until the loop ends
         self.conditions.setRowCount(len(names))
         for i, name in enumerate(names):
             r = rules.get(name, BoundaryRule(name))
@@ -782,7 +787,9 @@ class CadDialog(QDialog):
             pressure.setRange(min(-1e12, r.pressure), max(1e12, r.pressure))
             pressure.setDecimals(12)
             pressure.setValue(r.pressure)
+            pressure.valueChanged.connect(lambda _v: self.drawing_changed.emit())
             self.conditions.setCellWidget(i, 3, pressure)
+        self.conditions.blockSignals(False)
         for k in ("h", "E", "nu"):
             value = getattr(self.document, k)
             self.values[k].setRange(
@@ -792,6 +799,7 @@ class CadDialog(QDialog):
         self.canvas.redraw(self.document.entities, self.pending)
         if fit:
             self.canvas.fit_drawing()
+        self.drawing_changed.emit()
 
     def commit(self, drawing):
         before = self.current_drawing()
@@ -1086,7 +1094,7 @@ class CadDialog(QDialog):
         self.build_button.setEnabled(True)
         if self.embedded:
             if self.updated is not None:
-                self.model_drawing = self.current_drawing()
+                self.model_drawing = worker.drawing
                 self.model_ready.emit(self.updated)
             self.worker_stopped.emit()
         elif self._closing:

@@ -17,7 +17,7 @@ try:  # pragma: no cover - exercised implicitly
         kw.setdefault("fastmath", False)
         return _nb.njit(*args, **kw)
 
-    prange = _nb.prange
+    prange: Any = _nb.prange
 except Exception:  # pragma: no cover
     HAVE_NUMBA = False
 

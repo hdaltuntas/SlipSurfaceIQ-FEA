@@ -63,7 +63,7 @@ def test_excavation_recovery_uses_active_cells_only(tmp_path):
 
 
 def test_active_vtu_and_viewer_agree(tmp_path):
-    pv = pytest.importorskip("pyvista")
+    pv = pytest.importorskip("pyvista", exc_type=ImportError)
     from slipsurface.fe2d.gui import to_pyvista
 
     result = api.run(excavated())

@@ -137,8 +137,8 @@ def recombine_mesh(
         )
         if selected.shape != (block.ne,) or selected.dtype.kind != "b":
             raise ValueError("where must return one Boolean per triangle")
-        owners = {}
-        mids = {}
+        owners: dict[tuple[int, ...], list[int]] = {}
+        mids: dict[tuple[int, ...], int] = {}
         for e, row in enumerate(conn):
             for j in range(3):
                 key = tuple(sorted((int(row[j]), int(row[(j + 1) % 3]))))
@@ -167,13 +167,13 @@ def recombine_mesh(
             prev = np.roll(edges, 1, axis=0)
             cross = prev[:, 0] * edges[:, 1] - prev[:, 1] * edges[:, 0]
             lengths = np.linalg.norm(edges, axis=1)
-            if np.min(cross) <= tol * max(lengths.max(), tol):
+            if np.min(cross) <= tol * max(float(np.max(lengths)), tol):
                 continue
             angles = 180 - np.degrees(np.arctan2(cross, np.einsum("ij,ij->i", prev, edges)))
-            aspect = lengths.max() ** 2 / cross.min()
+            aspect = float(np.max(lengths)) ** 2 / float(np.min(cross))
             if (
-                angles.min() < min_angle - 1e-10
-                or angles.max() > 180 - min_angle + 1e-10
+                float(np.min(angles)) < min_angle - 1e-10
+                or float(np.max(angles)) > 180 - min_angle + 1e-10
                 or aspect > max_aspect
             ):
                 continue

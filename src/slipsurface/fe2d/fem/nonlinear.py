@@ -182,7 +182,7 @@ def solve_stage(
                         converged = True
                         termination = "roundoff"
                         break
-                    if rel < s.tol_force and e_rel < s.tol_energy:
+                    if rel < s.tol_force and e_rel is not None and e_rel < s.tol_energy:
                         converged = True
                         termination = "force_and_energy"
                         break

@@ -188,8 +188,8 @@ def insert_interface(mesh: Mesh, edge_set: str, tag: str, side: str = "left") ->
     for k, e in mesh.edge_sets.items():
         e2 = e.copy()
         for r in range(e.shape[0]):
-            a, c = int(e[r, 0]), int(e[r, 1])
-            if (min(a, c), max(a, c)) in owner_keys:
+            n0, n1 = int(e[r, 0]), int(e[r, 1])
+            if (min(n0, n1), max(n0, n1)) in owner_keys:
                 continue
             ra = copy_of[e[r]]
             cand = np.where(ra >= 0, ra, e[r])

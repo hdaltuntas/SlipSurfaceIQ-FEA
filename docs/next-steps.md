@@ -48,10 +48,17 @@ Bu otomatik kontroller kullanıcı kabulünün yerine geçmez. Kullanıcının W
 ekran görüntüsünde açık zeminde kaybolan menü/araç yazıları, zayıf kontrol
 kontrastı ve model alanını daraltan panel yerleşimi görülüyor. Sıradaki işler:
 
-1. Windows açık/koyu tema ve ekran ölçeklerinde okunabilir menü/araç/sekme renkleri.
-2. Geometri, malzeme, sınır/yük, aşama ve sonuç adımlarının anlaşılır düzenlenmesi.
-3. Model alanı, aşama listesi ve çözüm günlüğünün dengeli, ayarlanabilir yerleşimi.
+1. ~~Windows açık/koyu tema ve ekran ölçeklerinde okunabilir menü/araç/sekme renkleri.~~
+   Uygulandı (27 Ekim 2026): açık renk şeması sabit, Windows koyu modu kapalı,
+   spin kutusu okları ve SNAP/GRID kontrastı düzeltildi, WCAG AA kontrast testi.
+2. ~~Geometri, malzeme, sınır/yük, aşama ve sonuç adımlarının anlaşılır düzenlenmesi.~~
+   Uygulandı: numaralı sekiz adımlı iş akışı, ✓ tamamlanma ve “sıradaki adım” ipucu.
+3. ~~Model alanı, aşama listesi ve çözüm günlüğünün dengeli, ayarlanabilir yerleşimi.~~
+   Uygulandı: tam genişlikte iş akışı satırı, Görünüm menüsü, kalıcı yerleşim.
 4. Gerçek Windows ekranında görsel kontrol ve kullanıcı kullanılabilirlik kabulü.
+   **Hâlâ açık**: Linux offscreen görüntüleri kabul yerine geçmez.
+5. ~~Yeniden ağda malzeme, aşama, ara yüz ve yapı tanımlarının korunması.~~
+   Uygulandı: [ayrıntı](integrated-modeler.md#kayıt-geri-alma-ve-yeniden-ağ).
 
 Bu kabul alınmadan Faz 5 kapatılmayacak veya yeni release yayımlanmayacak.
 

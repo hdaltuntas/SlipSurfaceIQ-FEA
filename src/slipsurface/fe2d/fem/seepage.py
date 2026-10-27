@@ -26,7 +26,7 @@ its line with :func:`~slipsurface.fe2d.mesh.structures.insert_interface`).
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -121,10 +121,10 @@ def _gradients(etype: ElemType, coords: NDArray, conn: NDArray, analysis: Analys
 
 def solve_seepage(
     mesh: Mesh,
-    blocks: list[SeepageBlock],
-    head_bcs: list[tuple[str, NDArray[np.int64], NDArray[np.float64]]],
-    flux_bcs: list[tuple[NDArray[np.int64], float]] = (),  # type: ignore[assignment]
-    seepage_faces: list[tuple[str, NDArray[np.int64]]] = (),  # type: ignore[assignment]
+    blocks: Sequence[SeepageBlock],
+    head_bcs: Sequence[tuple[str, NDArray[np.int64], float | NDArray[np.float64]]],
+    flux_bcs: Sequence[tuple[NDArray[np.int64], float]] = (),
+    seepage_faces: Sequence[tuple[str, NDArray[np.int64]]] = (),
     analysis: Analysis = Analysis.PLANE_STRAIN,
     tol: float = 1e-7,
     max_iter: int = 200,

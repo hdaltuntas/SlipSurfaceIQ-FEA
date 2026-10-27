@@ -60,12 +60,19 @@ def rng():
 
 
 @pytest.fixture(scope="session")
-def _qt_application():
+def _qt_application(tmp_path_factory):
     """Qt permits one QApplication for the process, not one per test module."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
+    from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QApplication
 
+    # Window layout persistence must not read or write the developer's real settings.
+    QSettings.setPath(
+        QSettings.Format.IniFormat,
+        QSettings.Scope.UserScope,
+        str(tmp_path_factory.mktemp("qt-settings")),
+    )
     app = QApplication.instance() or QApplication([])
     yield app  # keep the Python owner alive through every desktop test module
 

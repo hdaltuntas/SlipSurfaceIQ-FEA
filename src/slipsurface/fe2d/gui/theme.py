@@ -21,9 +21,11 @@ QCheckBox::indicator { width:14px; height:14px; border:1px solid #7891a3; border
 QCheckBox::indicator:unchecked { background:#ffffff; }
 QCheckBox::indicator:checked { background:#2182b3; border-color:#156798; }
 QLabel,QCheckBox,QGroupBox { color:#243746; background:transparent; }
-QLineEdit,QPlainTextEdit,QTextEdit,QComboBox,QAbstractSpinBox,QAbstractItemView {
+QLineEdit,QPlainTextEdit,QTextEdit,QComboBox,QAbstractItemView {
     background:#ffffff; color:#243746; selection-background-color:#cce5f6;
     selection-color:#123f5b; border:1px solid #ccd7e0; border-radius:3px; padding:4px; }
+QAbstractSpinBox { background:#ffffff; color:#243746; selection-background-color:#cce5f6;
+    selection-color:#123f5b; }
 QAbstractItemView::item:selected { background:#d9edf9; color:#124d70; }
 QListWidget::item { padding:7px; }
 QHeaderView::section { background:#e6edf3; color:#314858; padding:6px; border:1px solid #d1dce5; }

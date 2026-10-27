@@ -1,7 +1,8 @@
 """SlipSurfaceIQ-FEA desktop shell, adapted from the SlipSurfaceIQ-LE modeler.
 
 menu bar
-workflow bar   Geometri › Malzemeler › Yapılar › Sınırlar › Aşamalar
+workflow bar   Geometri › Destekler › Mesnet/yük › Ağ › Malzemeler › Aşamalar › Çöz › Sonuçlar
+               with a "next step" hint; finished steps are ticked
 left dock      Belge Görüntüleyici (aşamalar, model özeti) + Görüntüleme Seçenekleri
 centre         result canvas + field selectors + convergence tabs
 status bar     hints, coordinates, SNAP / GRID / ORTHO toggles
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -32,6 +34,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTabWidget,
@@ -51,7 +54,16 @@ from .structure_editor import StructureDialog
 from .worker import SolveWorker
 from .workflow import WorkflowBar
 
-STEPS = ["Geometri", "Malzemeler", "Yapılar", "Sınırlar", "Aşamalar"]
+STEPS = [
+    "Geometri",
+    "Destekler",
+    "Mesnet / yük",
+    "Ağ",
+    "Malzemeler",
+    "Aşamalar",
+    "Çöz",
+    "Sonuçlar",
+]
 
 
 class ModelFileError(ModelError):
@@ -86,8 +98,25 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
         self.workflow = WorkflowBar(STEPS)
         self.workflow.step_changed.connect(self._activate_step)
-        layout.addWidget(self.workflow)
+        self.guidance = QLabel()
+        self.guidance.setObjectName("guidance")
+        self.guidance.setStyleSheet("color:#124d70;padding:0 8px;font-weight:bold;")
+        # Clip instead of widening the window on small screens; the tooltip keeps the text.
+        self.guidance.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        # Full-width row above the dock, so the project panel never squeezes the steps.
+        flow_bar = QToolBar("İş akışı")
+        flow_bar.setObjectName("workflow_bar")
+        flow_bar.setMovable(False)
+        flow = QWidget()
+        flow_layout = QHBoxLayout(flow)
+        flow_layout.setContentsMargins(4, 0, 4, 0)
+        flow_layout.addWidget(self.workflow)
+        flow_layout.addWidget(self.guidance, 1)
+        flow_bar.addWidget(flow)
+        self.addToolBarBreak()
+        self.addToolBar(flow_bar)
         split = QSplitter(Qt.Orientation.Vertical)
+        self.result_split = split
         view = QWidget()
         right = QVBoxLayout(view)
         from .statusbar import CadStatusBar
@@ -113,6 +142,7 @@ class MainWindow(QMainWindow):
         self.cad = CadDialog(parent=self, embedded=True)
         self.cad.model_ready.connect(self._accept_cad_model)
         self.cad.worker_stopped.connect(self._cad_worker_stopped)
+        self.cad.drawing_changed.connect(self._update_guidance)
         self.workspace.addWidget(self.cad)
         self.status.attach(self.cad.canvas)
         self.cad.canvas.mouse_world.connect(self.status.show_coords)
@@ -127,6 +157,7 @@ class MainWindow(QMainWindow):
             toggle.toggled.connect(checkbox.setChecked)
         layout.addWidget(self.workspace, 1)
         tabs = QTabWidget()
+        self.log_tabs = tabs
         self.plot = ConvergencePlot()
         tabs.addTab(self.plot, "Yakınsama")
         self.log = QPlainTextEdit()
@@ -136,11 +167,14 @@ class MainWindow(QMainWindow):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 0)
         split.setSizes([600, 150])
+        split.setCollapsible(0, False)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         result_layout.addWidget(self.progress)
         self.setCentralWidget(root)
         self.status.showMessage("Hazır · Birimler kN, m, kPa · Gerilmede çekme pozitif")
+        self._view_menu()
+        self._restore_layout()
         self.set_model(None)
 
     def _build_dock(self):
@@ -224,15 +258,122 @@ class MainWindow(QMainWindow):
     def _activate_step(self, i):
         slot = (
             self.edit_geometry,
-            self.edit_materials,
             self.edit_structures,
-            self.edit_boundaries,
+            self.edit_drawing_conditions,
+            self.build_mesh,
+            self.edit_materials,
             self.edit_stages,
+            self.start_solve,
+            self.show_results,
         )[i]
         slot()
+        self._update_guidance()
+
+    def step_state(self):
+        """(finished step indices, next-step hint) from the drawing, model and results."""
+        drawing = self.cad.current_drawing()
+        done = set()
+        regions = any(e.kind == "region" for e in drawing.entities)
+        meshed = self.model is not None and not self.cad.mesh_outdated
+        if regions or meshed:
+            done.add(0)
+        if drawing.supports or (meshed and self.model.structure_tags()):
+            done.add(1)
+        if any(r.ux or r.uy for r in drawing.rules) or (meshed and self.model.fixities):
+            done.add(2)
+        if meshed:
+            done.update({3, 4, 5})
+        if meshed and self.result is not None:
+            done.update({6, 7})
+        if self.worker is not None:
+            hint = "Çözüm sürüyor · ■ Durdur ile iptal"
+        elif 0 not in done:
+            hint = "Sıradaki: Geometri menüsünden zemin bölgesi çizin"
+        elif 2 not in done:
+            hint = "Sıradaki: Mesnet / yük tablosunda ux/uy işaretleyin"
+        elif 3 not in done:
+            hint = "Sıradaki: Ağı üret (Ctrl+M)"
+        elif 6 not in done:
+            hint = "Sıradaki: Malzeme ve aşamaları kontrol edip Çöz (F5)"
+        else:
+            hint = "Sonuçlar hazır · Sonuç incele / Sonuç aktar menüleri"
+        return done, hint
+
+    def _update_guidance(self, *_):
+        if not hasattr(self, "guidance"):
+            return
+        done, hint = self.step_state()
+        self.workflow.set_done(done)
+        self.guidance.setText(hint)
+        self.guidance.setToolTip(hint)
+
+    def _view_menu(self):
+        menu = self.menuBar().addMenu("Görünüm")
+        # The dock is hidden by design while drawing; this is the results-view choice.
+        self.dock_action = QAction("Proje paneli", self)
+        self.dock_action.setCheckable(True)
+        self.dock_action.setChecked(True)
+        self.dock_action.toggled.connect(self._dock_toggled)
+        menu.addAction(self.dock_action)
+        self.log_action = QAction("Yakınsama / günlük paneli", self)
+        self.log_action.setCheckable(True)
+        self.log_action.setChecked(True)
+        self.log_action.toggled.connect(self.log_tabs.setVisible)
+        menu.addAction(self.log_action)
+        menu.addSeparator()
+        reset = QAction("Yerleşimi sıfırla", self)
+        reset.triggered.connect(self.reset_layout)
+        menu.addAction(reset)
+
+    def _dock_toggled(self, visible):
+        if self.workspace.currentWidget() is self.result_page:
+            self.project_dock.setVisible(visible)
+
+    def reset_layout(self):
+        self.log_action.setChecked(True)
+        self.dock_action.setChecked(True)
+        self.result_split.setSizes([600, 150])
+        self.project_dock.setFloating(False)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
+        if self.workspace.currentWidget() is self.result_page:
+            self.project_dock.show()
+        self.resizeDocks([self.project_dock], [290], Qt.Orientation.Horizontal)
+        self.cad.splitter.setSizes([330, 950])
+
+    def _restore_layout(self):
+        from .preferences import settings
+
+        store = settings()
+        geometry = store.value("main/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+        state = store.value("main/state")
+        if state is not None:
+            self.restoreState(state)
+        for key, splitter in (("main/results", self.result_split), ("main/cad", self.cad.splitter)):
+            sizes = store.value(key)
+            if sizes is not None:
+                splitter.restoreState(sizes)
+        self.log_action.setChecked(store.value("main/log", True, type=bool))
+        self.dock_action.setChecked(store.value("main/dock", True, type=bool))
+        self.project_dock.setVisible(
+            self.workspace.currentWidget() is self.result_page and self.dock_action.isChecked()
+        )
+
+    def _save_layout(self):
+        from .preferences import settings
+
+        store = settings()
+        store.setValue("main/geometry", self.saveGeometry())
+        store.setValue("main/state", self.saveState())
+        store.setValue("main/dock", self.dock_action.isChecked())
+        store.setValue("main/results", self.result_split.saveState())
+        store.setValue("main/cad", self.cad.splitter.saveState())
+        store.setValue("main/log", self.log_action.isChecked())
 
     def _actions(self):
         toolbar = QToolBar("Çalışma alanı")
+        toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
         self.edit_actions = []
@@ -274,18 +415,22 @@ class MainWindow(QMainWindow):
             edit_menu.addAction(
                 action(title, lambda _=False, m=method: self.drawing_file_action(m))
             )
-        toolbar.addSeparator()
+        # Modelling steps live in the numbered workflow bar; the toolbar keeps file/run.
+        model_menu = self.menuBar().addMenu("Model")
         for title, slot in [
             ("Geometri / CAD", self.edit_geometry),
-            ("Malzemeler", self.edit_materials),
-            ("Yapılar", self.edit_structures),
-            ("Sınırlar", self.edit_boundaries),
-            ("Aşamalar", self.edit_stages),
+            ("Malzemeler…", self.edit_materials),
+            ("Yapılar (çizim)", self.edit_structures),
+            ("Sınırlar (ağ kümeleri)…", self.edit_boundaries),
+            ("Aşamalar…", self.edit_stages),
         ]:
             a = action(title, slot)
-            toolbar.addAction(a)
+            model_menu.addAction(a)
             self.edit_actions.append(a)
         toolbar.addSeparator()
+        self.mesh_action = action("Ağı üret", self.build_mesh, "Ctrl+M")
+        toolbar.addAction(self.mesh_action)
+        self.edit_actions.append(self.mesh_action)
         self.run_action = action("▶ Çöz", self.start_solve, "F5")
         self.stop_action = action("■ Durdur", self.cancel_solve)
         self.stop_action.setEnabled(False)
@@ -374,6 +519,7 @@ class MainWindow(QMainWindow):
         else:
             self.progress.setValue(0)
         self.draw()
+        self._update_guidance()
         self.status.showMessage("Model hazır · Birimler kN, m, kPa")
 
     def _set_empty_state(self, path=None, dirty=False):
@@ -400,6 +546,7 @@ class MainWindow(QMainWindow):
         self.canvas.scene().clear()
         self.canvas.model = self.canvas.stage = None
         self.legend.setText("")
+        self._update_guidance()
         self.statusBar().showMessage(
             "Modelleyici · Geometri veya Destek menüsünden çizime başlayın"
         )
@@ -553,6 +700,24 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_model(dialog.updated, path=self.path, dirty=True)
 
+    def edit_drawing_conditions(self):
+        """Mesnet/yük step: the drawing's edge table, or the mesh form for a meshed-only model."""
+        if self.busy:
+            return
+        if self.model is not None and not self.model.geometry and not self.cad.document.entities:
+            self.edit_boundaries()
+            return
+        self.edit_geometry()
+        self.workflow.set_current(2, emit=False)
+        self.cad.inspector.setCurrentIndex(1)
+
+    def build_mesh(self):
+        if self.busy:
+            return
+        self.edit_geometry()
+        self.workflow.set_current(3, emit=False)
+        self.cad.start_mesh()
+
     def edit_materials(self):
         if self.busy or not self._require_model():
             return
@@ -574,7 +739,10 @@ class MainWindow(QMainWindow):
 
     def show_results(self):
         self.workspace.setCurrentWidget(self.result_page)
-        self.project_dock.show()
+        self.project_dock.setVisible(
+            self.dock_action.isChecked() if hasattr(self, "dock_action") else True
+        )
+        self.workflow.set_current(7 if self.result is not None else 4, emit=False)
         for toggle in self.status.toggles.values():
             toggle.setEnabled(False)
 
@@ -596,14 +764,33 @@ class MainWindow(QMainWindow):
         if kind in {"region", "hole", "line"}:
             self.cad.start_tool(kind)
         else:
-            self.workflow.set_current(2, emit=False)
+            self.workflow.set_current(1, emit=False)
             self.cad.start_engineering_tool(kind)
 
     def _accept_cad_model(self, model):
+        from ..cad.transfer import transfer_model
+
         history = self.cad.undo_stack[:], self.cad.redo_stack[:]
+        try:
+            model, report = transfer_model(self.model, model)
+        except Exception as exc:  # noqa: BLE001 - fall back to the drawing's fresh model
+            report = [f"Önceki model tanımları aktarılamadı, yeni elastik model kuruldu: {exc}"]
+        carried = self.model is not None
         self.set_model(model, dirty=True)
         self.cad.undo_stack, self.cad.redo_stack = history
-        self.status.showMessage("Ağ ve destekler hazır · Aşamaları kontrol edip Çöz ile ilerleyin.")
+        self.log.clear()
+        if carried:
+            self.log.appendPlainText(
+                "Yeni ağ üretildi. Malzemeler, aşamalar, ara yüzler ve ek yapılar aktarıldı; "
+                "önceki sonuçlar yeni ağda geçersiz."
+            )
+        for line in report:
+            self.log.appendPlainText("· " + line)
+        self.status.showMessage(
+            f"Ağ hazır · {len(report)} uyarı, Çözüm günlüğüne bakın."
+            if report
+            else "Ağ ve destekler hazır · Aşamaları kontrol edip Çöz ile ilerleyin."
+        )
 
     def _cad_worker_stopped(self):
         if self._closing:
@@ -613,7 +800,7 @@ class MainWindow(QMainWindow):
         if self.busy:
             return
         self.edit_geometry()
-        self.workflow.set_current(2, emit=False)
+        self.workflow.set_current(1, emit=False)
         self.cad.inspector.setCurrentIndex(2)
         self.cad.set_tool_group(True)
 
@@ -659,6 +846,8 @@ class MainWindow(QMainWindow):
         worker.cancelled.connect(self.on_cancelled)
         worker.finished.connect(self.on_finished)
         worker.start()
+        self.workflow.set_current(6, emit=False)
+        self._update_guidance()
 
     @Slot(object)
     def on_progress(self, event):
@@ -678,6 +867,7 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def on_success(self, result):
         self.set_model(result.model, result, self.path, dirty=True)
+        self.workflow.set_current(7, emit=False)
         self.progress.setValue(100)
         self.log.appendPlainText("Analiz tamamlandı. Sonuçlar kaydedilmeye hazır.")
 
@@ -699,6 +889,7 @@ class MainWindow(QMainWindow):
         for a in [*self.edit_actions, self.run_action]:
             a.setEnabled(True)
         self.stop_action.setEnabled(False)
+        self._update_guidance()
         if self._closing:
             self.close()
 
@@ -745,6 +936,7 @@ class MainWindow(QMainWindow):
             self.cancel_solve()
             event.ignore()
         elif self.discard_changes():
+            self._save_layout()
             event.accept()
         else:
             self._closing = False
@@ -758,6 +950,9 @@ def main(argv=None):
         "--smoke-test", metavar="DIRECTORY", help="run installed application checks"
     )
     args = parser.parse_args(argv)
+    if sys.platform == "win32" and QApplication.instance() is None:
+        # Native title bar/menus must not switch to the dark palette under our light theme.
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows:darkmode=0")
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("SlipSurfaceIQ-FEA")
     from .preferences import apply_theme

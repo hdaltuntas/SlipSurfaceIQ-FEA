@@ -120,11 +120,15 @@ def test_le_shell_layout_workflow_dock_and_statusbar(application):
     window = MainWindow()
     assert window.workflow.steps == [
         "Geometri",
+        "Destekler",
+        "Mesnet / yük",
+        "Ağ",
         "Malzemeler",
-        "Yapılar",
-        "Sınırlar",
         "Aşamalar",
+        "Çöz",
+        "Sonuçlar",
     ]
+    assert window.guidance.text().startswith("Sıradaki: Geometri")
     assert window.status.toggles and set(window.status.toggles) == {
         "snap",
         "grid",

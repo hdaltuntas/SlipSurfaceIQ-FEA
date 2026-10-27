@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -76,7 +77,7 @@ def strength_reduction(
             "strength reduction needs Mohr-Coulomb / Drucker-Prager materials or interfaces"
         )
     trials: list[SRFTrial] = []
-    best: dict[str, object] = {}
+    best: dict[str, Any] = {}
     trial_settings = replace(model.settings, dlam_min=max(dlam_min, model.settings.dlam_min))
 
     ifaces = [g for g in solver.groups if isinstance(g, InterfaceGroup)]
@@ -98,16 +99,17 @@ def strength_reduction(
             )
             ok, lam = True, 1.0
         except NonConvergence as exc:
+            hist: Any = exc.history
             if (
-                exc.history is not None
-                and exc.history.steps
-                and exc.history.steps[-1].termination == "material_return"
+                hist is not None
+                and hist.steps
+                and hist.steps[-1].termination == "material_return"
             ):
                 raise MaterialIntegrationError(
                     f"SRF F={F:.6g}: local constitutive return failed; "
                     "cannot use this trial as a collapse bracket. "
-                    + exc.history.steps[-1].detail,
-                    details=exc.history.steps[-1].material_failure,
+                    + hist.steps[-1].detail,
+                    details=hist.steps[-1].material_failure,
                 ) from exc
             ok, lam = False, exc.lam
         except MaterialIntegrationError:
@@ -135,7 +137,7 @@ def strength_reduction(
 def _search(
     trial: Callable[[float], bool],
     trials: list[SRFTrial],
-    best: dict[str, object],
+    best: dict[str, Any],
     base: SolveResult,
     tol: float,
     F_first: float,

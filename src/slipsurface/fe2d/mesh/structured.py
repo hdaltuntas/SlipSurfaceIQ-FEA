@@ -84,8 +84,8 @@ def mapped_mesh(
     new_id[keep.ravel()] = np.arange(int(keep.sum()))
     coords = np.column_stack([X.ravel(), Y.ravel()])[keep.ravel()]
 
-    I, J = np.meshgrid(np.arange(nx), np.arange(ny), indexing="ij")
-    I, J = 2 * I.ravel(), 2 * J.ravel()
+    grid_i, grid_j = np.meshgrid(np.arange(nx), np.arange(ny), indexing="ij")
+    I, J = 2 * grid_i.ravel(), 2 * grid_j.ravel()
     p00, p10 = gid(I, J), gid(I + 2, J)
     p01, p11 = gid(I, J + 2), gid(I + 2, J + 2)
     m_b, m_t = gid(I + 1, J), gid(I + 1, J + 2)

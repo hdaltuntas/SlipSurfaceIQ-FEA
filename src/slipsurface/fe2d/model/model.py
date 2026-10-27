@@ -48,9 +48,12 @@ class Model:
         for r, m in self.region_material.items():
             if m not in self.materials:
                 raise ModelError(f"region {r} -> unknown material '{m}'")
-        for bc in (*self.fixities, *self.displacements):
-            if bc.node_set not in self.mesh.node_sets:
-                raise ModelError(f"boundary condition refers to unknown node set '{bc.node_set}'")
+        for fix in self.fixities:
+            if fix.node_set not in self.mesh.node_sets:
+                raise ModelError(f"boundary condition refers to unknown node set '{fix.node_set}'")
+        for disp in self.displacements:
+            if disp.node_set not in self.mesh.node_sets:
+                raise ModelError(f"boundary condition refers to unknown node set '{disp.node_set}'")
         for st in self.stages:
             for ld in st.loads:
                 if isinstance(ld, EdgeLoad) and ld.edge_set not in self.mesh.edge_sets:
@@ -68,7 +71,11 @@ class Model:
                     raise ModelError(f"stage '{st.name}': override for unknown region {r}")
                 if m not in self.materials:
                     raise ModelError(f"stage '{st.name}': override region {r} -> unknown '{m}'")
-        props = {"beam": self.liners, "bar": self.bolts, "interface": self.interfaces}
+        props = {
+            "beam": set(self.liners),
+            "bar": set(self.bolts),
+            "interface": set(self.interfaces),
+        }
         tags = self.structure_tags()
         for tag, kind in tags.items():
             if tag not in props[kind]:

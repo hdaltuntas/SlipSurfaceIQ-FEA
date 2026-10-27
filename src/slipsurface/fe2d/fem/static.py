@@ -29,6 +29,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import scipy.sparse as sp
@@ -151,7 +152,7 @@ class _ContSys:
 
 @dataclass
 class _StructSys:
-    group: object
+    group: Any
     ids: NDArray[np.int64]
     edofs: NDArray[np.int64]
     p: NDArray[np.float64] | None  # interfaces: (n, ip) joint water pressure
@@ -230,7 +231,11 @@ class StaticSolver:
             b.tag: kernel(b.etype).precompute(self.mesh.coords, b.conn, model.analysis, order)
             for b in self.blocks
         }
-        props = {"beam": model.liners, "bar": model.bolts, "interface": model.interfaces}
+        props: dict[str, dict[str, Any]] = {
+            "beam": model.liners,
+            "bar": model.bolts,
+            "interface": model.interfaces,
+        }
         kinds = model.structure_tags()
         self.groups: list = [
             GROUP_TYPES[b.etype](b, self.mesh.coords, props[kinds[b.tag]][b.tag], model.analysis)
@@ -487,18 +492,18 @@ class StaticSolver:
             ids = np.flatnonzero(active[g.tag])
             if ids.size == 0:
                 continue
-            p = None
+            p_joint: NDArray[np.float64] | None = None
             if isinstance(g, InterfaceGroup):
                 xi = g.xip[ids]
                 if p_nodal is not None:
-                    p = p_nodal[g.f1[ids]]
+                    p_joint = p_nodal[g.f1[ids]]
                 else:
-                    p = GAMMA_W * np.maximum(water.head(xi[..., 0]) - xi[..., 1], 0.0)
+                    p_joint = GAMMA_W * np.maximum(water.head(xi[..., 0]) - xi[..., 1], 0.0)
                 linear = False
                 symmetric &= g.symmetric
             elif isinstance(g, BarGroup):
                 linear = False
-            struct.append(_StructSys(g, ids, g.edofs(dm.node_dofs, ids), p))
+            struct.append(_StructSys(g, ids, g.edofs(dm.node_dofs, ids), p_joint))
         pattern = SparsePattern.build([c.edofs for c in cont] + [s.edofs for s in struct], dm.ndof)
         sysm = System(dm, cont, struct, pattern, linear, symmetric, key, water, seep, p_nodal)
         self._sys_cache = {key: sysm}  # keep the latest only
@@ -974,6 +979,7 @@ class StaticSolver:
                 D, K = t.D, t.K
                 stresses, flags = t.sig, t.flag
             else:
+                assert D_comm is not None
                 D, K = self._tangent_for(sysm, D_comm)
                 stresses = {c.tag: committed.sig[c.tag][c.ids] for c in sysm.cont}
                 flags = {c.tag: committed.plastic[c.tag][c.ids] for c in sysm.cont}
@@ -1134,7 +1140,7 @@ class StaticSolver:
         else:
             surf = init.surface_y
             if surf is None:
-                surf = float(self.mesh.coords[:, 1].max())
+                surf = float(np.max(self.mesh.coords[:, 1]))
             xg, yr, gam, k0s = [], [], [], []
             for c, b in zip(sysm.cont, self.blocks):
                 ye = self.mesh.coords[b.conn[c.ids], 1]
@@ -1151,9 +1157,9 @@ class StaticSolver:
                 s[..., 0] = s[..., 2] = k0 * sve
                 state.sig[c.tag][c.ids] = s
         # interfaces start with the traction of the adjacent soil
-        for s in sysm.struct:
-            if isinstance(s.group, InterfaceGroup):
-                self._interface_initial_traction(state, s.group, s.ids)
+        for st_sys in sysm.struct:
+            if isinstance(st_sys.group, InterfaceGroup):
+                self._interface_initial_traction(state, st_sys.group, st_sys.ids)
 
     def stage_context(self, st: Stage, override: dict[int, str]) -> _StageCtx:
         active = self.active_masks(st.active_regions, frozenset(st.active_structures))

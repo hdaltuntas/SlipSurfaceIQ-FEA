@@ -42,7 +42,8 @@ Linux/Windows, Python 3.10–3.13 ve iki native GUI işi: **10/10 başarılı**
 - Eski kesmesiz P4 strict xfail olarak korunur. Yerel bünye dönüş hatası fiziksel
   göçme kanıtı veya SRF üst sınırı sayılmaz. Açık Rankine-apex akışı ayrı seçenektir.
 - Çizgisel 2B DXF desteği vardır; DWG ve eğri/blok DXF bu sürüme dahil değildir.
-- CAD yeniden ağlaması yeni model oluşturur; mevcut FE atamalarını otomatik taşımaz.
+- CAD yeniden ağlaması mevcut FE tanımlarını adla eşleyerek aktarır; hedefi kalmayanlar
+  çözüm günlüğünde listelenir ([ayrıntı](integrated-modeler.md)).
 - Sonuç konturları eleman ortalamasıdır. Sorgu çizgisi gerilmeleri eleman içinde GP
   ekstrapolasyonuyla hesaplanır; malzeme sınırında taraf için bölge filtresi vardır.
 - Asal oklar düzlem içi iki gerilmeyi gösterir; szz ile sıralanmış 3B asal değerler

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pv = pytest.importorskip("pyvista")
+pv = pytest.importorskip("pyvista", exc_type=ImportError)
 
 
 def test_to_pyvista_fields():

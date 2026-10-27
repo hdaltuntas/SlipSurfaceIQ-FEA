@@ -36,13 +36,13 @@ def boundary_nodes(mesh: Mesh, *, join_interfaces: bool = False) -> NDArray[np.i
                 alias[max(a, b)] = min(a, b)
         while not np.array_equal(alias, alias[alias]):
             alias = alias[alias]
-    for b in mesh.continuum_blocks():
-        nc = 4 if b.etype in (ElemType.Q4, ElemType.Q8) else 3
-        quad = b.etype in (ElemType.T6, ElemType.Q8)
+    for blk in mesh.continuum_blocks():
+        nc = 4 if blk.etype in (ElemType.Q4, ElemType.Q8) else 3
+        quad = blk.etype in (ElemType.T6, ElemType.Q8)
         for i in range(nc):
-            a, c = alias[b.conn[:, i]], alias[b.conn[:, (i + 1) % nc]]
-            keys.append(np.minimum(a, c) * nn + np.maximum(a, c))
-            mids.append(alias[b.conn[:, nc + i]] if quad else np.full(b.ne, -1))
+            n0, n1 = alias[blk.conn[:, i]], alias[blk.conn[:, (i + 1) % nc]]
+            keys.append(np.minimum(n0, n1) * nn + np.maximum(n0, n1))
+            mids.append(alias[blk.conn[:, nc + i]] if quad else np.full(blk.ne, -1))
     if not keys:
         return np.empty(0, dtype=np.int64)
     k = np.concatenate(keys)

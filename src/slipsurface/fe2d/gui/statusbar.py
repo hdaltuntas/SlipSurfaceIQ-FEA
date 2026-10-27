@@ -12,8 +12,10 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QLabel, QStatusBar, QToolButton
 
 TOGGLE_CSS = (
-    "QToolButton{border:none;padding:0 5px;color:#9aa0a6;font-weight:bold;}"
-    "QToolButton:checked{color:#111;}"
+    "QToolButton{border:1px solid transparent;border-radius:3px;padding:1px 6px;"
+    "color:#5b6b78;background:transparent;font-weight:bold;}"
+    "QToolButton:checked{color:#ffffff;background:#156798;border-color:#0f5680;}"
+    "QToolButton:disabled{color:#8d9aa4;background:transparent;border-color:transparent;}"
 )
 
 

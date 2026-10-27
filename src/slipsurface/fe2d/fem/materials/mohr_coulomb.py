@@ -155,8 +155,8 @@ def _return_principal(
     Bv[8, 2], Bv[8, 0] = m, -1.0
     DBv = np.zeros((9, 3))  # rows: D b_j
     for j in range(9):
-        for r in range(3):
-            DBv[j, r] = D[r, 0] * Bv[j, 0] + D[r, 1] * Bv[j, 1] + D[r, 2] * Bv[j, 2]
+        for row in range(3):
+            DBv[j, row] = D[row, 0] * Bv[j, 0] + D[row, 1] * Bv[j, 1] + D[row, 2] * Bv[j, 2]
 
     scale = max(abs(sc), abs(s_tr[0]), abs(s_tr[1]), abs(s_tr[2]), 1e-12)
     if has_t:

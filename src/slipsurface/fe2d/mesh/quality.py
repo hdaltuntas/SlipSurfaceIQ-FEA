@@ -94,16 +94,16 @@ def mesh_quality(mesh: Mesh) -> QualityReport:
     hist = np.histogram(amin, bins=np.arange(0.0, 100.0, 5.0))
     return QualityReport(
         n_elements=ntri + nquad,
-        min_angle=float(amin.min()),
-        max_angle=float(max(a.max() for a in angles)),
-        mean_min_angle=float(amin.mean()),
-        max_aspect=float(np.concatenate(aspects).max()),
-        max_radius_edge=float(np.concatenate(radii).max()) if radii else float("nan"),
+        min_angle=float(np.min(amin)),
+        max_angle=float(max(float(np.max(a)) for a in angles)),
+        mean_min_angle=float(np.mean(amin)),
+        max_aspect=float(np.max(np.concatenate(aspects))),
+        max_radius_edge=float(np.max(np.concatenate(radii))) if radii else float("nan"),
         angle_hist=(hist[0], hist[1]),
         per_element_min_angle=amin,
         n_triangles=ntri,
         n_quads=nquad,
-        min_quad_scaled_jacobian=float(np.concatenate(jacobians).min())
+        min_quad_scaled_jacobian=float(np.min(np.concatenate(jacobians)))
         if jacobians
         else float("nan"),
     )

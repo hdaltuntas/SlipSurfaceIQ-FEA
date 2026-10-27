@@ -68,9 +68,9 @@ def _plastic_increment(m: YieldModel, D: NDArray, sig: Vec, q: Vec, deps: Vec) -
     a, b = m.df(sig, q), m.dg(sig, q)
     H, h = m.hardening(sig, q)
     Db = D @ b
-    den = a @ Db + H
+    den = float(a @ Db) + H
     De = D @ deps
-    lam = max(a @ De / den, 0.0) if den > 0 else 0.0
+    lam = max(float(a @ De) / den, 0.0) if den > 0 else 0.0
     return De - lam * Db, lam * h
 
 

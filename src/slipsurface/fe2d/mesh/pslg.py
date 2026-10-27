@@ -198,12 +198,12 @@ class Domain:
         else:
             raise MeshError("PSLG cleaning did not converge (pathological input?)")
 
-        segs, barrier, seg_h, names = _merge_duplicates(segs, barrier, seg_h, names)
+        segs, barrier, seg_h, merged_names = _merge_duplicates(segs, barrier, seg_h, names)
 
         seg_names: dict[str, list[int]] = {}
         seg_sign: dict[str, list[int]] = {}
-        for i, nm in enumerate(names):
-            for n, sg in nm.items():  # type: ignore[attr-defined]
+        for i, nm in enumerate(merged_names):
+            for n, sg in nm.items():
                 seg_names.setdefault(n, []).append(i)
                 seg_sign.setdefault(n, []).append(sg)
         point_names = {nm: int(point_ids[i]) for i, (_, _, nm) in enumerate(self._points) if nm}

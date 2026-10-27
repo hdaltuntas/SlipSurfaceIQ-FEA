@@ -7,7 +7,10 @@ from PySide6.QtWidgets import QApplication
 
 
 def settings() -> QSettings:
-    return QSettings("SlipSurface", "SlipSurfaceIQ-FEA")
+    """INI file per user; tests redirect it with ``QSettings.setPath``."""
+    return QSettings(
+        QSettings.Format.IniFormat, QSettings.Scope.UserScope, "SlipSurface", "SlipSurfaceIQ-FEA"
+    )
 
 
 def available_geometry(widget=None):
@@ -38,5 +41,10 @@ def apply_theme() -> None:
     if app.property("slipsurface_light_theme"):
         return
     app.setStyle("Fusion")
+    hints = app.styleHints()
+    if hasattr(hints, "setColorScheme"):  # Qt >= 6.8: keep Windows dark mode out of the app
+        from PySide6.QtCore import Qt
+
+        hints.setColorScheme(Qt.ColorScheme.Light)
     apply_light_theme(app)
     app.setProperty("slipsurface_light_theme", True)
