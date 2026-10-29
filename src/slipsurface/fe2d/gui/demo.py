@@ -4,10 +4,14 @@ The acceptance test separately builds this model through native editor controls.
 This is an elastic GUI/API parity case, not an independent constitutive benchmark.
 """
 
+from dataclasses import replace
+
 import numpy as np
 
 from .. import api
-from ..mesh import Domain, unstructured_mesh
+from ..cad.geometry import BoundaryRule, Drawing, Entity
+from ..cad.supports import SupportAssignment
+from ..mesh import Domain, layered_box, unstructured_mesh
 from ..mesh.structures import add_bars_along, add_beams
 
 
@@ -53,4 +57,83 @@ def tunnel_model():
             "shotcrete": api.LinerSpec("shotcrete", 3e7, 0.2, 0.2, 0.2**3 / 12, 0.2 * 5 / 6, 0)
         },
         bolts={"bolt": api.BoltSpec("bolt", 200000.0, 200.0, 0.0, 1.0)},
+    )
+
+
+def excavation_model():
+    """RS2-style staged excavation with a pile wall, anchor, and two excavation lifts."""
+    drawing = Drawing(
+        entities=(
+            Entity(
+                "Zemin", "region", ((-15.0, -14.0), (15.0, -14.0), (15.0, 0.0), (-15.0, 0.0)), 1
+            ),
+            Entity("Kazi1", "region", ((-15.0, -2.0), (0.0, -2.0), (0.0, 0.0), (-15.0, 0.0)), 2),
+            Entity("Kazi2", "region", ((-15.0, -4.0), (0.0, -4.0), (0.0, -2.0), (-15.0, -2.0)), 3),
+            Entity("Kazik", "line", ((0.0, 0.0), (0.0, -9.0)), 1),
+            Entity("Ankraj1", "line", ((0.0, -1.5), (7.0, -4.5)), 1),
+        ),
+        rules=(
+            BoundaryRule("Zemin:1", True, True),
+            BoundaryRule("Zemin:2", True, False),
+            BoundaryRule("Zemin:4", True, False),
+        ),
+        h=1.8,
+        E=30000.0,
+        nu=0.3,
+        supports=(
+            SupportAssignment("Kazik", "pile"),
+            SupportAssignment("Ankraj1", "bolt"),
+        ),
+    )
+    base = drawing.build_model()
+    sand = api.MaterialSpec.elastic("Kum", 30000.0, 0.3, gamma=18.0)
+    return replace(
+        base,
+        materials={"Kum": sand},
+        region_material={1: "Kum", 2: "Kum", 3: "Kum"},
+        initial=api.InitialStress("k0_field", k0=0.5, active_structures=frozenset()),
+        stages=[
+            api.Stage(
+                "1. Kazık imalatı",
+                active_regions=None,
+                active_structures=frozenset({"cad_Kazik"}),
+                reset_displacements=True,
+            ),
+            api.Stage(
+                "2. 1. Kademe kazı (-2 m)",
+                active_regions=frozenset({1, 3}),
+                active_structures=frozenset({"cad_Kazik"}),
+            ),
+            api.Stage(
+                "3. Ankraj + 2. Kademe kazı (-4 m)",
+                active_regions=frozenset({1}),
+                active_structures=frozenset({"cad_Kazik", "cad_Ankraj1"}),
+            ),
+        ],
+    )
+
+
+def footing_model():
+    """Two-layer elastic strip footing example."""
+    mesh = layered_box(20.0, [0.0, -4.0], -12.0, nx=20, ny_per_layer=[4, 8])
+    top_edges = mesh.edges("top")
+    footing = top_edges[mesh.coords[top_edges[:, 1], 0] <= 2.0 + 1e-9]
+    mesh = api.Mesh(
+        mesh.coords, mesh.blocks, mesh.node_sets, {**mesh.edge_sets, "footing": footing}
+    )
+    return api.Model(
+        analysis=api.Analysis.PLANE_STRAIN,
+        mesh=mesh,
+        materials={
+            "kum": api.MaterialSpec.elastic("kum", E=40000.0, nu=0.30, gamma=19.0),
+            "kil": api.MaterialSpec.elastic("kil", E=15000.0, nu=0.35, gamma=18.0),
+        },
+        region_material={1: "kum", 2: "kil"},
+        fixities=(
+            api.Fixity("bottom", True, True),
+            api.Fixity("left", True, False),
+            api.Fixity("right", True, False),
+        ),
+        initial=api.InitialStress("k0_field"),
+        stages=[api.Stage("Temel yüklemesi (150 kPa)", loads=(api.EdgeLoad("footing", qn=150.0),))],
     )

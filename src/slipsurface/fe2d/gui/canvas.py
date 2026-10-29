@@ -1,14 +1,21 @@
-"""Native QGraphicsView mesh/result canvas and convergence plot."""
+"""Native QGraphicsView mesh/result canvas."""
 
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
 
 from ..core.enums import ElemType
 from ..post.recovery import principal_stresses
+from .editing import (
+    region_label,
+    stage_active_regions,
+    stage_active_structures,
+    stage_region_material,
+    structure_label,
+)
 
 _ORDERS = {
     ElemType.T3: [0, 1, 2],
@@ -21,16 +28,26 @@ _ORDERS = {
 class MeshCanvas(QGraphicsView):
     queried = Signal(str)
     mouse_world = Signal(float, float)
+    region_clicked = Signal(int)
+    structure_clicked = Signal(str)
+    context_menu_requested = Signal(int, str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setScene(QGraphicsScene(self))
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        # Keep the mesh centred while docks/panels resize the view.
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._auto_fit = False
         self.setBackgroundBrush(QColor("#f5f8fa"))
         self.model = self.stage = None
+        self.stage_index = 0
         self.cell_count = 0
         self.legend = "Geometri · m"
+        self._press_pos = None
 
     def show_model(
         self,
@@ -42,9 +59,10 @@ class MeshCanvas(QGraphicsView):
         result=None,
         principal=False,
         plastic_points=False,
+        stage_index=0,
     ):
         changed_model = self.model is not model
-        self.model, self.stage = model, stage
+        self.model, self.stage, self.stage_index = model, stage, stage_index
         self.scene().clear()
         self.cell_count = 0
         self.principal_count = self.plastic_count = 0
@@ -54,17 +72,26 @@ class MeshCanvas(QGraphicsView):
         if stage is not None:
             coords += deform * np.nan_to_num(stage.u)
         self.display_coords = coords
+        active_regs = stage_active_regions(model, stage_index)
+        active_structs = stage_active_structures(model, stage_index)
         cells, values = [], []
+        excavated_cells = []
+        region_centers: dict[int, list[np.ndarray]] = {}
         for block in mesh.continuum_blocks():
-            active = (
-                np.ones(block.ne, bool)
-                if stage is None
-                else stage.active.get(block.tag, np.ones(block.ne, bool))
-            )
-            for e in np.flatnonzero(active):
+            if stage is None:
+                active = np.isin(block.region, list(active_regs))
+            else:
+                active = stage.active.get(block.tag, np.ones(block.ne, bool))
+            for e in range(block.ne):
                 conn = block.conn[e]
+                xy = coords[conn[_ORDERS[block.etype]]]
+                reg_id = int(block.region[e])
+                region_centers.setdefault(reg_id, []).append(xy.mean(axis=0))
+                if not active[e]:
+                    excavated_cells.append((block, e, reg_id, xy))
+                    continue
                 if stage is None:
-                    value = float(block.region[e])
+                    value = float(reg_id)
                 elif field in ("|u|", "ux", "uy"):
                     v = stage.u[conn]
                     value = (
@@ -84,7 +111,7 @@ class MeshCanvas(QGraphicsView):
                         if field in ("sxx", "syy", "szz", "txy")
                         else principal_stresses(sig)[field].mean()
                     )
-                cells.append((block, e, coords[conn[_ORDERS[block.etype]]]))
+                cells.append((block, e, reg_id, xy))
                 values.append(float(value))
         finite = np.asarray(values)[np.isfinite(values)]
         lo, hi = (float(finite.min()), float(finite.max())) if finite.size else (0.0, 0.0)
@@ -92,38 +119,96 @@ class MeshCanvas(QGraphicsView):
         constant = span <= 1e-10 * max(abs(lo), abs(hi), 1.0)
         self.field_range = (lo, hi)
         self.constant_field = constant
+        ghost_pen = QPen(QColor("#94a3b8"), 0, Qt.PenStyle.DashLine)
+        ghost_brush = QColor(226, 232, 240, 60)
+        for _block, _e, reg_id, xy in excavated_cells:
+            poly = QPolygonF([QPointF(float(x), float(-y)) for x, y in xy])
+            item = self.scene().addPolygon(poly, ghost_pen, ghost_brush)
+            item.setData(0, ("region", reg_id))
+            item.setToolTip(
+                f"{region_label(model, reg_id)} · Kazıldı (boş) — sağ tık veya araçla geri doldurun"
+            )
         pen = QPen(QColor("#42657b"), 0)
-        for (block, e, xy), value in zip(cells, values):
+        region_colors = ("#c5dfe8", "#dfd4b8", "#cbdcc4", "#d7cce5", "#f2d0c4", "#bfe3dc")
+        for (block, e, reg_id, xy), value in zip(cells, values):
             t = (value - lo) / (hi - lo) if not constant and np.isfinite(value) else 0.5
             if stage is None:
-                region_colors = ("#c5dfe8", "#dfd4b8", "#cbdcc4", "#d7cce5")
-                color = QColor(region_colors[(int(value) - 1) % len(region_colors)])
+                color = QColor(region_colors[(reg_id - 1) % len(region_colors)])
             else:
                 color = QColor.fromHsvF(0.62 * (1 - np.clip(t, 0, 1)), 0.65, 0.9)
             poly = QPolygonF([QPointF(float(x), float(-y)) for x, y in xy])
             item = self.scene().addPolygon(poly, pen, color)
-            item.setToolTip(f"{block.tag} · {e} · {field if stage else 'Bölge'}: {value:.8g}")
+            item.setData(0, ("region", reg_id))
+            if stage is None:
+                mat = stage_region_material(model, stage_index, reg_id) or "Kazıldı"
+                item.setToolTip(f"{region_label(model, reg_id)} · Malzeme: {mat} · Eleman {e}")
+            else:
+                item.setToolTip(f"{block.tag} · {e} · {field}: {value:.8g}")
             self.cell_count += 1
+        if stage is None:
+            for reg_id, pts in sorted(region_centers.items()):
+                center = np.mean(pts, axis=0)
+                mat = stage_region_material(model, stage_index, reg_id)
+                r_lbl = region_label(model, reg_id)
+                badge = self.scene().addSimpleText(
+                    f"⛏ KAZILDI · {r_lbl}" if mat is None else f"{r_lbl} · {mat}"
+                )
+                badge.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+                badge.setPos(float(center[0]), float(-center[1]))
+                badge.setBrush(QColor("#b42331" if mat is None else "#123f5b"))
+                badge.setZValue(3)
         for block in mesh.blocks:
             if block.etype not in (ElemType.BEAM2, ElemType.BAR2):
                 continue
-            active = (
-                np.ones(block.ne, bool)
-                if stage is None
-                else stage.active.get(block.tag, np.ones(block.ne, bool))
-            )
-            p = QPen(QColor("#e57326" if block.etype is ElemType.BEAM2 else "#166534"), 2)
-            p.setCosmetic(True)
-            for conn in block.conn[active]:
-                a, b = coords[conn]
-                self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
+            if stage is None:
+                is_active = block.tag in active_structs
+                p = QPen(
+                    QColor(
+                        ("#e57326" if block.etype is ElemType.BEAM2 else "#166534")
+                        if is_active
+                        else "#94a3b8"
+                    ),
+                    2.6 if is_active else 1.5,
+                    Qt.PenStyle.SolidLine if is_active else Qt.PenStyle.DashLine,
+                )
+                p.setCosmetic(True)
+                s_lbl = structure_label(model, block.tag)
+                state_txt = "Aktif" if is_active else "Pasif (tıklayarak etkinleştirin)"
+                for conn in block.conn:
+                    a, b = coords[conn]
+                    line_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
+                    line_item.setZValue(2.5 if is_active else 1.8)
+                    line_item.setData(0, ("structure", block.tag))
+                    line_item.setToolTip(f"{s_lbl} · {state_txt}")
+            else:
+                active = stage.active.get(block.tag, np.ones(block.ne, bool))
+                p = QPen(QColor("#e57326" if block.etype is ElemType.BEAM2 else "#166534"), 2)
+                p.setCosmetic(True)
+                for conn in block.conn[active]:
+                    a, b = coords[conn]
+                    line_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
+                    line_item.setZValue(2.5)
+                    line_item.setData(0, ("structure", block.tag))
         unit = "m" if field in ("|u|", "ux", "uy") else "oran" if field == "plastic" else "kPa"
-        self.legend = (
-            "Geometri · m"
-            if stage is None
-            else f"{field} · {unit} · eleman ortalaması · {lo:.5g} … {hi:.5g}"
-            f" · deformasyon ×{deform:g}"
-        )
+        if stage is None:
+            st_name = (
+                "Başlangıç"
+                if stage_index <= 0 or not model.stages
+                else model.stages[min(stage_index - 1, len(model.stages) - 1)].name
+            )
+            exc_count = len(mesh.regions() - active_regs)
+            self.legend = (
+                f"Aşama önizleme: {st_name} · "
+                f"{len(active_regs)}/{len(mesh.regions())} bölge aktif"
+                + (f" ({exc_count} kazıldı)" if exc_count else "")
+                + f" · {len(active_structs)}/{len(model.structure_tags())} destek aktif"
+                + " · Bölgeye/desteğe tıklayarak veya sağ tıkla düzenleyin"
+            )
+        else:
+            self.legend = (
+                f"{field} · {unit} · eleman ortalaması · {lo:.5g} … {hi:.5g}"
+                f" · deformasyon ×{deform:g}"
+            )
         if stage is not None and result is not None:
             self.draw_overlays(result, stage, coords, principal, plastic_points)
             self.legend += self.overlay_note
@@ -202,11 +287,88 @@ class MeshCanvas(QGraphicsView):
         self.query_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], pen)
 
     def fit_model(self):
-        box = self.scene().itemsBoundingRect()
-        if not box.isEmpty():
+        # Stay fitted through layout changes (stale size of a hidden page, docks, panels)
+        # until the user zooms or pans.
+        self._auto_fit = True
+        if self.isVisible() and self.viewport().width() > 1:
+            self._apply_fit()
+
+    def _apply_fit(self):
+        # Fit the mesh nodes, not itemsBoundingRect(): transform-ignoring labels would count
+        # their pixel size as metres and shrink/shift the mesh off-centre.
+        coords = getattr(self, "display_coords", None)
+        if coords is None or not len(coords):
+            return
+        finite = coords[np.isfinite(coords).all(axis=1)]
+        if not len(finite):
+            return
+        (x0, y0), (x1, y1) = finite.min(axis=0), finite.max(axis=0)
+        box = QRectF(float(x0), float(-y1), float(x1 - x0), float(y1 - y0))
+        if box.width() > 0 or box.height() > 0:
             margin = 0.05 * max(box.width(), box.height())
-            self.setSceneRect(box.adjusted(-margin, -margin, margin, margin))
-            self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            view = box.adjusted(-margin, -margin, margin, margin)
+            room = max(box.width(), box.height()) * 20
+            self.setSceneRect(box.adjusted(-room, -room, room, room))
+            self.fitInView(view, Qt.AspectRatioMode.KeepAspectRatio)
+            self.centerOn(view.center())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._auto_fit:
+            QTimer.singleShot(0, lambda: self._auto_fit and self._apply_fit())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._auto_fit and self.isVisible():
+            self._apply_fit()
+
+    def hit_test(self, viewport_pos) -> tuple[int, str]:
+        """Return ``(region_id, structure_tag)`` at ``viewport_pos`` (0 / '' if none)."""
+        if self.model is None:
+            return 0, ""
+        rect = self.viewport().rect().adjusted(-6, -6, 6, 6)
+        from PySide6.QtCore import QRect
+
+        pick_rect = QRect(viewport_pos.x() - 6, viewport_pos.y() - 6, 12, 12)
+        items = self.items(pick_rect) if rect.contains(viewport_pos) else []
+        region_id = 0
+        struct_tag = ""
+        for item in items:
+            data = item.data(0)
+            if isinstance(data, tuple) and len(data) == 2:
+                kind, val = data
+                if kind == "structure" and not struct_tag:
+                    struct_tag = str(val)
+                elif kind == "region" and not region_id:
+                    region_id = int(val)
+        return region_id, struct_tag
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton and self._press_pos is not None:
+            pos = event.position().toPoint()
+            if (pos - self._press_pos).manhattanLength() > 5:
+                self._auto_fit = False  # the user panned
+            else:
+                reg, struct = self.hit_test(pos)
+                if struct:
+                    self.structure_clicked.emit(struct)
+                elif reg:
+                    self.region_clicked.emit(reg)
+            self._press_pos = None
+
+    def contextMenuEvent(self, event):
+        if self.model is not None:
+            reg, struct = self.hit_test(event.pos())
+            self.context_menu_requested.emit(reg, struct, event.globalPos())
+            event.accept()
+            return
+        super().contextMenuEvent(event)
 
     def mouseMoveEvent(self, event):
         p = self.mapToScene(event.position().toPoint())
@@ -214,6 +376,7 @@ class MeshCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def wheelEvent(self, event):
+        self._auto_fit = False
         self.scale(
             1.2 if event.angleDelta().y() > 0 else 1 / 1.2,
             1.2 if event.angleDelta().y() > 0 else 1 / 1.2,
@@ -237,41 +400,3 @@ class MeshCanvas(QGraphicsView):
                     msg += f" · ux={self.stage.u[node, 0]:.8g}, uy={self.stage.u[node, 1]:.8g} m"
                 self.queried.emit(msg)
         super().mouseDoubleClickEvent(event)
-
-
-class ConvergencePlot(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.values = []
-        self.setMinimumHeight(135)
-
-    def reset(self):
-        self.values.clear()
-        self.update()
-
-    def add_progress(self, progress):
-        if progress.residual is not None and not progress.accepted:
-            self.values.append(float(progress.residual))
-            self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.fillRect(self.rect(), QColor("#fff"))
-        p.setPen(QColor("#526677"))
-        p.drawText(12, 20, "Yakınsama · log₁₀ bağıl kuvvet kalıntısı")
-        box = QRectF(55, 32, max(self.width() - 75, 1), max(self.height() - 55, 1))
-        p.drawRect(box)
-        if not self.values:
-            p.drawText(box, Qt.AlignmentFlag.AlignCenter, "Çözüm bekleniyor")
-            return
-        v = np.log10(np.clip(self.values, 1e-16, 1e16))
-        lo, hi = min(float(np.nanmin(v)), -3.0), max(float(np.nanmax(v)), 0.0)
-        path = QPainterPath()
-        for i, value in enumerate(v):
-            x = box.left() + i / max(len(v) - 1, 1) * box.width()
-            y = box.bottom() - (value - lo) / max(hi - lo, 1) * box.height()
-            path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
-        p.setPen(QPen(QColor("#0e7490"), 2))
-        p.drawPath(path)
-        p.drawText(4, int(box.top()) + 5, f"{hi:.0f}")
-        p.drawText(4, int(box.bottom()), f"{lo:.0f}")

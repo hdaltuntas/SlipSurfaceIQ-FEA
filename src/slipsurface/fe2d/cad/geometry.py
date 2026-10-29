@@ -6,13 +6,13 @@ are rejected. A hole is an initially empty void, not a staged excavation region.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from shapely.geometry import LineString, Polygon
-from shapely.ops import unary_union
+from shapely.ops import polygonize, unary_union
 from shapely.validation import explain_validity
 
 from .. import api
@@ -171,6 +171,96 @@ class Drawing:
             if not np.isfinite(rule.pressure):
                 raise ValueError("Basınç sonlu olmalıdır.")
         return soil
+
+    def split_with_line(self, points, name_prefix="Kazi") -> Drawing:
+        """RS2-style excavation/layer line: subdivide existing region(s) into new region(s)."""
+        pts = [tuple(float(v) for v in xy) for xy in points]
+        if len(pts) < 2:
+            raise ValueError("Bölme çizgisi en az 2 nokta gerektirir.")
+        cutter = LineString(pts)
+        if not cutter.is_valid or cutter.length <= 1e-6:
+            raise ValueError("Bölme çizgisi geçersiz veya sıfır uzunluklu.")
+        regions = [e for e in self.entities if e.kind == "region"]
+        if not regions:
+            raise ValueError("Önce bölünecek bir zemin bölgesi çizin.")
+        holes = [e.shape() for e in self.entities if e.kind == "hole"]
+        void_union = unary_union(holes) if holes else Polygon()
+        reg_polys = [(e, e.shape()) for e in regions]
+
+        def effective_area(idx):
+            _, p = reg_polys[idx]
+            inner = [
+                q
+                for j, (_, q) in enumerate(reg_polys)
+                if j != idx and q.area < p.area and p.covers(q)
+            ]
+            rem = p.difference(unary_union(inner)) if inner else p
+            return rem.difference(void_union) if not void_union.is_empty else rem
+
+        lines = [p.boundary for _, p in reg_polys]
+        lines.extend(e.shape() for e in self.entities if e.kind == "line")
+        lines.append(cutter)
+        faces = [
+            f
+            for f in polygonize(unary_union(lines))
+            if f.area > 1e-6 and (void_union.is_empty or f.intersection(void_union).area <= 1e-9)
+        ]
+
+        # Group faces by their innermost enclosing region entity.
+        grouped: dict[int, list[Polygon]] = {i: [] for i in range(len(reg_polys))}
+        for face in faces:
+            rep = face.representative_point()
+            containing = [
+                (p.area, i) for i, (_, p) in enumerate(reg_polys) if p.covers(rep)
+            ]
+            if containing:
+                _, owner = min(containing)
+                eff = effective_area(owner)
+                if eff.covers(rep):
+                    grouped[owner].append(face)
+
+        new_faces: list[Polygon] = []
+        for _owner, subfaces in grouped.items():
+            if len(subfaces) >= 2:
+                # Keep one face as the parent region (lowest centroid y / largest area),
+                # and turn the carved upper/smaller face(s) into new excavatable regions.
+                ordered = sorted(
+                    subfaces,
+                    key=lambda f: (-round(f.centroid.y, 6), round(f.area, 6)),
+                )
+                new_faces.extend(ordered[:-1])
+
+        if not new_faces:
+            raise ValueError(
+                "Çizgi herhangi bir bölgeyi iki kapalı parçaya ayırmadı. "
+                "Çizgi uçlarını bölge sınırlarına veya kazığa birleştirin."
+            )
+
+        existing_names = {e.name for e in self.entities}
+        next_reg = max((e.region for e in regions), default=0) + 1
+        added = []
+        num = 1
+        for face in new_faces:
+            while f"{name_prefix}{num}" in existing_names:
+                num += 1
+            cname = f"{name_prefix}{num}"
+            existing_names.add(cname)
+            raw_coords = list(face.exterior.coords[:-1])
+            cleaned: list[tuple[float, float]] = []
+            for xy in raw_coords:
+                pt = (round(float(xy[0]), 9), round(float(xy[1]), 9))
+                if not cleaned or np.hypot(pt[0] - cleaned[-1][0], pt[1] - cleaned[-1][1]) > 1e-7:
+                    cleaned.append(pt)
+            if len(cleaned) > 1 and np.hypot(
+                cleaned[0][0] - cleaned[-1][0], cleaned[0][1] - cleaned[-1][1]
+            ) <= 1e-7:
+                cleaned.pop()
+            added.append(Entity(cname, "region", tuple(cleaned), next_reg))
+            next_reg += 1
+
+        updated = replace(self, entities=(*self.entities, *added))
+        updated.validate()
+        return updated
 
     def domain(self):
         self.validate()

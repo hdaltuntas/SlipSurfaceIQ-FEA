@@ -7,8 +7,17 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QColor,
+    QKeySequence,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,15 +35,17 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSpinBox,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -44,7 +55,13 @@ from ..cad.dxf import read_dxf, write_dxf
 from ..cad.geometry import BoundaryRule, Drawing, Entity, snap_point
 from ..cad.supports import SupportAssignment
 from .drawing_supports import DrawingSupportPanel
+from .icons import icon
 from .rulers import ruled_canvas
+
+IDLE_HINT = (
+    "Hazır · Sol tık: seç · Sürükle: kaydır · Köşe sürükle: taşı · "
+    "Çift tık: özellikler · Sağ tık: menü · Tekerlek: yakınlaştır"
+)
 
 
 class CadCanvas(QGraphicsView):
@@ -54,6 +71,9 @@ class CadCanvas(QGraphicsView):
     cursor_changed = Signal(str)
     mouse_world = Signal(float, float)
     entity_selected = Signal(int)
+    entity_activated = Signal(int)
+    context_requested = Signal(int, str, object)
+    vertex_moved = Signal(object, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -64,6 +84,8 @@ class CadCanvas(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        # Keep the drawing centred when the workspace resizes (dock/notice/panels toggling).
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.entities = ()
         self.pending = []
         self.drawing = False
@@ -75,6 +97,9 @@ class CadCanvas(QGraphicsView):
         self.edge_labels = False
         self.preview = None
         self._pan_position = None
+        self._press_position = None
+        self._drag_vertex = None
+        self._auto_fit = False
         self.rectangle = False
         self.circle = False
         self.supports = {}
@@ -94,6 +119,7 @@ class CadCanvas(QGraphicsView):
     def redraw(self, entities, pending=(), selected=None):
         self.entities, self.pending = entities, list(pending)
         self.scene().clear()
+        region_palette = ("#65b4c8", "#e2b878", "#82c39b", "#b39ddb", "#e5989b", "#80cbc4")
         for e in entities:
             path = QPainterPath(QPointF(e.points[0][0], -e.points[0][1]))
             for x, y in e.points[1:]:
@@ -107,12 +133,24 @@ class CadCanvas(QGraphicsView):
             pen = QPen(QColor("#ed8c24" if e.name == selected else color))
             pen.setWidthF(3 if support or e.name == selected else 1)
             pen.setCosmetic(True)
-            brush = QColor("#ffffff" if e.kind == "hole" else "#65b4c8")
-            brush.setAlpha(75 if e.kind == "region" else 255)
+            fill_hex = (
+                "#ffffff"
+                if e.kind == "hole"
+                else region_palette[(max(int(e.region), 1) - 1) % len(region_palette)]
+            )
+            brush = QColor(fill_hex)
+            brush.setAlpha(85 if e.kind == "region" else 255)
             item = self.scene().addPath(path, pen)
             if e.kind != "line":
                 item.setBrush(brush)
             item.setZValue(-e.shape().area if e.kind != "line" else 1)
+            if e.kind == "region":
+                rep = e.shape().representative_point()
+                tag_lbl = self.scene().addSimpleText(f"{e.name} (B{e.region})")
+                tag_lbl.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+                tag_lbl.setPos(float(rep.x), float(-rep.y))
+                tag_lbl.setBrush(QColor("#1e3a4c"))
+                tag_lbl.setZValue(1.5)
             for name, (a, b) in zip(e.edge_names(), e.segments()) if self.edge_labels else []:
                 mid = (np.asarray(a) + b) / 2
                 label = self.scene().addSimpleText(name)
@@ -134,7 +172,8 @@ class CadCanvas(QGraphicsView):
                 dot.setZValue(4)
         # Expand, never auto-zoom on each click (keeps drafting coordinates stable).
         rect = self.scene().itemsBoundingRect()
-        self.setSceneRect(self.sceneRect().united(rect.adjusted(-3, -3, 3, 3)))
+        size = max(rect.width(), rect.height(), 10.0)
+        self.setSceneRect(self.sceneRect().united(rect.adjusted(-size, -size, size, size)))
 
     def drawBackground(self, painter, rect):
         super().drawBackground(painter, rect)
@@ -152,6 +191,13 @@ class CadCanvas(QGraphicsView):
             painter.drawLine(QPointF(rect.left(), float(y)), QPointF(rect.right(), float(y)))
 
     def fit_drawing(self):
+        # Stay fitted through layout changes (stale size of a hidden page, docks, panels)
+        # until the user zooms or pans.
+        self._auto_fit = True
+        if self.isVisible() and self.viewport().width() > 1:
+            self._apply_fit()
+
+    def _apply_fit(self):
         points = [p for e in self.entities for p in e.points]
         if points:
             p = np.asarray(points)
@@ -161,13 +207,84 @@ class CadCanvas(QGraphicsView):
             rect = QRectF(x0 - margin, -y1 - margin, x1 - x0 + 2 * margin, y1 - y0 + 2 * margin)
         else:
             rect = QRectF(-2, -8, 16, 10)
-        self.setSceneRect(rect)
+        # Generous, square panning room so any point can be brought to the view centre.
+        room = max(rect.width(), rect.height()) * 20
+        self.setSceneRect(rect.adjusted(-room, -room, room, room))
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
-        self.setSceneRect(
-            rect.adjusted(
-                -rect.width() * 4, -rect.height() * 4, rect.width() * 4, rect.height() * 4
-            )
-        )
+        self.centerOn(rect.center())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._auto_fit:
+            QTimer.singleShot(0, lambda: self._auto_fit and self._apply_fit())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._auto_fit and self.isVisible():
+            self._apply_fit()
+
+    def _tolerance(self, pixels):
+        return pixels / max(abs(self.transform().m11()), 1e-12)
+
+    def hit_entity(self, position):
+        """Index of the entity under ``position`` (edges before interiors), or -1."""
+        from shapely.geometry import Point
+
+        p = self.mapToScene(position)
+        point = Point(p.x(), -p.y())
+        tolerance = self._tolerance(8)
+        hits = []
+        for index, entity in enumerate(self.entities):
+            shape = entity.shape()
+            boundary = shape if entity.kind == "line" else shape.boundary
+            distance = boundary.distance(point)
+            if distance <= tolerance:
+                hits.append((0, distance, index))
+            elif entity.kind != "line" and shape.covers(point):
+                hits.append((1, shape.area, index))
+        return min(hits)[2] if hits else -1
+
+    def hit_edge(self, position, index):
+        """Name of the edge of entity ``index`` nearest to ``position`` within 8 px."""
+        if not 0 <= index < len(self.entities):
+            return ""
+        p = self.mapToScene(position)
+        q = np.array([p.x(), -p.y()])
+        best, name = self._tolerance(8), ""
+        entity = self.entities[index]
+        for edge, (a, b) in zip(entity.edge_names(), entity.segments()):
+            a, b = np.asarray(a, float), np.asarray(b, float)
+            d = b - a
+            t = np.clip(np.dot(q - a, d) / max(np.dot(d, d), 1e-30), 0, 1)
+            dist = float(np.linalg.norm(a + t * d - q))
+            if dist <= best:
+                best, name = dist, edge
+        return name
+
+    def hit_vertex(self, position):
+        p = self.mapToScene(position)
+        q = np.array([p.x(), -p.y()])
+        best, found = self._tolerance(7), None
+        for entity in self.entities:
+            for vertex in entity.points:
+                dist = float(np.linalg.norm(np.asarray(vertex) - q))
+                if dist <= best:
+                    best, found = dist, tuple(vertex)
+        return found
+
+    def _vertex_neighbours(self, vertex):
+        pairs = []
+        for entity in self.entities:
+            pts = list(entity.points)
+            for i, v in enumerate(pts):
+                if tuple(v) != vertex:
+                    continue
+                closed = entity.kind != "line"
+                if i > 0 or closed:
+                    pairs.append(pts[i - 1])
+                if i + 1 < len(pts) or closed:
+                    pairs.append(pts[(i + 1) % len(pts)])
+        return pairs
 
     def mapped_point(self, position):
         p = self.mapToScene(position)
@@ -222,6 +339,15 @@ class CadCanvas(QGraphicsView):
         painter.drawText(origin + QPointF(-4, -44), "Y")
         painter.drawText(QPointF(14, 22), "XY · metre")
         painter.restore()
+        if self._drag_vertex is not None:
+            old, new, neighbours = self._drag_vertex
+            pen = QPen(QColor("#ed8c24"), 2, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            for x, y in neighbours:
+                painter.drawLine(QPointF(x, -y), QPointF(new[0], -new[1]))
+            radius = self._tolerance(5)
+            painter.drawRect(QRectF(new[0] - radius, -new[1] - radius, 2 * radius, 2 * radius))
         if self.drawing and self.preview is not None:
             x, y = self.preview
             pen = QPen(QColor("#b65f00"), 1, Qt.PenStyle.DashLine)
@@ -248,7 +374,20 @@ class CadCanvas(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
             event.accept()
             return
+        if (
+            self._press_position is not None
+            and (position - self._press_position).manhattanLength() > 4
+        ):
+            # Left-drag on empty space or an object pans, like the middle button.
+            self._pan_position = self._press_position
+            self._press_position = None
+            self._auto_fit = False
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.mouseMoveEvent(event)
+            return
         q, mode = self.mapped_point(position)
+        if self._drag_vertex is not None:
+            self._drag_vertex = (self._drag_vertex[0], q, self._drag_vertex[2])
         self.preview = q
         self.mouse_world.emit(*q)
         self.cursor_changed.emit(f"x={q[0]:.4f} m   y={q[1]:.4f} m   · {mode}")
@@ -258,6 +397,7 @@ class CadCanvas(QGraphicsView):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._pan_position = event.position().toPoint()
+            self._auto_fit = False
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
         elif self.drawing and event.button() == Qt.MouseButton.LeftButton:
@@ -268,34 +408,61 @@ class CadCanvas(QGraphicsView):
             self.finish_requested.emit()
             event.accept()
         elif event.button() == Qt.MouseButton.LeftButton:
-            from shapely.geometry import Point
-
-            p = self.mapToScene(event.position().toPoint())
-            point = Point(p.x(), -p.y())
-            tolerance = 8 / max(abs(self.transform().m11()), 1e-12)
-            hits = []
-            for index, entity in enumerate(self.entities):
-                shape = entity.shape()
-                boundary = shape if entity.kind == "line" else shape.boundary
-                distance = boundary.distance(point)
-                if distance <= tolerance:
-                    hits.append((0, distance, index))
-                elif entity.kind != "line" and shape.covers(point):
-                    hits.append((1, shape.area, index))
-            self.entity_selected.emit(min(hits)[2] if hits else -1)
+            position = event.position().toPoint()
+            vertex = self.hit_vertex(position)
+            if vertex is not None:
+                self._drag_vertex = (vertex, vertex, self._vertex_neighbours(vertex))
+                self.setCursor(Qt.CursorShape.SizeAllCursor)
+            else:
+                self._press_position = position
             event.accept()
         else:
             super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.MiddleButton:
+        button = event.button()
+        if button in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton) and (
+            self._pan_position is not None
+        ):
             self._pan_position = None
             self.setCursor(
                 Qt.CursorShape.CrossCursor if self.drawing else Qt.CursorShape.ArrowCursor
             )
             event.accept()
+        elif button == Qt.MouseButton.LeftButton and self._drag_vertex is not None:
+            old, new, _ = self._drag_vertex
+            self._drag_vertex = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            if tuple(new) != tuple(old):
+                self.vertex_moved.emit(tuple(old), tuple(new))
+            else:
+                self.entity_selected.emit(self.hit_entity(event.position().toPoint()))
+            self.viewport().update()
+            event.accept()
+        elif button == Qt.MouseButton.LeftButton and self._press_position is not None:
+            self._press_position = None
+            self.entity_selected.emit(self.hit_entity(event.position().toPoint()))
+            event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mouseDoubleClickEvent(event)
+        elif self.drawing:
+            self.finish_requested.emit()
+        else:
+            self._press_position = None
+            self.entity_activated.emit(self.hit_entity(event.position().toPoint()))
+        event.accept()
+
+    def contextMenuEvent(self, event):
+        if self.drawing:
+            event.accept()
+            return
+        index = self.hit_entity(event.pos())
+        self.context_requested.emit(index, self.hit_edge(event.pos(), index), event.globalPos())
+        event.accept()
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.drawing:
@@ -307,6 +474,7 @@ class CadCanvas(QGraphicsView):
 
     def wheelEvent(self, event):
         factor = 1.2 if event.angleDelta().y() > 0 else 1 / 1.2
+        self._auto_fit = False
         if 1e-4 < abs(self.transform().m11()) * factor < 1e6:
             self.scale(factor, factor)
 
@@ -341,6 +509,7 @@ class CadDialog(QDialog):
     model_ready = Signal(object)
     worker_stopped = Signal()
     drawing_changed = Signal()
+    structure_requested = Signal(str)
 
     def __init__(self, model=None, parent=None, *, embedded=False):
         super().__init__(parent)
@@ -353,6 +522,7 @@ class CadDialog(QDialog):
         self.circle_mode = False
         self.draw_support_kind = None
         self.rectangle_mode = False
+        self.split_mode = False
         self.setWindowTitle("SlipSurfaceIQ · Geometri ve ağ")
         self.resize(1320, 880)
         self.document = Drawing.from_dict(model.geometry) if model and model.geometry else Drawing()
@@ -396,8 +566,6 @@ class CadDialog(QDialog):
         if embedded:
             for i in range(toolbar.count()):
                 toolbar.itemAt(i).widget().hide()
-        split = QSplitter()
-        self.splitter = split
         side = QWidget()
         form = QFormLayout(side)
         self.entities = QListWidget()
@@ -423,11 +591,8 @@ class CadDialog(QDialog):
         form.addRow("Bölge no", self.region)
         form.addRow("Koordinatlar (m)", self.coordinates)
         for title, callback in [
-            ("Fareyle yeni çiz", self.begin_drawing),
-            ("Çizimi bitir (Enter / sağ tık)", self.finish_drawing),
-            ("Koordinatlardan ekle", self.add_from_text),
-            ("Seçileni güncelle", self.update_entity),
-            ("Seçileni sil", self.delete_entity),
+            ("Uygula", self.update_entity),
+            ("Sil", self.delete_entity),
         ]:
             b = QPushButton(title)
             b.clicked.connect(callback)
@@ -437,55 +602,21 @@ class CadDialog(QDialog):
         self.canvas.finish_requested.connect(self.finish_drawing)
         self.canvas.cancelled.connect(self.cancel_drawing)
         self.canvas.entity_selected.connect(self.select_from_canvas)
-        side.setMaximumWidth(350)
-        side.setMinimumWidth(260)
-        split.addWidget(side)
-        split.addWidget(ruled_canvas(self.canvas))
-        split.setSizes([310, 950])
-        drawing_tools = QHBoxLayout()
-        for title, callback in [
-            ("Seç · Esc", self.cancel_drawing),
-            ("Çokgen", lambda: self.start_tool("region")),
-            ("Dikdörtgen", lambda: self.start_tool("region", rectangle=True)),
-            ("Boşluk", lambda: self.start_tool("hole")),
-            ("Çoklu çizgi", lambda: self.start_tool("line")),
-            ("Tümünü sığdır", self.canvas.fit_drawing),
-        ]:
-            button = QPushButton(title)
-            button.clicked.connect(callback)
-            drawing_tools.addWidget(button)
-        self.geometry_tools = QWidget()
-        self.geometry_tools.setLayout(drawing_tools)
-        drawing_tools.setContentsMargins(0, 0, 0, 0)
-        editor_layout.addWidget(self.geometry_tools)
-        support_tools = QHBoxLayout()
-        self.tool_buttons = {}
-        for title, tool in [
-            ("Kazık çiz", "pile"),
-            ("Tünel çiz", "tunnel"),
-            ("Kaplama çiz", "liner"),
-            ("Ankraj / çivi çiz", "bolt"),
-        ]:
-            button = QPushButton(title)
-            button.clicked.connect(lambda _=False, t=tool: self.start_engineering_tool(t))
-            support_tools.addWidget(button)
-            self.tool_buttons[tool] = button
-        self.tunnel_lining = QCheckBox("Tünele kaplama ekle")
+        self.canvas.entity_activated.connect(self.activate_entity)
+        self.canvas.context_requested.connect(self.canvas_menu)
+        self.canvas.vertex_moved.connect(self.move_vertex)
+        self.tunnel_lining = QAction("Tünele kaplama ekle", self)
+        self.tunnel_lining.setCheckable(True)
         self.tunnel_lining.setChecked(True)
-        self.tunnel_lining.setToolTip("Merkez ve yarıçap ile 32 kenarlı dairesel boşluk oluşturur.")
-        support_tools.addWidget(self.tunnel_lining)
-        self.tunnel_excavation = QCheckBox("Aşamalı kazı bölgesi")
-        self.tunnel_excavation.setToolTip(
-            "Tüneli ayrı malzeme bölgesi olarak doldurur. Aşamalar bölümünde bu bölgeyi kazın."
-        )
-        support_tools.addWidget(self.tunnel_excavation)
-        self.support_tools = QWidget()
-        self.support_tools.setLayout(support_tools)
-        support_tools.setContentsMargins(0, 0, 0, 0)
-        editor_layout.addWidget(self.support_tools)
-        if embedded:
-            self.support_tools.hide()
-        editor_layout.addWidget(split, 1)
+        self.tunnel_excavation = QAction("Tünel içini aşamalı kazı bölgesi yap", self)
+        self.tunnel_excavation.setCheckable(True)
+        self.tool_strip = self._build_tool_strip()
+        drafting = QHBoxLayout()
+        drafting.setContentsMargins(0, 0, 0, 0)
+        drafting.setSpacing(0)
+        drafting.addWidget(self.tool_strip)
+        drafting.addWidget(ruled_canvas(self.canvas), 1)
+        editor_layout.addLayout(drafting, 1)
         settings = QHBoxLayout()
         self.ortho = QCheckBox("Dik çizim · F8")
         self.ortho.toggled.connect(lambda v: setattr(self.canvas, "ortho", v))
@@ -559,8 +690,6 @@ class CadDialog(QDialog):
         self.conditions.itemChanged.connect(lambda _item: self.drawing_changed.emit())
         boundary_layout.addWidget(self.conditions)
         inspector = QTabWidget()
-        inspector.setMinimumWidth(300)
-        inspector.setMaximumWidth(390)
         properties_scroll = QScrollArea()
         properties_scroll.setWidgetResizable(True)
         properties_scroll.setWidget(side)
@@ -570,14 +699,13 @@ class CadDialog(QDialog):
         self.support_panel.apply_requested.connect(self.apply_support)
         inspector.addTab(self.support_panel, "Destek")
         self.inspector = inspector
-        split.insertWidget(0, inspector)
-        split.setStretchFactor(0, 0)
-        split.setStretchFactor(1, 1)
-        split.setSizes([330, 950])
+        # Properties open on demand (double-click / right-click) instead of a fixed side panel.
+        self.inspector_window = QDialog(self, Qt.WindowType.Tool)
+        self.inspector_window.setWindowTitle("Özellikler")
+        self.inspector_window.resize(380, 620)
+        QVBoxLayout(self.inspector_window).addWidget(inspector)
         root.addWidget(self.editor, 1)
-        self.status = QLabel(
-            "Hazır · Sol tık: nesne seç · Orta tuş: kaydır · Tekerlek: yakınlaştır"
-        )
+        self.status = QLabel(IDLE_HINT)
         self.status.setWordWrap(True)
         self.status.setMinimumHeight(22)
         self.status.setMaximumHeight(22) if embedded else None
@@ -630,8 +758,6 @@ class CadDialog(QDialog):
         return bool(self.pending) or self.current_drawing() != self.model_drawing
 
     def load_model(self, model):
-        if self.embedded:
-            self.rebuild_notice.setVisible(model is not None)
         self.document = Drawing.from_dict(model.geometry) if model and model.geometry else Drawing()
         self.saved_drawing = self.model_drawing = self.document
         self.undo_stack.clear()
@@ -660,8 +786,7 @@ class CadDialog(QDialog):
             if tool == "tunnel"
             else tool
         )
-        if self.embedded:
-            self.set_tool_group(True)
+        self._mark_tool(tool)
         self.status.setStyleSheet("")
         self.status.setText(
             "Tünel: merkez, ardından çember üzerinde bir nokta seçin."
@@ -669,9 +794,194 @@ class CadDialog(QDialog):
             else "Destek: noktaları seçin; Enter ile bitirin."
         )
 
-    def set_tool_group(self, supports=False):
-        self.geometry_tools.setVisible(not supports)
-        self.support_tools.setVisible(supports)
+    def _build_tool_strip(self):
+        """Plaxis-style vertical icon strip: pick a tool, then draw on the canvas."""
+        strip = QToolBar("Çizim araçları")
+        strip.setOrientation(Qt.Orientation.Vertical)
+        strip.setIconSize(QSize(20, 20))
+        strip.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        strip.setStyleSheet("QToolButton { padding: 3px; margin: 1px; }")
+        self.tool_group = QActionGroup(self)
+        self.tool_group.setExclusive(True)
+        self.tool_actions = {}
+
+        def tool(key, title, ic, slot, shortcut=None):
+            a = QAction(icon(ic), title, strip)
+            a.setCheckable(True)
+            a.setToolTip(f"{title} ({shortcut})" if shortcut else title)
+            if shortcut:
+                # A QShortcut, not a dialog action: actions owned by the dialog would be
+                # removed from it while it is half-destroyed.
+                key_shortcut = QShortcut(QKeySequence(shortcut), self)
+                key_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+                key_shortcut.activated.connect(a.trigger)
+            a.triggered.connect(slot)
+            self.tool_group.addAction(a)
+            self.tool_actions[key] = a
+            strip.addAction(a)
+            return a
+
+        tool("select", "Seç / düzenle", "select", self.cancel_drawing, "Esc")
+        strip.addSeparator()
+        tool("region", "Çokgen bölge", "cad_polygon", lambda: self.start_tool("region"), "P")
+        tool(
+            "rect",
+            "Dikdörtgen bölge",
+            "cad_rect",
+            lambda: self.start_tool("region", rectangle=True),
+            "R",
+        )
+        tool("split", "Kazı / bölme çizgisi", "cad_split", lambda: self.start_tool("split"), "B")
+        tool("hole", "Boşluk", "cad_hole", lambda: self.start_tool("hole"), "H")
+        tool("line", "Ağ kısıt çizgisi", "cad_polyline", lambda: self.start_tool("line"), "L")
+        strip.addSeparator()
+        for key, title, ic, shortcut in [
+            ("pile", "Kazık", "cad_pile", "K"),
+            ("tunnel", "Tünel (merkez + yarıçap)", "cad_tunnel", "T"),
+            ("liner", "Kaplama / kiriş", "cad_liner", "C"),
+            ("bolt", "Ankraj / zemin çivisi", "bolt", "A"),
+        ]:
+            tool(key, title, ic, lambda _=False, k=key: self.start_engineering_tool(k), shortcut)
+        tunnel_button = strip.widgetForAction(self.tool_actions["tunnel"])
+        if isinstance(tunnel_button, QToolButton):
+            options = QMenu(tunnel_button)
+            options.addAction(self.tunnel_lining)
+            options.addAction(self.tunnel_excavation)
+            tunnel_button.setMenu(options)
+            tunnel_button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
+            self.tool_actions["tunnel"].setToolTip(
+                "Tünel (merkez + yarıçap) · T · Basılı tutun: kaplama / kazı seçenekleri"
+            )
+        strip.addSeparator()
+        for title, ic, slot in [
+            ("Tümünü sığdır (F2)", "zoom_all", self.canvas.fit_drawing),
+            ("Seçileni sil (Del)", "delete", self.delete_entity),
+            ("Özellikler / mesnet / destek", "settings", lambda: self.show_inspector()),
+        ]:
+            a = strip.addAction(icon(ic), title)
+            a.triggered.connect(slot)
+        self.delete_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self)
+        self.delete_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.delete_shortcut.activated.connect(self.delete_entity)
+        self.tool_actions["select"].setChecked(True)
+        return strip
+
+    def _mark_tool(self, key):
+        action = self.tool_actions.get(key)
+        if action is not None and not action.isChecked():
+            action.setChecked(True)
+
+    def show_inspector(self, tab=None):
+        """Open the floating properties window, optionally on a given tab."""
+        if tab is not None:
+            self.inspector.setCurrentIndex(tab)
+        self.inspector_window.show()
+        self.inspector_window.raise_()
+
+    def activate_entity(self, index):
+        """Double-click: a meshed support opens its N–V–M diagram, anything else its properties."""
+        if not 0 <= index < len(self.document.entities):
+            return
+        self.select_from_canvas(index)
+        entity = self.document.entities[index]
+        support = next((s for s in self.document.supports if s.entity == entity.name), None)
+        if support is not None and not self.mesh_outdated:
+            self.structure_requested.emit(f"cad_{entity.name}")
+            return
+        self.show_inspector(2 if support is not None else 0)
+
+    def canvas_menu(self, index, edge, global_pos):
+        menu = QMenu(self)
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        if 0 <= index < len(self.document.entities):
+            self.select_from_canvas(index)
+            entity = self.document.entities[index]
+            support = next((s for s in self.document.supports if s.entity == entity.name), None)
+            header = menu.addAction(entity.name)
+            header.setEnabled(False)
+            menu.addAction("Özellikler…", lambda: self.show_inspector(0))
+            menu.addAction("Destek ata / düzenle…", lambda: self.show_inspector(2))
+            if support is not None:
+                diagram = menu.addAction(
+                    "Kesit tesirleri (N–V–M)…",
+                    lambda: self.structure_requested.emit(f"cad_{entity.name}"),
+                )
+                diagram.setEnabled(not self.mesh_outdated)
+            if edge:
+                menu.addSeparator()
+                rule = next(
+                    (r for r in self.current_drawing().rules if r.edge == edge),
+                    BoundaryRule(edge),
+                )
+                title = menu.addAction(f"Kenar {edge}")
+                title.setEnabled(False)
+                for label, field in [("ux sabit", "ux"), ("uy sabit", "uy")]:
+                    a = menu.addAction(label)
+                    a.setCheckable(True)
+                    a.setChecked(getattr(rule, field))
+                    a.triggered.connect(
+                        lambda on, f=field, e=edge: self.set_edge_rule(e, **{f: on})
+                    )
+                menu.addAction(
+                    f"Basınç… ({rule.pressure:g} kPa)", lambda e=edge: self.ask_pressure(e)
+                )
+                menu.addAction("Mesnet / yük tablosu…", lambda: self.show_inspector(1))
+            menu.addSeparator()
+            menu.addAction(icon("delete"), "Sil", self.delete_entity)
+        else:
+            for key in ("region", "rect", "split", "hole", "line", "pile", "tunnel", "bolt"):
+                tool = self.tool_actions[key]
+                menu.addAction(tool.icon(), tool.text(), tool.trigger)
+            menu.addSeparator()
+            menu.addAction("Tümünü sığdır", self.canvas.fit_drawing)
+            menu.addAction("Mesnet / yük tablosu…", lambda: self.show_inspector(1))
+            menu.addAction("Ağ ayarları (h, E, ν)…", lambda: self.show_inspector(0))
+        menu.exec(global_pos)
+
+    def set_edge_rule(self, edge, **changes):
+        current = self.current_drawing()
+        rule = next((r for r in current.rules if r.edge == edge), BoundaryRule(edge))
+        rule = replace(rule, **changes)
+        rules = tuple(r for r in current.rules if r.edge != edge)
+        if rule.ux or rule.uy or rule.pressure:
+            rules += (rule,)
+        self.commit(replace(current, rules=rules))
+        self.status.setText(
+            f"{edge}: ux={'sabit' if rule.ux else 'serbest'}, "
+            f"uy={'sabit' if rule.uy else 'serbest'}, p={rule.pressure:g} kPa"
+        )
+
+    def ask_pressure(self, edge):
+        rule = next((r for r in self.current_drawing().rules if r.edge == edge), BoundaryRule(edge))
+        value, ok = QInputDialog.getDouble(
+            self,
+            "Kenar basıncı",
+            f"{edge} · basınç (kPa, içeri pozitif)",
+            rule.pressure,
+            -1e12,
+            1e12,
+            3,
+        )
+        if ok:
+            self.set_edge_rule(edge, pressure=value)
+
+    def move_vertex(self, old, new):
+        """Move every coincident copy of a vertex so neighbouring regions stay conforming."""
+        current = self.current_drawing()
+        old = np.asarray(old, float)
+
+        def moved(points):
+            return tuple(
+                tuple(new) if np.allclose(point, old, rtol=0, atol=1e-9) else tuple(point)
+                for point in points
+            )
+
+        entities = tuple(replace(e, points=moved(e.points)) for e in current.entities)
+        index = self.entities.currentRow()
+        self.commit(replace(current, entities=entities))
+        if index >= 0:
+            self.entities.setCurrentRow(index)
+        self.status.setText(f"Köşe taşındı → x={new[0]:.4g}, y={new[1]:.4g} m · Ctrl+Z: geri al")
 
     def apply_support(self):
         index = self.entities.currentRow()
@@ -701,7 +1011,23 @@ class CadDialog(QDialog):
         self.canvas.viewport().update()
 
     def start_tool(self, kind, rectangle=False):
+        if kind == "split":
+            self.kind.setCurrentIndex(self.kind.findData("line"))
+            self.begin_drawing()
+            self._mark_tool("split")
+            self.split_mode = True
+            self.status.setText(
+                "Kazı / bölme çizgisi: bölge sınırları veya kazık arasında noktaları seçin "
+                "(Enter/sağ tık: bölgeyi böl)."
+            )
+            return
         self.kind.setCurrentIndex(self.kind.findData(kind))
+        if kind == "region":
+            next_r = (
+                max((e.region for e in self.document.entities if e.kind == "region"), default=0) + 1
+            )
+            self.region.setValue(next_r)
+        self._mark_tool("rect" if rectangle else kind)
         prefix = {"region": "Bolge", "hole": "Bosluk", "line": "Cizgi"}[kind]
         names = {entity.name for entity in self.document.entities}
         number = 1
@@ -729,9 +1055,9 @@ class CadDialog(QDialog):
 
     def cursor_status(self, text):
         hint = (
-            f" · {len(self.pending)} nokta · Enter: bitir"
+            f" · {len(self.pending)} nokta · Çift tık / Enter / sağ tık: bitir · Esc: iptal"
             if self.canvas.drawing
-            else " · Sol tık: seç · Orta tuş: kaydır · Tekerlek: yakınlaştır"
+            else " · Sürükle: kaydır · Köşe sürükle: taşı · Çift tık: özellikler · Sağ tık: menü"
         )
         self.status.setText(text + hint)
 
@@ -865,6 +1191,7 @@ class CadDialog(QDialog):
         self.circle_mode = self.canvas.circle = False
         self.draw_support_kind = None
         self.rectangle_mode = self.canvas.rectangle = False
+        self.split_mode = False
         self.pending = []
         self.canvas.redraw(self.document.entities)
         self.canvas.set_drawing(True)
@@ -912,15 +1239,28 @@ class CadDialog(QDialog):
         self.circle_mode = self.canvas.circle = False
         self.draw_support_kind = None
         self.rectangle_mode = self.canvas.rectangle = False
+        self.split_mode = False
         self.pending = []
         self.canvas.set_drawing(False)
         self.canvas.redraw(self.document.entities)
+        if hasattr(self, "tool_actions"):
+            self._mark_tool("select")
 
     def finish_drawing(self):
         if not self.pending:
             return
         try:
-            self.add_entity(self.entity_from_points(self.pending))
+            if self.split_mode:
+                updated = self.current_drawing().split_with_line(self.pending)
+                self.commit(updated)
+                self.entities.setCurrentRow(len(self.document.entities) - 1)
+                new_ent = self.document.entities[-1]
+                self.status.setText(
+                    f"{new_ent.name} (Bölge {new_ent.region}) oluşturuldu · "
+                    "Aşamalar sekmesinde bu bölgeyi kazabilirsiniz."
+                )
+            else:
+                self.add_entity(self.entity_from_points(self.pending))
         except Exception as exc:
             self.show_error(exc)
 

@@ -47,7 +47,6 @@ def test_native_solve_equals_script_and_project_roundtrip(application, tmp_path)
     window.fields.setCurrentText("syy")
     assert window.canvas.constant_field  # roundoff must not become a false contour
     assert window.progress.value() == 100
-    assert window.plot.values
     assert window.canvas.cell_count == sum(b.ne for b in expected.model.mesh.continuum_blocks())
     path = tmp_path / "desktop.ssproj"
     window.save_path(path)
@@ -55,7 +54,6 @@ def test_native_solve_equals_script_and_project_roundtrip(application, tmp_path)
     other.open_path(path)
     assert np.array_equal(other.result.last.u, expected.last.u)
     assert other.selected_stage().name == expected.last.name
-    assert other.plot.values
     assert other.progress.value() == 100
     window.close()
     other.close()
@@ -197,4 +195,76 @@ def test_startup_is_empty_project_and_actions_need_a_model(application):
     assert window.model is None
     window.set_model(sample_model(nx=2, ny=2))
     assert window.model is not None and window.stages.count() > 0
+    window.close()
+
+
+def test_main_entry_does_not_open_main_py_as_json_and_examples_under_file_menu(
+    application, monkeypatch
+):
+    from slipsurface.fe2d.gui import app as gui_app
+
+    opened = []
+    monkeypatch.setattr(MainWindow, "open_path", lambda self, p: opened.append(p))
+    monkeypatch.setattr(MainWindow, "show", lambda self: None)
+    monkeypatch.setattr(application, "exec", lambda: 0)
+    assert gui_app.main(["main.py"]) == 0
+    assert gui_app.main([]) == 0
+    assert opened == []
+
+    window = MainWindow()
+    top_menus = [a.text() for a in window.menuBar().actions()]
+    assert "Örnekler" not in top_menus
+    file_menu = next(a.menu() for a in window.menuBar().actions() if a.text() == "Dosya")
+    submenus = [a.text() for a in file_menu.actions() if a.menu() is not None]
+    assert "Örnekler" in submenus
+    example_titles = [a.text() for a in window.examples_menu.actions()]
+    assert any("tünel" in t.lower() for t in example_titles)
+    assert any("kazı" in t.lower() for t in example_titles)
+    window.close()
+
+
+def test_rs2_staged_excavation_workflow_split_and_interactive_assign(application):
+    from slipsurface.fe2d.cad.geometry import Drawing, Entity
+    from slipsurface.fe2d.cad.supports import SupportAssignment
+
+    # 1. Split soil region with pile + horizontal excavation line (RS2 style)
+    drawing = Drawing(
+        entities=(
+            Entity("Zemin", "region", ((0.0, 0.0), (12.0, 0.0), (12.0, 6.0), (0.0, 6.0)), 1),
+            Entity("Kazik", "line", ((5.0, 6.0), (5.0, 1.5)), 1),
+        ),
+        supports=(SupportAssignment("Kazik", "pile"),),
+    )
+    split_drawing = drawing.split_with_line([(0.0, 4.0), (5.0, 4.0)])
+    regions = [e for e in split_drawing.entities if e.kind == "region"]
+    assert len(regions) == 2
+    assert {e.region for e in regions} == {1, 2}
+
+    # 2. Open staged excavation example and test RS2 interactive canvas/stage tabs
+    window = MainWindow()
+    window.open_excavation_example()
+    assert window.model is not None
+    assert window.stage_tabs.count() == 4  # 0. Başlangıç + 3 stages
+    # Select Stage 1 (index 1: all regions active)
+    window.stage_tabs.setCurrentIndex(1)
+    assert window.stages.currentRow() == 1
+    assert window.model.stages[0].active_regions is None
+    assert window.model.stages[1].active_regions == frozenset({1, 3})
+
+    # Switch Stage 1 region 2 to excavated via RS2 click tool with propagation off
+    window.propagate_stages.setChecked(False)
+    window.click_mode.setCurrentIndex(window.click_mode.findData("excavate"))
+    window._on_canvas_region_clicked(2)
+    assert window.model.stages[0].active_regions == frozenset({1, 3})
+
+    # Test StageDialog RS2 region & support controls with propagation on
+    dialog = StageDialog(window.model)
+    dialog.table.selectRow(0)
+    cb_r3 = dialog.region_table.cellWidget(2, 1)  # region 3
+    cb_r3.setCurrentIndex(cb_r3.findData("__excavated__"))
+    dialog.apply()
+    assert dialog.updated.stages[0].active_regions == frozenset({1})
+    assert dialog.updated.stages[1].active_regions == frozenset({1})
+    dialog.close()
+    window.dirty = False
     window.close()

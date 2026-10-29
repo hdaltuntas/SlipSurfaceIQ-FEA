@@ -3,8 +3,8 @@
 import csv
 
 import numpy as np
-from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -296,5 +296,212 @@ class BeamDiagramDialog(QDialog):
 
     def export_image(self):
         path, _ = QFileDialog.getSaveFileName(self, "Liner grafiği", "liner.png", "PNG (*.png)")
+        if path and not self.tabs.currentWidget().grab().save(path, "PNG"):
+            self.status.setText("PNG kaydedilemedi.")
+
+
+FORCE_COMPONENTS = {
+    "beam": [
+        ("N", "Normal kuvvet N", "kN/m"),
+        ("V", "Kesme kuvveti V", "kN/m"),
+        ("M", "Eğilme momenti M", "kNm/m"),
+    ],
+    "bar": [("N", "Eksenel kuvvet N", "kN")],
+}
+
+
+def structure_segments(result, stage, tag):
+    """``(kind, segments)`` of one structure: per element its end points (traversal order),
+    distance stations and end forces ``(2, ncomp)``; inactive elements are left out."""
+    from ..core.enums import ElemType
+
+    mesh = result.model.mesh
+    block = mesh.block(tag)
+    X = mesh.coords
+    segments = []
+    if block.etype is ElemType.BEAM2:
+        for path in beam_paths(result, tag, stage):
+            for (a, b), s, f in zip(path.nodes, path.distance, path.forces):
+                segments.append((X[a], X[b], s, np.asarray(f, float)))
+        return "beam", segments
+    if block.etype is ElemType.BAR2:
+        forces = stage.bars.get(tag)
+        if forces is None:
+            return "bar", []
+        active = stage.active.get(tag, np.ones(block.ne, bool))
+        distance = 0.0
+        for e in np.flatnonzero(active):
+            a, b = block.conn[e]
+            length = float(np.linalg.norm(X[b] - X[a]))
+            n = float(np.ravel(forces[e])[0])
+            segments.append((X[a], X[b], (distance, distance + length), np.array([[n], [n]])))
+            distance += length
+        return "bar", segments
+    raise ValueError(f"'{tag}' bir kiriş/kazık veya ankraj değil.")
+
+
+class StructureDiagram(QWidget):
+    """Force diagram drawn on the structure itself, perpendicular to its axis."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.segments, self.component, self.unit = [], 0, ""
+        self.setMinimumSize(420, 420)
+
+    def set_data(self, segments, component, unit):
+        self.segments, self.component, self.unit = segments, component, unit
+        self.update()
+
+    def extremes(self):
+        values = [
+            (float(f[k, self.component]), np.asarray(a if k == 0 else b, float))
+            for a, b, _, f in self.segments
+            for k in (0, 1)
+        ]
+        if not values:
+            return None
+        return min(values, key=lambda v: v[0]), max(values, key=lambda v: v[0])
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor("white"))
+        if not self.segments:
+            p.setPen(QColor("#526677"))
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Bu aşamada aktif eleman yok")
+            return
+        pts = np.array([pt for a, b, _, _ in self.segments for pt in (a, b)], float)
+        lo, hi = pts.min(0), pts.max(0)
+        extent = max(float(np.ptp(pts, axis=0).max()), 1e-9)
+        peak = max(
+            max(abs(float(v)) for *_, f in self.segments for v in f[:, self.component]), 1e-30
+        )
+        amplitude = 0.22 * extent / peak  # largest ordinate = 22 % of the structure size
+        # World box including the diagram, then an equal-aspect map into the widget.
+        lo, hi = lo - 0.3 * extent, hi + 0.3 * extent
+        margin = 30
+        scale = min(
+            (self.width() - 2 * margin) / (hi[0] - lo[0]),
+            (self.height() - 2 * margin) / (hi[1] - lo[1]),
+        )
+        cx, cy = (lo + hi) / 2
+
+        def screen(xy):
+            return QPointF(
+                self.width() / 2 + (xy[0] - cx) * scale, self.height() / 2 - (xy[1] - cy) * scale
+            )
+
+        for a, b, _, f in self.segments:
+            a, b = np.asarray(a, float), np.asarray(b, float)
+            t = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
+            normal = np.array([-t[1], t[0]])
+            fa, fb = f[0, self.component], f[1, self.component]
+            poly = QPolygonF(
+                [
+                    screen(a),
+                    screen(a + amplitude * fa * normal),
+                    screen(b + amplitude * fb * normal),
+                    screen(b),
+                ]
+            )
+            sign = fa + fb
+            fill = QColor("#d9485f" if sign > 0 else "#2f6fd6")
+            fill.setAlpha(70)
+            p.setPen(QPen(QColor("#8a1c2c" if sign > 0 else "#174ea6"), 1.2))
+            p.setBrush(fill)
+            p.drawPolygon(poly)
+        p.setPen(QPen(QColor("#213547"), 3))
+        for a, b, _, _ in self.segments:
+            p.drawLine(screen(a), screen(b))
+        ext = self.extremes()
+        p.setPen(QColor("#213547"))
+        for label, (value, where) in zip(("min", "maks"), ext):
+            at = screen(where)
+            p.drawEllipse(at, 3, 3)
+            p.drawText(at + QPointF(6, -6), f"{label} {value:.4g} {self.unit}")
+
+
+class StructureForceDialog(QDialog):
+    """Plaxis-style section forces of one pile/liner/anchor, on the structure and along s."""
+
+    def __init__(self, result, stage_index, tag, parent=None):
+        super().__init__(parent)
+        from .editing import structure_label
+
+        self.result, self.tag = result, tag
+        self.setWindowTitle(f"Kesit tesirleri · {structure_label(result.model, tag)}")
+        self.resize(980, 680)
+        layout = QVBoxLayout(self)
+        controls = QHBoxLayout()
+        self.stage = QComboBox()
+        snapshots = [result.initial, *result.stages]
+        for i, st in enumerate(snapshots):
+            self.stage.addItem(st.name, i)
+        controls.addWidget(QLabel("Aşama"))
+        controls.addWidget(self.stage, 1)
+        self.component = QComboBox()
+        controls.addWidget(QLabel("Kesit tesiri"))
+        controls.addWidget(self.component, 1)
+        layout.addLayout(controls)
+        self.tabs = QTabWidget()
+        self.diagram = StructureDiagram()
+        self.trace = TracePlot()
+        self.tabs.addTab(self.diagram, "Yapı üzerinde")
+        self.tabs.addTab(self.trace, "Uzunluk boyunca")
+        layout.addWidget(self.tabs, 1)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        for title, slot in [("Grafik PNG", self.export_image), ("Kapat", self.accept)]:
+            button = QPushButton(title)
+            button.clicked.connect(slot)
+            row.addWidget(button)
+        layout.addLayout(row)
+        self.kind, self.segments = "beam", []
+        self.stage.currentIndexChanged.connect(self.refresh)
+        self.component.currentIndexChanged.connect(self.draw)
+        self.stage.setCurrentIndex(max(0, min(stage_index, len(snapshots) - 1)))
+        self.refresh()
+
+    def refresh(self, *_):
+        i = self.stage.currentData() or 0
+        st = self.result.initial if i == 0 else self.result.stages[i - 1]
+        try:
+            self.kind, self.segments = structure_segments(self.result, st, self.tag)
+        except Exception as exc:
+            self.kind, self.segments = "beam", []
+            self.status.setText(str(exc))
+        current = self.component.currentIndex()
+        self.component.blockSignals(True)
+        self.component.clear()
+        for _, title, unit in FORCE_COMPONENTS[self.kind]:
+            self.component.addItem(f"{title} ({unit})")
+        self.component.setCurrentIndex(max(0, min(current, self.component.count() - 1)))
+        self.component.blockSignals(False)
+        self.draw()
+
+    def draw(self, *_):
+        k = max(0, self.component.currentIndex())
+        key, title, unit = FORCE_COMPONENTS[self.kind][k]
+        self.diagram.set_data(self.segments, k, unit)
+        s = np.array([st for *_, st, _ in self.segments], float).reshape(-1)
+        values = np.array([f[:, k] for *_, f in self.segments], float).reshape(-1)
+        self.trace.set_data(s, values, title, unit)
+        ext = self.diagram.extremes()
+        if ext is None:
+            self.status.setText("Bu aşamada yapı pasif; kesit tesiri yok.")
+            return
+        (vmin, pmin), (vmax, pmax) = ext
+        self.status.setText(
+            f"{key}: min {vmin:.5g} {unit} @ ({pmin[0]:.3g}, {pmin[1]:.3g}) m · "
+            f"maks {vmax:.5g} {unit} @ ({pmax[0]:.3g}, {pmax[1]:.3g}) m · "
+            f"{len(self.segments)} eleman · N çekme (+); diyagram yerel y (eksenin solu) "
+            "yönünde pozitif çizilir."
+        )
+
+    def export_image(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Kesit tesiri", "kesit.png", "PNG (*.png)")
         if path and not self.tabs.currentWidget().grab().save(path, "PNG"):
             self.status.setText("PNG kaydedilemedi.")
