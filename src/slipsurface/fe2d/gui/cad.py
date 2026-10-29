@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPolygonF,
     QShortcut,
 )
 from PySide6.QtWidgets import (
@@ -100,6 +101,7 @@ class CadCanvas(QGraphicsView):
         self._press_position = None
         self._drag_vertex = None
         self._auto_fit = False
+        self.placement = None  # outline (relative) of a tunnel being placed by a click
         self.rectangle = False
         self.circle = False
         self.supports = {}
@@ -364,6 +366,13 @@ class CadCanvas(QGraphicsView):
                     painter.drawLine(QPointF(a, -b), QPointF(x, -y))
             radius = 5 / max(abs(self.transform().m11()), 1e-12)
             painter.drawRect(QRectF(x - radius, -y - radius, 2 * radius, 2 * radius))
+            if self.placement is not None:
+                pen = QPen(QColor("#b56324"), 2, Qt.PenStyle.DashLine)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.drawPolygon(
+                    QPolygonF([QPointF(x + u, -(y + v)) for u, v in self.placement])
+                )
 
     def mouseMoveEvent(self, event):
         position = event.position().toPoint()
@@ -523,6 +532,7 @@ class CadDialog(QDialog):
         self.draw_support_kind = None
         self.rectangle_mode = False
         self.split_mode = False
+        self.placing = None  # TunnelDesign waiting for its centre click
         self.setWindowTitle("SlipSurfaceIQ · Geometri ve ağ")
         self.resize(1320, 880)
         self.document = Drawing.from_dict(model.geometry) if model and model.geometry else Drawing()
@@ -839,12 +849,17 @@ class CadDialog(QDialog):
             ("pile", "Kazık", "cad_pile", "K"),
             ("tunnel", "Tünel (merkez + yarıçap)", "cad_tunnel", "T"),
             ("liner", "Kaplama / kiriş", "cad_liner", "C"),
-            ("bolt", "Ankraj / zemin çivisi", "bolt", "A"),
+            ("bolt", "Tek bulon / ankraj / zemin çivisi", "bolt", "A"),
         ]:
             tool(key, title, ic, lambda _=False, k=key: self.start_engineering_tool(k), shortcut)
+        tool("natm", "NATM tünel tasarımcısı", "cad_natm", self.open_tunnel_designer, "N")
+        pattern = strip.addAction(icon("bolt_pattern"), "Bulon paterni (seçili çizgi boyunca)")
+        pattern.triggered.connect(self.bolt_pattern)
         tunnel_button = strip.widgetForAction(self.tool_actions["tunnel"])
         if isinstance(tunnel_button, QToolButton):
             options = QMenu(tunnel_button)
+            options.addAction("NATM tünel tasarımcısı…", self.open_tunnel_designer)
+            options.addSeparator()
             options.addAction(self.tunnel_lining)
             options.addAction(self.tunnel_excavation)
             tunnel_button.setMenu(options)
@@ -857,6 +872,7 @@ class CadDialog(QDialog):
             ("Tümünü sığdır (F2)", "zoom_all", self.canvas.fit_drawing),
             ("Seçileni sil (Del)", "delete", self.delete_entity),
             ("Özellikler / mesnet / destek", "settings", lambda: self.show_inspector()),
+            ("Kaplama / iksa tasarımcısı", "facing_props", self.open_lining_designer),
         ]:
             a = strip.addAction(icon(ic), title)
             a.triggered.connect(slot)
@@ -901,6 +917,8 @@ class CadDialog(QDialog):
             header.setEnabled(False)
             menu.addAction("Özellikler…", lambda: self.show_inspector(0))
             menu.addAction("Destek ata / düzenle…", lambda: self.show_inspector(2))
+            if entity.kind == "line":
+                menu.addAction(icon("bolt_pattern"), "Bulon paterni…", self.bolt_pattern)
             if support is not None:
                 diagram = menu.addAction(
                     "Kesit tesirleri (N–V–M)…",
@@ -929,7 +947,17 @@ class CadDialog(QDialog):
             menu.addSeparator()
             menu.addAction(icon("delete"), "Sil", self.delete_entity)
         else:
-            for key in ("region", "rect", "split", "hole", "line", "pile", "tunnel", "bolt"):
+            for key in (
+                "region",
+                "rect",
+                "split",
+                "hole",
+                "line",
+                "pile",
+                "natm",
+                "tunnel",
+                "bolt",
+            ):
                 tool = self.tool_actions[key]
                 menu.addAction(tool.icon(), tool.text(), tool.trigger)
             menu.addSeparator()
@@ -1188,6 +1216,7 @@ class CadDialog(QDialog):
         self.canvas.redraw(self.document.entities, self.pending, e.name)
 
     def begin_drawing(self):
+        self.placing = self.canvas.placement = None
         self.circle_mode = self.canvas.circle = False
         self.draw_support_kind = None
         self.rectangle_mode = self.canvas.rectangle = False
@@ -1200,6 +1229,9 @@ class CadDialog(QDialog):
 
     def add_point(self, point):
         point = tuple(point)
+        if self.placing is not None:
+            self.insert_tunnel(self.placing, point)
+            return
         if self.circle_mode and len(self.pending) == 1:
             center = np.asarray(self.pending[0])
             radius = float(np.linalg.norm(np.asarray(point) - center))
@@ -1236,6 +1268,7 @@ class CadDialog(QDialog):
             self.finish_drawing()
 
     def cancel_drawing(self):
+        self.placing = self.canvas.placement = None
         self.circle_mode = self.canvas.circle = False
         self.draw_support_kind = None
         self.rectangle_mode = self.canvas.rectangle = False
@@ -1317,7 +1350,8 @@ class CadDialog(QDialog):
                 and entity.kind != "line"
             ):
                 raise ValueError("Önce kazık/ankraj desteğini kaldırın; çizgi türü gerekli.")
-            self.commit(replace(current, entities=tuple(entities), rules=rules, supports=supports))
+            updated = replace(current, entities=tuple(entities), rules=rules, supports=supports)
+            self.commit(updated.renamed(old.name, entity.name))
             self.status.setText("Geometri güncellendi; bu öğenin kenar koşullarını yeniden atayın.")
         except Exception as exc:
             self.show_error(exc)
@@ -1327,15 +1361,102 @@ class CadDialog(QDialog):
         if index < 0:
             return
         current = self.current_drawing()
-        old = current.entities[index]
+        self.commit(current.without_entity(current.entities[index].name))
+
+    # ------------------------------------------------------------ NATM / bolts / lining
+    def open_tunnel_designer(self):
+        from .tunnel_designer import TunnelDesignerDialog
+
+        self.cancel_drawing()
+        dialog = TunnelDesignerDialog(getattr(self, "last_tunnel", None), parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        design = self.last_tunnel = dialog.design()
+        if dialog.placement == dialog.PLACE_COORDS:
+            self.insert_tunnel(design, dialog.center())
+            return
+        self.begin_drawing()
+        self._mark_tool("natm")
+        self.placing = design
+        self.canvas.placement = [tuple(p) for p in design.section.outline()]
+        self.status.setText(
+            "NATM tünel: tepe yayı merkezini (üzengi seviyesi) tıklayın. Esc: iptal."
+        )
+
+    def insert_tunnel(self, design, center):
+        from ..cad.tunnel import place_tunnel
+
+        try:
+            updated = place_tunnel(self.current_drawing(), design, center)
+        except Exception as exc:
+            self.cancel_drawing()
+            self.show_error(exc)
+            return
+        added = len(updated.sequence) - len(self.document.sequence)
+        self.commit(updated)
+        self.status.setStyleSheet("")
+        self.status.setText(
+            f"Tünel yerleştirildi ({center[0]:.3g}, {center[1]:.3g}) · {added} yapım aşaması; "
+            "ağ üretilince aşamalara eklenir."
+        )
+
+    def bolt_pattern(self):
+        from ..cad.tunnel import bolt_pattern_along
+        from .tunnel_designer import BoltPatternDialog
+
+        index = self.entities.currentRow()
+        if not 0 <= index < len(self.document.entities) or (
+            self.document.entities[index].kind != "line"
+        ):
+            self.show_error(
+                "Bulon paterni için önce bir çizgi (duvar, kaplama, şev çizgisi) seçin."
+            )
+            return
+        host = self.document.entities[index].name
+        dialog = BoltPatternDialog(host, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self.commit(
+                bolt_pattern_along(
+                    self.current_drawing(),
+                    host,
+                    dialog.count.value(),
+                    dialog.length.value(),
+                    dialog.angle.value(),
+                    dialog.pattern(),
+                    margin=dialog.margin.value(),
+                )
+            )
+            self.status.setStyleSheet("")
+            self.status.setText(f"{dialog.count.value()} bulon eklendi · {host}")
+        except Exception as exc:
+            self.show_error(exc)
+
+    def open_lining_designer(self):
+        """Edit the composite lining library; with a liner selected, apply it to that liner."""
+        from .tunnel_designer import LiningDesignerDialog
+
+        dialog = LiningDesignerDialog(parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        index = self.entities.currentRow()
+        if not 0 <= index < len(self.document.entities):
+            return
+        entity = self.document.entities[index]
+        support = next((s for s in self.document.supports if s.entity == entity.name), None)
+        if support is None or support.kind != "liner":
+            return
+        current = self.current_drawing()
+        lined = replace(support, properties=dialog.lining().liner_properties())
         self.commit(
             replace(
                 current,
-                entities=tuple(e for i, e in enumerate(current.entities) if i != index),
-                rules=tuple(r for r in current.rules if r.edge not in old.edge_names()),
-                supports=tuple(s for s in current.supports if s.entity != old.name),
+                supports=tuple(lined if s is support else s for s in current.supports),
             )
         )
+        self.entities.setCurrentRow(index)
+        self.status.setText(f"{entity.name}: kompozit kaplama özellikleri uygulandı.")
 
     def open_drawing(self):
         path, _ = QFileDialog.getOpenFileName(self, "Çizim aç", "", "CAD (*.sscad.json)")

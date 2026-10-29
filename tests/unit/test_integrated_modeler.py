@@ -71,10 +71,17 @@ def test_embedded_tools_build_real_supports_and_solve(qt_app, tmp_path):
     assert model.mesh.block("cad_Tunel1").etype == ElemType.BEAM2
     assert model.mesh.block("cad_Ankraj1").etype == ElemType.BAR2
     assert model.mesh.block("cad_Tunel1").ne >= 32
-    assert model.stages[0].active_structures == {"cad_Kazik1", "cad_Tunel1", "cad_Ankraj1"}
+    pile_skin = {"cad_Kazik1_ifL", "cad_Kazik1_ifR"}
+    assert model.stages[0].active_structures == {
+        "cad_Kazik1", "cad_Tunel1", "cad_Ankraj1", *pile_skin
+    }  # fmt: skip
     continuum_nodes = set(model.mesh.blocks[0].conn.ravel())
+    skin_nodes = {n for tag in pile_skin for n in model.mesh.block(tag).conn.ravel()}
     for tag in model.structure_tags():
-        assert set(model.mesh.block(tag).conn.ravel()) <= continuum_nodes
+        # The pile is a structural interface: its own nodes reach the soil via both skins
+        # (an anchor crossing the pile is tied to the pile there).
+        assert set(model.mesh.block(tag).conn.ravel()) <= continuum_nodes | skin_nodes
+    assert set(model.mesh.block("cad_Kazik1").conn.ravel()) <= skin_nodes | continuum_nodes
     result = api.run(model)
     assert np.isfinite(result.last.u).all()
     assert np.max(np.abs(result.last.u)) > 0

@@ -86,6 +86,7 @@ def excavation_model():
         ),
     )
     base = drawing.build_model()
+    pile = frozenset({"cad_Kazik", "cad_Kazik_ifL", "cad_Kazik_ifR"})  # pile + skin interfaces
     sand = api.MaterialSpec.elastic("Kum", 30000.0, 0.3, gamma=18.0)
     return replace(
         base,
@@ -96,18 +97,18 @@ def excavation_model():
             api.Stage(
                 "1. Kazık imalatı",
                 active_regions=None,
-                active_structures=frozenset({"cad_Kazik"}),
+                active_structures=pile,
                 reset_displacements=True,
             ),
             api.Stage(
                 "2. 1. Kademe kazı (-2 m)",
                 active_regions=frozenset({1, 3}),
-                active_structures=frozenset({"cad_Kazik"}),
+                active_structures=pile,
             ),
             api.Stage(
                 "3. Ankraj + 2. Kademe kazı (-4 m)",
                 active_regions=frozenset({1}),
-                active_structures=frozenset({"cad_Kazik", "cad_Ankraj1"}),
+                active_structures=pile | {"cad_Ankraj1"},
             ),
         ],
     )

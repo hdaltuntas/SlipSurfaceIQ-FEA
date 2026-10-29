@@ -18,6 +18,7 @@ import numpy as np
 from .. import api
 from ..mesh.structures import add_bar, add_bars_along, add_beams, insert_interface, nearest_node
 from .geometry import Drawing
+from .supports import owner_tag
 
 
 def record_mesh_edit(model, edit):
@@ -119,6 +120,8 @@ def transfer_model(previous, fresh):
     def stage_structures(old_active):
         out = set()
         for tag in structures:
+            if owner_tag(tag) != tag and owner_tag(tag) in new_assign:
+                continue  # a pile's skin interfaces follow the pile, below
             assignment = new_assign.get(tag)
             previous_assignment = old_assign.get(tag)
             if tag not in previous.structure_tags() or (
@@ -130,6 +133,7 @@ def transfer_model(previous, fresh):
                     out.add(tag)
             elif tag in old_active:
                 out.add(tag)
+        out.update(t for t in structures if owner_tag(t) != t and owner_tag(t) in out)
         return frozenset(out)
 
     def stage_regions(active):
@@ -189,11 +193,25 @@ def transfer_model(previous, fresh):
     if not stages:
         stages = list(fresh.stages)
         placed.update(cad_loads)
+    else:
+        # Construction steps added to the drawing since the last mesh (e.g. a new tunnel).
+        names = {s.name for s in stages}
+        stages.extend(s for s in fresh.stages[1:] if s.name not in names)
     extra = [api.EdgeLoad(e, qn=q) for e, q in cad_loads.items() if e not in placed]
     if extra:
         stages[0] = replace(stages[0], loads=(*stages[0].loads, *extra))
 
     initial = previous.initial
+    if initial.active_structures is None:
+        # "All interfaces" must not switch on a pile's skin before the pile exists.
+        initial = replace(
+            initial,
+            active_structures=frozenset(
+                t
+                for t, k in model.structure_tags().items()
+                if k == "interface" and owner_tag(t) == t
+            ),
+        )
     initial = replace(
         initial,
         active_regions=stage_regions(initial.active_regions),

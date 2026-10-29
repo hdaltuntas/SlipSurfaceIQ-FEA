@@ -81,6 +81,28 @@ class BoundaryRule:
 
 
 @dataclass(frozen=True)
+class ConstructionStep:
+    """One generated stage: regions excavated and supports installed in it.
+
+    ``load_split`` < 1 stops an excavation stage early (stress-release/beta method); the
+    rest of the unbalance is carried by the next stage, after its support is installed.
+    """
+
+    name: str
+    excavate: tuple[str, ...] = ()
+    install: tuple[str, ...] = ()
+    load_split: float = 1.0
+
+    def __post_init__(self):
+        object.__setattr__(self, "excavate", tuple(self.excavate))
+        object.__setattr__(self, "install", tuple(self.install))
+        if not self.name.strip():
+            raise ValueError("Aşama adı boş olamaz.")
+        if not 0.0 < float(self.load_split) <= 1.0:
+            raise ValueError("Destek öncesi yük oranı (0, 1] aralığında olmalıdır.")
+
+
+@dataclass(frozen=True)
 class Drawing:
     entities: tuple[Entity, ...] = ()
     rules: tuple[BoundaryRule, ...] = ()
@@ -88,6 +110,7 @@ class Drawing:
     E: float = 20000.0
     nu: float = 0.3
     supports: tuple[SupportAssignment, ...] = ()
+    sequence: tuple[ConstructionStep, ...] = ()
 
     def __post_init__(self):
         if not np.isfinite([self.h, self.E, self.nu]).all():
@@ -109,6 +132,41 @@ class Drawing:
             float(data["E"]),
             float(data["nu"]),
             tuple(SupportAssignment(**s) for s in data.get("supports", [])),
+            tuple(ConstructionStep(**c) for c in data.get("sequence", [])),
+        )
+
+    def without_entity(self, name):
+        """Drop an entity with its edge rules, support and construction-step references."""
+        old = next(e for e in self.entities if e.name == name)
+        steps = []
+        for step in self.sequence:
+            step = replace(
+                step,
+                excavate=tuple(n for n in step.excavate if n != name),
+                install=tuple(n for n in step.install if n != name),
+            )
+            if step.excavate or step.install:
+                steps.append(step)
+        return replace(
+            self,
+            entities=tuple(e for e in self.entities if e.name != name),
+            rules=tuple(r for r in self.rules if r.edge not in old.edge_names()),
+            supports=tuple(s for s in self.supports if s.entity != name),
+            sequence=tuple(steps),
+        )
+
+    def renamed(self, old, new):
+        """Follow an entity rename in the construction sequence."""
+        return replace(
+            self,
+            sequence=tuple(
+                replace(
+                    step,
+                    excavate=tuple(new if n == old else n for n in step.excavate),
+                    install=tuple(new if n == old else n for n in step.install),
+                )
+                for step in self.sequence
+            ),
         )
 
     @classmethod
@@ -135,6 +193,17 @@ class Drawing:
             if support.kind in {"pile", "bolt"} and by_name[support.entity].kind != "line":
                 raise ValueError("Kazık ve ankraj/çivi için çizgi geometrisi gereklidir.")
             assigned.add(support.entity)
+        step_names = [step.name for step in self.sequence]
+        if len(set(step_names)) != len(step_names):
+            raise ValueError("Yapım aşaması adları benzersiz olmalıdır.")
+        supported = {s.entity for s in self.supports}
+        for step in self.sequence:
+            for name in step.excavate:
+                if name not in by_name or by_name[name].kind != "region":
+                    raise ValueError(f"{step.name}: kazılacak bölge '{name}' bulunamadı.")
+            for name in step.install:
+                if name not in supported:
+                    raise ValueError(f"{step.name}: yerleştirilecek destek '{name}' bulunamadı.")
         regions = [e for e in self.entities if e.kind == "region"]
         holes = [e for e in self.entities if e.kind == "hole"]
         if not regions:
@@ -210,9 +279,7 @@ class Drawing:
         grouped: dict[int, list[Polygon]] = {i: [] for i in range(len(reg_polys))}
         for face in faces:
             rep = face.representative_point()
-            containing = [
-                (p.area, i) for i, (_, p) in enumerate(reg_polys) if p.covers(rep)
-            ]
+            containing = [(p.area, i) for i, (_, p) in enumerate(reg_polys) if p.covers(rep)]
             if containing:
                 _, owner = min(containing)
                 eff = effective_area(owner)
@@ -251,9 +318,10 @@ class Drawing:
                 pt = (round(float(xy[0]), 9), round(float(xy[1]), 9))
                 if not cleaned or np.hypot(pt[0] - cleaned[-1][0], pt[1] - cleaned[-1][1]) > 1e-7:
                     cleaned.append(pt)
-            if len(cleaned) > 1 and np.hypot(
-                cleaned[0][0] - cleaned[-1][0], cleaned[0][1] - cleaned[-1][1]
-            ) <= 1e-7:
+            if (
+                len(cleaned) > 1
+                and np.hypot(cleaned[0][0] - cleaned[-1][0], cleaned[0][1] - cleaned[-1][1]) <= 1e-7
+            ):
                 cleaned.pop()
             added.append(Entity(cname, "region", tuple(cleaned), next_reg))
             next_reg += 1
@@ -309,13 +377,44 @@ class Drawing:
             {"soil": api.MaterialSpec.elastic("soil", self.E, self.nu)},
             {r: "soil" for r in mesh.regions()},
             fixities=tuple(fixities),
-            initial=api.InitialStress("none"),
+            # No structures in the initial state: pile skin interfaces stay tied (continuous).
+            initial=api.InitialStress("none", active_structures=frozenset()),
             stages=[api.Stage("CAD yükleme", loads=tuple(loads))],
             geometry=self.to_dict(),
         )
         model = compile_supports(model, self)
+        model = replace(model, stages=[*model.stages, *self.sequence_stages(model)])
         model.validate()
         return model
+
+    def sequence_stages(self, model):
+        """Stages of the construction sequence, cumulative over the steps, on ``model``."""
+        if not self.sequence:
+            return []
+        from .supports import companion_tags
+
+        by_name = {e.name: e for e in self.entities}
+        tags = {s.entity: s for s in self.supports}
+        base = model.stages[0]
+        excavated: set[int] = set()
+        installed = set(base.active_structures)
+        stages = []
+        for step in self.sequence:
+            excavated.update(by_name[n].region for n in step.excavate)
+            for name in step.install:
+                support = tags[name]
+                installed.add(support.tag)
+                installed.update(t for t in companion_tags(support.tag) if t in model.interfaces)
+            stages.append(
+                api.Stage(
+                    step.name,
+                    active_regions=frozenset(model.mesh.regions() - excavated),
+                    active_structures=frozenset(installed),
+                    loads=base.loads,
+                    load_split=step.load_split,
+                )
+            )
+        return stages
 
 
 def _check_supports(mesh, fixities):

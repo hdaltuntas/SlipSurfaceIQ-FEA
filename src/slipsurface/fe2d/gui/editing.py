@@ -27,7 +27,11 @@ def validate_edit(model):
             tag = f"cad_{assignment['entity']}"
             spec = model.liners.get(tag) or model.bolts.get(tag)
             if spec is not None:
-                properties = {key: getattr(spec, key) for key in assignment["properties"]}
+                # Pile rows keep D/spacing/interface keys the beam spec does not carry.
+                properties = {
+                    key: getattr(spec, key, value)
+                    for key, value in assignment["properties"].items()
+                }
                 assignments.append({**assignment, "properties": properties})
         model = replace(model, geometry={**model.geometry, "supports": assignments})
     return model
@@ -275,17 +279,19 @@ def set_region_stage_state(
 def set_structure_stage_state(
     model, stage_index: int, tag: str, active: bool, *, propagate: bool = True
 ):
-    """RS2-style structure activation/deactivation from ``stage_index`` onwards."""
+    """RS2-style structure activation/deactivation from ``stage_index`` onwards.
+
+    A pile's skin interfaces are switched together with the pile."""
+    from ..cad.supports import companion_tags
+
     if tag not in model.structure_tags():
         raise ValueError(f"Bilinmeyen yapı: {tag}")
+    tags = {tag, *(t for t in companion_tags(tag) if t in model.interfaces)}
     initial = model.initial
     stages = list(model.stages)
     if stage_index <= 0:
         cur = set(stage_active_structures(model, 0))
-        if active:
-            cur.add(tag)
-        else:
-            cur.discard(tag)
+        cur = cur | tags if active else cur - tags
         initial = replace(initial, active_structures=frozenset(cur))
         target_indices: Iterable[int] = range(1, len(stages) + 1) if propagate else ()
     else:
@@ -295,10 +301,7 @@ def set_structure_stage_state(
     for idx in target_indices:
         st = stages[idx - 1]
         cur = set(st.active_structures)
-        if active:
-            cur.add(tag)
-        else:
-            cur.discard(tag)
+        cur = cur | tags if active else cur - tags
         stages[idx - 1] = replace(st, active_structures=frozenset(cur))
 
     return validate_edit(replace(model, initial=initial, stages=stages))

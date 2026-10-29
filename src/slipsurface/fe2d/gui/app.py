@@ -474,9 +474,19 @@ class MainWindow(QMainWindow):
             ("Kazık çiz", "pile"),
             ("Tünel çiz", "tunnel"),
             ("Kaplama çiz", "liner"),
-            ("Ankraj / zemin çivisi çiz", "bolt"),
+            ("Tek bulon / ankraj / zemin çivisi çiz", "bolt"),
         ]:
             support_menu.addAction(action(title, lambda _=False, k=kind: self.draft_tool(k)))
+        support_menu.addSeparator()
+        for title, method in [
+            ("NATM tünel tasarımcısı…", "open_tunnel_designer"),
+            ("Kaplama / püskürtme beton / iksa tasarımcısı…", "open_lining_designer"),
+            ("Bulon paterni (seçili çizgi)…", "bolt_pattern"),
+        ]:
+            support_menu.addAction(
+                action(title, lambda _=False, m=method: self.drawing_file_action(m))
+            )
+        support_menu.addSeparator()
         support_menu.addAction(action("Mevcut ağdaki yapı özellikleri…", self.edit_mesh_structures))
         result_menu = self.menuBar().addMenu("Sonuç incele")
         for title, slot in [
