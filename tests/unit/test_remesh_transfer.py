@@ -90,7 +90,7 @@ def test_remesh_keeps_materials_stages_and_structures():
     solvable = replace(
         new,
         materials={**new.materials, "kil": elastic},
-        interfaces={"ara": stiff},
+        interfaces={**new.interfaces, "ara": stiff},
         initial=api.InitialStress("none"),
     )
     result = api.run(solvable)

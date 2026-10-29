@@ -70,7 +70,7 @@ def main() -> int:
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
     from slipsurface.fe2d.gui.app import main as run_app
 
-    return run_app([sys.argv[0], *args])
+    return run_app(args)
 
 
 if __name__ == "__main__":

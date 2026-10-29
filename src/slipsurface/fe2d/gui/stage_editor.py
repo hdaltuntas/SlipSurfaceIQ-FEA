@@ -8,8 +8,11 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
+    QSplitter,
     QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
@@ -19,7 +22,14 @@ from PySide6.QtWidgets import (
 from .. import api
 from .boundary_editor import DisplacementEditor
 from .condition_editor import LoadEditor, WaterEditor
-from .editing import parse_regions, parse_tags, regions_text, validate_edit
+from .editing import (
+    parse_regions,
+    parse_tags,
+    region_label,
+    regions_text,
+    structure_label,
+    validate_edit,
+)
 from .form_helpers import EditorDialog, table, toolbar
 from .timeline import StageTimeline
 
@@ -170,24 +180,53 @@ class InitialDialog(EditorDialog):
 
 class StageDialog(EditorDialog):
     def __init__(self, model, parent=None):
-        super().__init__("Aşama yöneticisi", parent)
+        super().__init__("Aşama yöneticisi (RS2 tarzı kazı ve destek ataması)", parent)
         self.model = model
         self.items = list(model.stages)
-        self.resize(1080, 580)
+        self.all_regions = sorted(model.mesh.regions())
+        self.all_structures = list(model.structure_tags())
+        self._panel_updating = False
+        self.resize(1180, 660)
         note = QLabel(
-            "Sıra yukarıdan aşağıya. λ, kalan değişimin serbest bırakılan payıdır: "
-            "0.4 ardından 0.5 → toplam %70.\n"
-            "Bölgeler: boş=tümü, -=hiçbiri. Yapılar: virgülle etiketler; boş=hiçbiri. "
-            "Kopyalama tüm yük/su/atamaları taşır."
+            "Sol tablodan aşamayı seçin; sağdaki RS2 panelinden her bölge için "
+            "'Kazıldı (Boş)' veya malzeme seçin, destekleri (kazık/kaplama/ankraj) işaretleyin.\n"
+            "λ, kalan değişimin serbest bırakılan payıdır (0.4 ardından 0.5 → toplam %70)."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
+
+        init_bar = QHBoxLayout()
+        init_bar.addWidget(QLabel("Başlangıç durumu:"))
+        self.initial_mode = QComboBox()
+        for label, mode in [
+            ("Gerilmesiz / ağırlıksız", "none"),
+            ("Ağırlık çözümü (Gravity)", "gravity"),
+            ("K₀ alanı (In-Situ)", "k0_field"),
+            ("Sabit gerilme alanı", "field"),
+        ]:
+            self.initial_mode.addItem(label, mode)
+        self.initial_mode.setCurrentIndex(self.initial_mode.findData(model.initial.mode))
+        self.initial_mode.currentIndexChanged.connect(self._on_initial_mode_changed)
+        init_bar.addWidget(self.initial_mode)
+        init_btn = QPushButton("Başlangıç ayrıntıları…")
+        init_btn.clicked.connect(self.edit_initial)
+        init_bar.addWidget(init_btn)
+        init_bar.addStretch(1)
+        self.propagate_check = QCheckBox("Değişiklikleri sonraki aşamalara da yay (RS2 tarzı)")
+        self.propagate_check.setChecked(True)
+        init_bar.addWidget(self.propagate_check)
+        self.root.addLayout(init_bar)
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        left_pane = QWidget()
+        left_layout = QVBoxLayout(left_pane)
+        left_layout.setContentsMargins(0, 0, 0, 0)
         self.table = table(
             ["Ad", "Kalanın λ payı", "Drenajlı", "Aktif bölgeler", "Aktif yapılar", "u sıfırla"]
         )
-        self.root.addWidget(self.table)
+        left_layout.addWidget(self.table, 1)
         toolbar(
-            self.root,
+            left_layout,
             [
                 ("Ekle", self.add_stage),
                 ("Kopyala", self.copy_stage),
@@ -198,9 +237,64 @@ class StageDialog(EditorDialog):
                 ("Başlangıç", self.edit_initial),
             ],
         )
-        self.root.addWidget(
-            QLabel("Mevcut yapı etiketleri: " + (", ".join(model.structure_tags()) or "—"))
+        split.addWidget(left_pane)
+
+        right_pane = QWidget()
+        right_layout = QVBoxLayout(right_pane)
+        right_layout.setContentsMargins(6, 0, 0, 0)
+        self.stage_header = QLabel("SEÇİLİ AŞAMA: —")
+        self.stage_header.setStyleSheet("font-weight:bold; color:#124d70;")
+        right_layout.addWidget(self.stage_header)
+
+        right_layout.addWidget(QLabel("Bölgeler (Kazı / Malzeme durumu):"))
+        self.region_table = table(["Bölge", "Durum / Malzeme"])
+        self.region_table.setRowCount(len(self.all_regions))
+        for idx, r in enumerate(self.all_regions):
+            r_item = QTableWidgetItem(region_label(model, r))
+            r_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.region_table.setItem(idx, 0, r_item)
+            combo = QComboBox()
+            base_mat = model.region_material[r]
+            combo.addItem(f"🧱 Aktif — Temel ({base_mat})", "__base__")
+            for m_name in model.materials:
+                if m_name != base_mat:
+                    combo.addItem(f"🧱 Aktif — {m_name}", m_name)
+            combo.addItem("⛏️ Kazıldı (Boşaltıldı)", "__excavated__")
+            combo.currentIndexChanged.connect(
+                lambda _=0, reg=r, cb=combo: self._on_region_combo_changed(reg, cb.currentData())
+            )
+            self.region_table.setCellWidget(idx, 1, combo)
+        right_layout.addWidget(self.region_table, 1)
+
+        reg_btns = QHBoxLayout()
+        exc_btn = QPushButton("⛏️ Seçili bölgeyi kaz")
+        exc_btn.clicked.connect(self.excavate_selected_region)
+        restore_btn = QPushButton("↩️ Tüm bölgeleri aktif yap")
+        restore_btn.clicked.connect(self.restore_all_regions)
+        reg_btns.addWidget(exc_btn)
+        reg_btns.addWidget(restore_btn)
+        right_layout.addLayout(reg_btns)
+
+        right_layout.addWidget(
+            QLabel("Destekler / Yapılar (" + (", ".join(self.all_structures) or "yok") + "):")
         )
+        self.structure_table = table(["Destek / Yapı", "Bu aşamada etkin"])
+        self.structure_table.setRowCount(len(self.all_structures))
+        for idx, tag in enumerate(self.all_structures):
+            s_item = QTableWidgetItem(f"{structure_label(model, tag)} [{tag}]")
+            s_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.structure_table.setItem(idx, 0, s_item)
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            self.structure_table.setItem(idx, 1, chk)
+        self.structure_table.itemChanged.connect(self._on_structure_item_changed)
+        right_layout.addWidget(self.structure_table, 1)
+
+        split.addWidget(right_pane)
+        split.setSizes([660, 480])
+        self.root.addWidget(split, 1)
+
         self.timeline = StageTimeline()
         self.timeline.selected.connect(
             lambda i: self.table.selectRow(i - 1) if i else self.edit_initial()
@@ -208,11 +302,133 @@ class StageDialog(EditorDialog):
         self.root.addWidget(self.timeline)
         self.refresh()
         self.table.itemChanged.connect(self.update_timeline)
+        self.table.itemSelectionChanged.connect(self._load_selected_stage_panel)
         self.finish_layout(self.apply)
+
+    def _on_initial_mode_changed(self, *_):
+        mode = self.initial_mode.currentData()
+        if mode and mode != self.model.initial.mode:
+            if mode == "field" and self.model.initial.field is None:
+                self.model = replace(
+                    self.model,
+                    initial=replace(self.model.initial, mode=mode, field=(0.0, 0.0, 0.0, 0.0)),
+                )
+            else:
+                self.model = replace(self.model, initial=replace(self.model.initial, mode=mode))
+            self.update_timeline()
+
+    def _load_selected_stage_panel(self):
+        row = self.table.currentRow()
+        if self._panel_updating:
+            return
+        self._panel_updating = True
+        try:
+            try:
+                stages = self.read_stages()
+            except Exception:
+                stages = self.items
+            if not (0 <= row < len(stages)):
+                self.stage_header.setText("SEÇİLİ AŞAMA: —")
+                return
+            st = stages[row]
+            self.stage_header.setText(f"SEÇİLİ AŞAMA ({row + 1}/{len(stages)}): {st.name}")
+            active_regs = (
+                set(self.all_regions) if st.active_regions is None else set(st.active_regions)
+            )
+            for idx, r in enumerate(self.all_regions):
+                cb = self.region_table.cellWidget(idx, 1)
+                if cb is None:
+                    continue
+                cb.blockSignals(True)
+                if r not in active_regs:
+                    target = "__excavated__"
+                elif (
+                    r in st.material_override
+                    and st.material_override[r] != self.model.region_material[r]
+                ):
+                    target = st.material_override[r]
+                else:
+                    target = "__base__"
+                pos = cb.findData(target)
+                cb.setCurrentIndex(max(0, pos))
+                cb.blockSignals(False)
+            self.structure_table.blockSignals(True)
+            for idx, tag in enumerate(self.all_structures):
+                item = self.structure_table.item(idx, 1)
+                if item is not None:
+                    item.setCheckState(
+                        Qt.CheckState.Checked
+                        if tag in st.active_structures
+                        else Qt.CheckState.Unchecked
+                    )
+            self.structure_table.blockSignals(False)
+        finally:
+            self._panel_updating = False
+
+    def _on_region_combo_changed(self, region: int, data):
+        if self._panel_updating:
+            return
+        row = self.table.currentRow()
+        if row < 0 or not self.sync():
+            return
+        all_set = frozenset(self.all_regions)
+        indices = range(row, len(self.items)) if self.propagate_check.isChecked() else (row,)
+        for i in indices:
+            st = self.items[i]
+            cur = set(all_set if st.active_regions is None else st.active_regions)
+            overrides = dict(st.material_override)
+            if data == "__excavated__":
+                cur.discard(region)
+            else:
+                cur.add(region)
+                if data == "__base__" or data == self.model.region_material[region]:
+                    overrides.pop(region, None)
+                else:
+                    overrides[region] = data
+            active_val = None if cur == all_set else frozenset(cur)
+            self.items[i] = replace(st, active_regions=active_val, material_override=overrides)
+        self.refresh(row)
+
+    def excavate_selected_region(self):
+        r_row = self.region_table.currentRow()
+        if 0 <= r_row < len(self.all_regions):
+            cb = self.region_table.cellWidget(r_row, 1)
+            if cb is not None:
+                cb.setCurrentIndex(cb.findData("__excavated__"))
+
+    def restore_all_regions(self):
+        row = self.table.currentRow()
+        if row < 0 or not self.sync():
+            return
+        indices = range(row, len(self.items)) if self.propagate_check.isChecked() else (row,)
+        for i in indices:
+            self.items[i] = replace(self.items[i], active_regions=None)
+        self.refresh(row)
+
+    def _on_structure_item_changed(self, item):
+        if self._panel_updating or item.column() != 1:
+            return
+        row = self.table.currentRow()
+        s_row = item.row()
+        if row < 0 or not (0 <= s_row < len(self.all_structures)) or not self.sync():
+            return
+        tag = self.all_structures[s_row]
+        checked = item.checkState() == Qt.CheckState.Checked
+        indices = range(row, len(self.items)) if self.propagate_check.isChecked() else (row,)
+        for i in indices:
+            st = self.items[i]
+            cur = set(st.active_structures)
+            if checked:
+                cur.add(tag)
+            else:
+                cur.discard(tag)
+            self.items[i] = replace(st, active_structures=frozenset(cur))
+        self.refresh(row)
 
     def update_timeline(self, *_):
         try:
             self.timeline.set_stages(self.read_stages(), self.model.initial)
+            self._load_selected_stage_panel()
         except (ValueError, AttributeError):
             pass  # incomplete table edits remain editable until Apply
 
@@ -275,7 +491,17 @@ class StageDialog(EditorDialog):
 
     def add_stage(self):
         if self.sync():
-            self.items.append(api.Stage(self.unique_name("Yeni aşama")))
+            if self.items:
+                prev = self.items[-1]
+                new_st = replace(
+                    prev,
+                    name=self.unique_name("Yeni aşama"),
+                    load_split=1.0,
+                    reset_displacements=False,
+                )
+            else:
+                new_st = api.Stage(self.unique_name("Yeni aşama"))
+            self.items.append(new_st)
             self.refresh(len(self.items) - 1)
 
     def copy_stage(self):
@@ -311,6 +537,9 @@ class StageDialog(EditorDialog):
             dialog = InitialDialog(replace(self.model, stages=self.items), self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.model = replace(self.model, initial=dialog.updated)
+                self.initial_mode.blockSignals(True)
+                self.initial_mode.setCurrentIndex(self.initial_mode.findData(self.model.initial.mode))
+                self.initial_mode.blockSignals(False)
                 self.update_timeline()
 
     def apply(self):

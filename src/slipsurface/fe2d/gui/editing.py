@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 
 import numpy as np
@@ -26,7 +27,11 @@ def validate_edit(model):
             tag = f"cad_{assignment['entity']}"
             spec = model.liners.get(tag) or model.bolts.get(tag)
             if spec is not None:
-                properties = {key: getattr(spec, key) for key in assignment["properties"]}
+                # Pile rows keep D/spacing/interface keys the beam spec does not carry.
+                properties = {
+                    key: getattr(spec, key, value)
+                    for key, value in assignment["properties"].items()
+                }
                 assignments.append({**assignment, "properties": properties})
         model = replace(model, geometry={**model.geometry, "supports": assignments})
     return model
@@ -149,6 +154,190 @@ def parse_regions(text):
 
 def parse_tags(text):
     return frozenset(n.strip() for n in text.split(",") if n.strip())
+
+
+def region_names(model) -> dict[int, str]:
+    """Map region id -> CAD entity name when CAD geometry metadata is present."""
+    out: dict[int, str] = {}
+    if model is not None and model.geometry:
+        for ent in model.geometry.get("entities", ()):
+            if ent.get("kind") == "region":
+                r = int(ent.get("region", 1))
+                name = str(ent.get("name", "")).strip()
+                if name:
+                    out[r] = name
+    return out
+
+
+def region_label(model, region: int) -> str:
+    names = region_names(model)
+    name = names.get(int(region))
+    return f"Bölge {region} ({name})" if name else f"Bölge {region}"
+
+
+def structure_label(model, tag: str) -> str:
+    kind_map = {"beam": "Kazık/Kaplama", "bar": "Ankraj/Çivi", "interface": "Ara yüz"}
+    kind = (model.structure_tags().get(tag) if model is not None else None) or ""
+    if model is not None and model.geometry:
+        for sup in model.geometry.get("supports", ()):
+            ent = sup.get("entity", "")
+            if f"cad_{ent}" == tag:
+                sk = {"pile": "Kazık", "liner": "Kaplama", "bolt": "Ankraj/Çivi"}.get(
+                    sup.get("kind"), kind_map.get(kind, "Destek")
+                )
+                return f"{ent} ({sk})"
+    clean = tag[4:] if tag.startswith("cad_") else tag
+    suffix = kind_map.get(kind)
+    return f"{clean} ({suffix})" if suffix else clean
+
+
+def stage_active_regions(model, stage_index: int) -> frozenset[int]:
+    all_regions = frozenset(model.mesh.regions())
+    if stage_index <= 0 or not model.stages:
+        active = model.initial.active_regions
+    else:
+        idx = min(stage_index - 1, len(model.stages) - 1)
+        active = model.stages[idx].active_regions
+    return all_regions if active is None else frozenset(active)
+
+
+def stage_active_structures(model, stage_index: int) -> frozenset[str]:
+    tags = model.structure_tags()
+    if stage_index <= 0 or not model.stages:
+        if model.initial.active_structures is None:
+            return frozenset(t for t, k in tags.items() if k == "interface")
+        return frozenset(model.initial.active_structures)
+    idx = min(stage_index - 1, len(model.stages) - 1)
+    return frozenset(model.stages[idx].active_structures)
+
+
+def stage_region_material(model, stage_index: int, region: int) -> str | None:
+    """Return active material name for ``region`` at ``stage_index``, or ``None`` if excavated."""
+    if region not in stage_active_regions(model, stage_index):
+        return None
+    if stage_index <= 0 or not model.stages:
+        return model.region_material[region]
+    idx = min(stage_index - 1, len(model.stages) - 1)
+    return model.stages[idx].material_override.get(region, model.region_material[region])
+
+
+def set_region_stage_state(
+    model, stage_index: int, region: int, material: str | None, *, propagate: bool = True
+):
+    """RS2-style region assignment: ``material=None`` excavates; a name activates/assigns."""
+    all_regions = frozenset(model.mesh.regions())
+    if region not in all_regions:
+        raise ValueError(f"Bilinmeyen bölge: {region}")
+    mat_name = (
+        model.region_material[region]
+        if material == "__active__"
+        else material
+    )
+    if mat_name is not None and mat_name not in model.materials:
+        raise ValueError(f"Bilinmeyen malzeme: {mat_name}")
+
+    initial = model.initial
+    region_material = dict(model.region_material)
+    stages = list(model.stages)
+
+    if stage_index <= 0:
+        cur = set(stage_active_regions(model, 0))
+        if mat_name is None:
+            cur.discard(region)
+        else:
+            cur.add(region)
+            region_material[region] = mat_name
+        active_val = None if cur == all_regions else frozenset(cur)
+        initial = replace(initial, active_regions=active_val)
+        target_indices: Iterable[int] = range(1, len(stages) + 1) if propagate else ()
+    else:
+        start = min(max(1, stage_index), len(stages))
+        target_indices = range(start, len(stages) + 1) if propagate else (start,)
+
+    for idx in target_indices:
+        st = stages[idx - 1]
+        cur = set(all_regions if st.active_regions is None else st.active_regions)
+        overrides = dict(st.material_override)
+        if mat_name is None:
+            cur.discard(region)
+        else:
+            cur.add(region)
+            if mat_name == region_material[region]:
+                overrides.pop(region, None)
+            else:
+                overrides[region] = mat_name
+        active_val = None if cur == all_regions else frozenset(cur)
+        stages[idx - 1] = replace(
+            st, active_regions=active_val, material_override=overrides
+        )
+
+    return validate_edit(
+        replace(model, initial=initial, region_material=region_material, stages=stages)
+    )
+
+
+def set_structure_stage_state(
+    model, stage_index: int, tag: str, active: bool, *, propagate: bool = True
+):
+    """RS2-style structure activation/deactivation from ``stage_index`` onwards.
+
+    A pile's skin interfaces are switched together with the pile."""
+    from ..cad.supports import companion_tags
+
+    if tag not in model.structure_tags():
+        raise ValueError(f"Bilinmeyen yapı: {tag}")
+    tags = {tag, *(t for t in companion_tags(tag) if t in model.interfaces)}
+    initial = model.initial
+    stages = list(model.stages)
+    if stage_index <= 0:
+        cur = set(stage_active_structures(model, 0))
+        cur = cur | tags if active else cur - tags
+        initial = replace(initial, active_structures=frozenset(cur))
+        target_indices: Iterable[int] = range(1, len(stages) + 1) if propagate else ()
+    else:
+        start = min(max(1, stage_index), len(stages))
+        target_indices = range(start, len(stages) + 1) if propagate else (start,)
+
+    for idx in target_indices:
+        st = stages[idx - 1]
+        cur = set(st.active_structures)
+        cur = cur | tags if active else cur - tags
+        stages[idx - 1] = replace(st, active_structures=frozenset(cur))
+
+    return validate_edit(replace(model, initial=initial, stages=stages))
+
+
+def append_stage_rs2(model, after_index: int | None = None, name: str | None = None):
+    """Insert a stage inheriting the preceding stage's excavations, supports, loads and water."""
+    stages = list(model.stages)
+    existing_names = {s.name for s in stages}
+    if name is None:
+        n = len(stages) + 1
+        candidate = f"Aşama {n}"
+        while candidate in existing_names:
+            n += 1
+            candidate = f"Aşama {n}"
+        name = candidate
+    if not stages or (after_index is not None and after_index <= 0):
+        new_stage = api.Stage(
+            name=name,
+            active_regions=model.initial.active_regions,
+            active_structures=stage_active_structures(model, 0),
+            water=model.initial.water,
+        )
+        insert_pos = 0 if (after_index is not None and after_index <= 0) else len(stages)
+    else:
+        ref_idx = len(stages) - 1 if after_index is None else min(after_index - 1, len(stages) - 1)
+        ref = stages[ref_idx]
+        new_stage = replace(
+            ref,
+            name=name,
+            load_split=1.0,
+            reset_displacements=False,
+        )
+        insert_pos = ref_idx + 1
+    stages.insert(insert_pos, new_stage)
+    return validate_edit(replace(model, stages=stages)), insert_pos + 1
 
 
 def put_interface(model, spec, edge_set, side="left"):

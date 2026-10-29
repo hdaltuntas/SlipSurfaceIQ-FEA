@@ -108,7 +108,7 @@ def test_view_menu_panels_and_layout_persist(qt_app):
     assert window.project_dock.isVisible()
     window.dock_action.setChecked(False)
     window.log_action.setChecked(False)
-    assert not window.project_dock.isVisible() and not window.log_tabs.isVisible()
+    assert not window.project_dock.isVisible() and not window.log_panel.isVisible()
     window.edit_geometry()
     window.show_results()
     assert not window.project_dock.isVisible()  # the user's choice survives mode switches
@@ -119,9 +119,9 @@ def test_view_menu_panels_and_layout_persist(qt_app):
     again.open_tunnel_example()
     qt_app.processEvents()
     assert not again.dock_action.isChecked() and not again.log_action.isChecked()
-    assert not again.project_dock.isVisible() and not again.log_tabs.isVisible()
+    assert not again.project_dock.isVisible() and not again.log_panel.isVisible()
     again.reset_layout()
-    assert again.project_dock.isVisible() and again.log_tabs.isVisible()
+    assert again.project_dock.isVisible() and again.log_panel.isVisible()
     again.close()
 
 
