@@ -337,12 +337,19 @@ class TunnelDesignerDialog(QDialog):
 
     def __init__(self, design=None, center=(0.0, 0.0), parent=None):
         super().__init__(parent)
-        self.setWindowTitle("NATM tünel tasarımcısı")
+        self.setWindowTitle("Eşdeğer kesit tünel")
         self.resize(900, 640)
         design = design or TunnelDesign()
         self.lining_value = design.lining or LiningSystem()
         self.placement = 0
         root = QVBoxLayout(self)
+        note = QLabel(
+            "Püskürtme beton, hasır ve çelik iksa tek Timoshenko kirişine toplanır. "
+            "Doğrulama kiriş teorisi ve kazık çevre sürtünmesinin kapalı formudur. "
+            "Bu pencere RS2/PLAXIS veya 3B NATM doğrulaması değildir."
+        )
+        note.setWordWrap(True)
+        root.addWidget(note)
         self.library_bar = LibraryBar("tunnels", self._data, self._load)
         root.addWidget(self.library_bar)
         body = QHBoxLayout()

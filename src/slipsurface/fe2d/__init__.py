@@ -5,4 +5,4 @@ Layers (dependencies flow downwards only)::
     L6 api/ cli/ gui/   L5 io/   L4 post/   L3 fem/   L2 mesh/   L1 model/   L0 core/
 """
 
-__version__ = "1.0.0"
+__version__ = "0.9.0"

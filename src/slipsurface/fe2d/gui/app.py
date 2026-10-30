@@ -479,7 +479,7 @@ class MainWindow(QMainWindow):
             support_menu.addAction(action(title, lambda _=False, k=kind: self.draft_tool(k)))
         support_menu.addSeparator()
         for title, method in [
-            ("NATM tünel tasarımcısı…", "open_tunnel_designer"),
+            ("Eşdeğer kesit tünel…", "open_tunnel_designer"),
             ("Kaplama / püskürtme beton / iksa tasarımcısı…", "open_lining_designer"),
             ("Bulon paterni (seçili çizgi)…", "bolt_pattern"),
         ]:

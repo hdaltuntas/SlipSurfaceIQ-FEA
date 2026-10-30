@@ -852,13 +852,23 @@ class CadDialog(QDialog):
             ("bolt", "Tek bulon / ankraj / zemin çivisi", "bolt", "A"),
         ]:
             tool(key, title, ic, lambda _=False, k=key: self.start_engineering_tool(k), shortcut)
-        tool("natm", "NATM tünel tasarımcısı", "cad_natm", self.open_tunnel_designer, "N")
+        natm = tool(
+            "natm",
+            "Eşdeğer kesit tünel",
+            "cad_natm",
+            self.open_tunnel_designer,
+            "N",
+        )
+        natm.setToolTip(
+            "At nalı veya daire; püskürtme + hasır + iksa tek kirişe toplanır (N). "
+            "Kiriş teorisiyle doğrulandı. RS2/PLAXIS veya 3B NATM doğrulaması değildir."
+        )
         pattern = strip.addAction(icon("bolt_pattern"), "Bulon paterni (seçili çizgi boyunca)")
         pattern.triggered.connect(self.bolt_pattern)
         tunnel_button = strip.widgetForAction(self.tool_actions["tunnel"])
         if isinstance(tunnel_button, QToolButton):
             options = QMenu(tunnel_button)
-            options.addAction("NATM tünel tasarımcısı…", self.open_tunnel_designer)
+            options.addAction("Eşdeğer kesit tünel…", self.open_tunnel_designer)
             options.addSeparator()
             options.addAction(self.tunnel_lining)
             options.addAction(self.tunnel_excavation)
@@ -1380,7 +1390,7 @@ class CadDialog(QDialog):
         self.placing = design
         self.canvas.placement = [tuple(p) for p in design.section.outline()]
         self.status.setText(
-            "NATM tünel: tepe yayı merkezini (üzengi seviyesi) tıklayın. Esc: iptal."
+            "Eşdeğer kesit tünel: tepe yayı merkezini (üzengi seviyesi) tıklayın. Esc: iptal."
         )
 
     def insert_tunnel(self, design, center):

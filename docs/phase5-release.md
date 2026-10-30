@@ -1,9 +1,10 @@
-# Faz 5 — yayın geri çekildi, geliştirme sürüyor
+# Faz 5 — yayın geri çekildi, paket sürümü 0.9.0
 
 **22 Ekim 2026: Kullanıcı arayüzü kullanışlı bulmadı; v1.0.0 hazır kabul edilmiyor.**
-GitHub release listesi boş; v1.0.0 yayını kaldırılmış durumda. Otomatik paket
-yayını ve PyPI yükleme adımı durduruldu. Aşağıdaki sonuçlar tarihsel teknik test
-kanıtıdır; kullanıcı kabulü veya Faz 5 kapanışı anlamına gelmez.
+GitHub release listesi boş; v1.0.0 yayını kaldırılmış durumda. Paket bilinçli olarak
+**0.9.0**'dır. Otomatik paket yayını ve PyPI yükleme adımı durduruldu. Aşağıdaki
+sonuçlar tarihsel teknik test kanıtıdır; kullanıcı kabulü veya Faz 5 kapanışı
+anlamına gelmez.
 
 Öncelik: Windows tema/kontrast sorunları, görünmeyen araç yazıları, panel
 yerleşimi ve anlaşılır modelleme akışı. Kullanıcı kabulünden sonra yeni yayın
@@ -38,7 +39,7 @@ Linux/Windows, Python 3.10–3.13 ve iki native GUI işi: **10/10 başarılı**
 
 ## Sayısal ve kullanım sınırları
 
-- Kullanıcının kararıyla S4 RS2/PLAXIS dış karşılaştırması ertelenmiştir.
+- S4'ün RS2/PLAXIS karşılaştırması yoktur. İç Winkler uyumu bu boşluğu kapatmaz.
 - Eski kesmesiz P4 strict xfail olarak korunur. Yerel bünye dönüş hatası fiziksel
   göçme kanıtı veya SRF üst sınırı sayılmaz. Açık Rankine-apex akışı ayrı seçenektir.
 - Çizgisel 2B DXF desteği vardır; DWG ve eğri/blok DXF bu sürüme dahil değildir.

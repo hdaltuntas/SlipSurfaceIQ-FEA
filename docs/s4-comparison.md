@@ -1,10 +1,9 @@
 # S4 — sürekli ortam palplanş karşılaştırması
 
 Bu protokol açık `rankine_at_apex=True` modeli için aynı girdilerle bağımsız çözüm
-alınmasını sağlar. **21 Ekim 2026: S4 iş kaydı kullanıcı kararıyla kapatıldı;
-bağımsız dış karşılaştırma sonraya ertelendi.** S4/Kapı 3 dış doğrulama ölçütü
-henüz geçmedi. Faz 4 başlatılmadı.
-Paket içindeki SlipSurfaceIQ-FEA koşuları dış referans olarak kullanılamaz.
+alınmasını sağlar. **Dış karşılaştırma yapılmadı.** S4/Kapı 3 dış doğrulama ölçütü
+geçmedi. Tablo biçimi [s4-external.md](s4-external.md). Paket içindeki
+SlipSurfaceIQ-FEA koşuları dış referans olarak kullanılamaz.
 
 ## Sabit fiziksel problem
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slipsurface-fe2d"
-version = "1.0.0"
+version = "0.9.0"
 description = "SlipSurface 2D — plane strain / axisymmetric geotechnical finite element core"
 readme = "README.md"
 license = "MIT"

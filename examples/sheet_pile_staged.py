@@ -59,16 +59,22 @@ model = api.Model(
     settings=api.SolverSettings(line_search=True),
 )
 
-res = api.run(model)
-for st in res.stages:
-    print(f"{st.name:8s} steps {st.history.n_steps:3d}  iterations {st.history.n_iterations:4d}")
-blk = mesh.block("wall")
-M = res.last.beams["wall"][:, :, 2]  # (element, end, [N, V, M])
-y = mesh.coords[blk.conn, 1]
-i = np.unravel_index(np.abs(M).argmax(), M.shape)
-head = blk.conn[int(np.argmax(y[:, 0])), 0]
-print(f"M_max = {np.abs(M).max():.1f} kNm/m at y = {y[i]:.2f} m")
-print(f"wall head displacement = {res.last.u[head, 0] * 1000:.1f} mm")
-api.save_project("wall.ssproj", model, res)
-api.export_vtu(res, "wall_lift2.vtu")
-print("wrote wall.ssproj, wall_lift2.vtu")
+def main() -> None:
+    res = api.run(model)
+    for st in res.stages:
+        steps, iters = st.history.n_steps, st.history.n_iterations
+        print(f"{st.name:8s} steps {steps:3d}  iterations {iters:4d}")
+    blk = mesh.block("wall")
+    M = res.last.beams["wall"][:, :, 2]  # (element, end, [N, V, M])
+    y = mesh.coords[blk.conn, 1]
+    i = np.unravel_index(np.abs(M).argmax(), M.shape)
+    head = blk.conn[int(np.argmax(y[:, 0])), 0]
+    print(f"M_max = {np.abs(M).max():.1f} kNm/m at y = {y[i]:.2f} m")
+    print(f"wall head displacement = {res.last.u[head, 0] * 1000:.1f} mm")
+    api.save_project("wall.ssproj", model, res)
+    api.export_vtu(res, "wall_lift2.vtu")
+    print("wrote wall.ssproj, wall_lift2.vtu")
+
+
+if __name__ == "__main__":
+    main()

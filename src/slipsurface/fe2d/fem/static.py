@@ -38,16 +38,16 @@ from numpy.typing import NDArray
 from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
 from ..core.errors import MaterialIntegrationError, ModelError, SolverError
 from ..core.log import get_logger
-from ..core.units import GAMMA_W
 from ..model.boundary import Displacement, WaterCondition
 from ..model.materials import MaterialSpec
 from ..model.model import Model
 from ..model.stages import SolverSettings, Stage
+from . import activity, pore
 from .assembly import DofMap, SparsePattern, element_stiffness, internal_force, strain
 from .elements import kernel
 from .elements.base import GeomCache
 from .linsolve import factorize
-from .loads import TractionFn, assemble_nodal_loads, k0_stress_field, pressure_edge_forces
+from .loads import TractionFn, assemble_nodal_loads, k0_stress_field
 from .materials import build as build_material
 from .materials.mohr_coulomb import MohrCoulomb
 from .nonlinear import Problem, StageHistory, solve_stage
@@ -60,7 +60,6 @@ log = get_logger("static")
 _M = np.array([1.0, 1.0, 1.0, 0.0])
 _MM = np.outer(_M, _M)
 _CONT = (ElemType.T3, ElemType.T6, ElemType.Q4, ElemType.Q8)
-_WT_TOL = 1e-9  # [m] a Gauss point on the water table (round-off) counts as dry
 
 
 # ================================================================== result objects
@@ -310,7 +309,7 @@ class StaticSolver:
                 if spec.drainage is Drainage.UNDRAINED_C:
                     total[ids] = True
                 elif spec.drainage is not Drainage.DRAINED and not drained:
-                    kw[ids] = _water_stiffness(spec, De[ids[0]])
+                    kw[ids] = pore.water_stiffness(spec, De[ids[0]])
                 groups.append((cm, ids))
                 linear &= not getattr(cm, "plastic", False)
                 symmetric &= bool(getattr(cm, "symmetric", True))
@@ -331,102 +330,26 @@ class StaticSolver:
 
     # ------------------------------------------------------------- topology helpers
     def _edge_owner_map(self) -> dict[tuple[int, int], tuple[int, int]]:
-        out: dict[tuple[int, int], tuple[int, int]] = {}
-        for bi, b in enumerate(self.blocks):
-            nc = 4 if b.etype in (ElemType.Q4, ElemType.Q8) else 3
-            for i in range(nc):
-                a, c = b.conn[:, i], b.conn[:, (i + 1) % nc]
-                for e, (p, q) in enumerate(zip(a.tolist(), c.tolist())):
-                    out[(min(p, q), max(p, q))] = (bi, e)
-        return out
+        return activity.edge_owner_map(self.blocks)
 
     def _interface_adjacency(self) -> dict[str, tuple[NDArray, NDArray, NDArray, NDArray]]:
         """For each interface element: continuum (block, element) owning face 1 / face 2."""
-        if not any(isinstance(g, InterfaceGroup) for g in self.groups):
-            return {}
-        owner = self._edge_owner_map()
-        out = {}
-        for g in self.groups:
-            if not isinstance(g, InterfaceGroup):
-                continue
-            res = []
-            for face in (g.f1, g.f2):
-                bi = np.full(g.ne, -1)
-                ei = np.full(g.ne, -1)
-                for k, (p, q) in enumerate(zip(face[:, 0].tolist(), face[:, 1].tolist())):
-                    hit = owner.get((min(p, q), max(p, q)))
-                    if hit is not None:
-                        bi[k], ei[k] = hit
-                res += [bi, ei]
-            out[g.tag] = tuple(res)  # type: ignore[assignment]
-        return out  # type: ignore[return-value]
+        return activity.interface_adjacency(self.blocks, self.groups)
 
     def _interface_face_keys(self) -> set[tuple[int, int]]:
-        keys: set[tuple[int, int]] = set()
-        for g in self.groups:
-            if isinstance(g, InterfaceGroup):
-                for face in (g.f1, g.f2):
-                    for p, q in zip(face[:, 0].tolist(), face[:, 1].tolist()):
-                        keys.add((min(p, q), max(p, q)))
-        return keys
+        return activity.interface_face_keys(self.groups)
 
     def active_masks(
         self, regions: frozenset[int] | None, structures: frozenset[str] | None
     ) -> dict[str, NDArray[np.bool_]]:
         """Activity per block; ``structures=None`` means all interfaces, no beams/bars."""
-        act: dict[str, NDArray[np.bool_]] = {}
-        for b in self.blocks:
-            act[b.tag] = (
-                np.ones(b.ne, dtype=bool)
-                if regions is None
-                else np.isin(b.region, np.fromiter(regions, dtype=np.int64))
-            )
-        beam_nodes = np.zeros(self.mesh.nn, dtype=bool)
-        for g in self.groups:
-            if isinstance(g, BeamGroup) and structures is not None and g.tag in structures:
-                beam_nodes[g.block.conn.ravel()] = True
-        for g in self.groups:
-            on = (isinstance(g, InterfaceGroup) and structures is None) or (
-                structures is not None and g.tag in structures
-            )
-            m = np.full(g.ne, on)
-            if on and isinstance(g, InterfaceGroup):
-                # a face is supported by an active continuum element owning it or by an
-                # active beam carrying all its nodes; otherwise the joint is switched off
-                b1, e1, b2, e2 = self._iface_adj[g.tag]
-                for face, bi, ei in ((g.f1, b1, e1), (g.f2, b2, e2)):
-                    ok = beam_nodes[face].all(axis=1) | (bi < 0)
-                    for k in np.flatnonzero(bi >= 0):
-                        ok[k] |= bool(act[self.blocks[bi[k]].tag][ei[k]])
-                    m &= ok
-            act[g.tag] = m
-        return act
+        return activity.active_masks(
+            self.blocks, self.groups, self._iface_adj, regions, structures, self.mesh.nn
+        )
 
     def _ties(self, active: dict[str, NDArray[np.bool_]]) -> NDArray[np.int64]:
-        """Partner-node pairs of inactive interface elements (full continuity there).
-
-        A pair is tied only if no *active* interface element joins the same two nodes, so a
-        partially active joint keeps its relative displacement where it is active.
-        """
-        pairs, keep = [], []
-        for g in self.groups:
-            if not isinstance(g, InterfaceGroup):
-                continue
-            pr = np.stack([g.f1, g.f2], axis=-1).reshape(-1, 2)  # (ne*npe, 2)
-            on = np.repeat(active[g.tag], g.npe)
-            pairs.append(pr[~on])
-            keep.append(pr[on])
-        if not pairs:
-            return np.empty((0, 2), np.int64)
-        tie = np.vstack(pairs)
-        tie = tie[tie[:, 0] != tie[:, 1]]
-        act = np.vstack(keep)
-        if act.size and tie.size:
-            nn = self.mesh.nn
-            k_t = np.minimum(tie[:, 0], tie[:, 1]) * nn + np.maximum(tie[:, 0], tie[:, 1])
-            k_a = np.minimum(act[:, 0], act[:, 1]) * nn + np.maximum(act[:, 0], act[:, 1])
-            tie = tie[~np.isin(k_t, k_a)]
-        return np.unique(tie, axis=0) if tie.size else tie
+        """Partner-node pairs of inactive interface elements (full continuity there)."""
+        return activity.tie_pairs(self.groups, active, self.mesh.nn)
 
     # ------------------------------------------------------------- system build
     def build_system(
@@ -467,20 +390,10 @@ class StaticSolver:
                 pos = gids if ids.size == b.ne else np.flatnonzero(np.isin(ids, gids))
                 if pos.size:
                     groups.append((cm, pos))
-            if seep is not None:
-                p = (
-                    np.maximum(seep.gp_pressure(b.tag), 0.0)
-                    if b.tag in seep.gp_head
-                    else np.zeros(gs.xg.shape[:2])
-                )
-                below = p > GAMMA_W * _WT_TOL
-            else:
-                h = water.head(gs.xg[..., 0])
-                p = GAMMA_W * np.maximum(h - gs.xg[..., 1], 0.0)
-                below = h - gs.xg[..., 1] > _WT_TOL
-            gam = np.where(below, bm.gamma_sat[ids][:, None], bm.gamma[ids][:, None])
-            if bm.total is not None and bm.total[ids].any():  # undrained C: total stresses
-                p = np.where(bm.total[ids][:, None], 0.0, p)
+            total = None if bm.total is None else bm.total[ids]
+            p, gam = pore.continuum_pore(
+                gs.xg, bm.gamma[ids], bm.gamma_sat[ids], total, water, seep, b.tag
+            )
             De = bm.De if ids.size == b.ne else bm.De[ids]
             kw = None
             if bm.kw is not None and bm.kw[ids].any():
@@ -494,11 +407,7 @@ class StaticSolver:
                 continue
             p_joint: NDArray[np.float64] | None = None
             if isinstance(g, InterfaceGroup):
-                xi = g.xip[ids]
-                if p_nodal is not None:
-                    p_joint = p_nodal[g.f1[ids]]
-                else:
-                    p_joint = GAMMA_W * np.maximum(water.head(xi[..., 0]) - xi[..., 1], 0.0)
+                p_joint = pore.joint_pressure(g.xip[ids], g.f1[ids], p_nodal, water)
                 linear = False
                 symmetric &= g.symmetric
             elif isinstance(g, BarGroup):
@@ -727,77 +636,9 @@ class StaticSolver:
         return f
 
     def _water_forces(self, sysm: System, water: WaterCondition) -> NDArray[np.float64]:
-        dm = sysm.dm
-        nd = dm.ndof
-        f = np.zeros(nd)
-        # int B^T m p (moves to the external side in the effective-stress formulation)
-        for c in sysm.cont:
-            if c.ids.size and np.any(c.p > 0):
-                fe = internal_force(c.geom, c.p[..., None] * _M)
-                f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
-        for s in sysm.struct:
-            if s.p is not None and np.any(s.p > 0):
-                f += np.bincount(
-                    s.edofs.ravel(), s.group.pore_force(s.ids, s.p).ravel(), minlength=nd
-                )
-        # water pressure on the exposed boundary of the active continuum
-        edges, inner = self._exposed_edges(sysm)
-        if edges.size:
-            X = self.mesh.coords
-            if sysm.p_nodal is not None:
-                sel = (sysm.p_nodal[edges] > 0).any(axis=1)
-            else:
-                hmax = water.head(X[edges[:, :2], 0]).max(axis=1)
-                sel = hmax > X[edges[:, :2], 1].min(axis=1)
-            if np.any(sel):
-
-                def pfun(x: NDArray[np.float64]) -> NDArray[np.float64]:
-                    return GAMMA_W * np.maximum(water.head(x[:, 0]) - x[:, 1], 0.0)
-
-                pn = None if sysm.p_nodal is None else sysm.p_nodal[edges[sel]]
-                fe = pressure_edge_forces(
-                    X, edges[sel], inner[sel], pfun, self.model.analysis, p_nodal=pn
-                )
-                ed = dm.node_dofs[edges[sel]][:, :, :2]
-                ok = ed >= 0
-                fw = np.bincount(ed[ok], fe[ok], minlength=nd)
-                # on prescribed DOFs the boundary water load only shifts the reaction;
-                # leaving it out makes reported reactions total (effective + water)
-                fw[dm.prescribed] = 0.0
-                f += fw
-        return f
-
-    def _exposed_edges(self, sysm: System) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
-        X = self.mesh.coords
-        keys, rows, cents = [], [], []
-        nn = self.mesh.nn
-        for c, b in zip(sysm.cont, self.blocks):
-            if c.ids.size == 0:
-                continue
-            conn = b.conn[c.ids]
-            nc = 4 if b.etype in (ElemType.Q4, ElemType.Q8) else 3
-            quad = b.etype in (ElemType.T6, ElemType.Q8)
-            cen = X[conn[:, :nc]].mean(axis=1)
-            for i in range(nc):
-                a, e = conn[:, i], conn[:, (i + 1) % nc]
-                r = np.column_stack([a, e, conn[:, nc + i]]) if quad else np.column_stack([a, e])
-                keys.append(np.minimum(a, e) * nn + np.maximum(a, e))
-                rows.append(r)
-                cents.append(cen)
-        if not keys:
-            return np.empty((0, 2), np.int64), np.empty((0, 2))
-        k = np.concatenate(keys)
-        width = max(r.shape[1] for r in rows)
-        if any(r.shape[1] != width for r in rows):
-            raise ModelError("mixed linear/quadratic continuum blocks are not supported")
-        R = np.vstack(rows)
-        C = np.vstack(cents)
-        u, inv, cnt = np.unique(k, return_inverse=True, return_counts=True)
-        once = cnt[inv.ravel()] == 1
-        if self._iface_face_keys:
-            fk = np.array([a * nn + b for a, b in self._iface_face_keys])
-            once &= ~np.isin(k, fk)
-        return R[once], C[once]
+        return pore.water_forces(
+            sysm, water, self.mesh.coords, self.blocks, self._iface_face_keys, self.model.analysis
+        )
 
     # ------------------------------------------------------------------ state
     def zero_state(self) -> SolverState:
@@ -1224,14 +1065,6 @@ class StaticSolver:
             self._report(lam=st.load_split, accepted=True, completed=True)
         self.state = state
         return SolveResult(model=model, geom=self.geom, initial=initial, stages=results)
-
-
-def _water_stiffness(spec: MaterialSpec, De: NDArray[np.float64]) -> float:
-    """Kw/n of an undrained A/B material: ``params['Kw_n']`` or 100 K'."""
-    if "Kw_n" in spec.params:
-        return float(spec.params["Kw_n"])
-    K = (De[0, 0] + 2.0 * De[0, 1]) / 3.0
-    return 100.0 * float(K)
 
 
 def solve(

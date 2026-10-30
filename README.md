@@ -5,11 +5,12 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
 
-**Durum: Faz 5 geliştirme sürüyor; arayüz kullanıma hazır değil. Yayın durduruldu.**
+**Durum: 0.9.0. Faz 5 açık; arayüz kullanıma hazır değil. v1.0.0 yayını geri çekildi.**
 
-22 Ekim 2026 kullanıcı değerlendirmesiyle v1.0.0 yayını geri çekildi.
-Otomatik testlerin geçmesi kullanıcı kabulü değildir. Arayüz kullanılabilirliği
-düzeltilip kullanıcı tarafından kabul edilmeden yeni release yayımlanmayacak.
+22 Ekim 2026 kullanıcı değerlendirmesiyle v1.0.0 yayını geri çekildi. Paket sürümü
+bilerek 0.9.0'dır. Otomatik testlerin geçmesi kullanıcı kabulü değildir. Arayüz
+kullanılabilirliği düzeltilip kullanıcı tarafından kabul edilmeden yeni release
+yayımlanmayacak.
 
 [İnceleme ve test kaydı](docs/phase4-review.md) ·
 [Masaüstü arayüzü / çalıştırma](docs/phase5-desktop.md) ·
@@ -19,9 +20,10 @@ düzeltilip kullanıcı tarafından kabul edilmeden yeni release yayımlanmayaca
 [Faz 5 sürüm ve doğrulama kaydı](docs/phase5-release.md).
 Kapı 5 ve v1.0 tamamlanmadı.
 
-S4 iş kaydı kullanıcı kararıyla kapatıldı; bağımsız RS2/PLAXIS karşılaştırması
-sonraya ertelendi. Bu karar, dış doğrulamanın geçtiği anlamına gelmez.
-[Son durum](docs/phase3-status.md) · [İleride yapılacaklar](docs/next-steps.md).
+S4 iş kaydı kapatıldı. Bu, dış doğrulamanın geçtiği anlamına gelmez ve artık
+"sonraya ertelendi" diye de yazılmaz: RS2/PLAXIS karşılaştırması yoktur.
+[Dosya biçimi](docs/s4-external.md) · [Son durum](docs/phase3-status.md) ·
+[İleride yapılacaklar](docs/next-steps.md).
 
 Mohr–Coulomb yerel dönüş hatasının elastik deneme gerilmesiyle gizlenmesi düzeltildi.
 P4'te bu hata SRF göçme sınırı olarak kullanılamıyor. Açık Rankine-apex modeli
@@ -32,7 +34,7 @@ Bishop karşılaştırmasını geçti; eski kesmesiz model ayrı strict xfail ol
 
 Aktif küme/kazı, yapısal elemanlar ve aşama bazlı su uygulaması mevcut. HDF5 sonuç
 kaydı, aşama bazlı okuma ve `.ssproj` konteyneri eklendi. S1 (no-slip) ve ara yüz
-doğrulamaları tamamlandı; S4 yapısal ön kontrolleri geçti, tam zeminli S4 dış karşılaştırması ertelendi.
+doğrulamaları tamamlandı; S4 yapısal ön kontrolleri geçti, tam zeminli S4 dış karşılaştırması yoktur.
 [Durum ve kalan kapı testleri](docs/phase3-status.md) ·
 [Proje/sonuç dosyası API](docs/project-files.md).
 
@@ -194,5 +196,5 @@ See [`docs/verification.md`](docs/verification.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The "SlipSurface" name and logo are not covered by the
-code license.
+MIT — see [LICENSE](LICENSE). The SlipSurface name and logo are trademarks of
+Hasan Deniz Altuntaş and are not covered by the MIT license.

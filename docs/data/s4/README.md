@@ -16,6 +16,6 @@ commit'inde korunur; güncel sonuçların yerine kullanılmaz.
   sonuç kaydındadır. Tam ağlı `model.json` dosyaları tekrar aracıyla üretilir.
 
 Kaynak komutları, işaretler, ölçütler ve kapsam [S4 protokolünde](../../s4-comparison.md).
-Bağımsız palplanş programının sonuçları bu dizinde **yoktur**. 21 Ekim 2026
-kullanıcı kararıyla S4 işi kapatıldı, dış karşılaştırma ertelendi; doğrulama
-geçişi ilan edilmez. Faz 4 başlatılmadı.
+Bağımsız palplanş programının sonuçları bu dizinde **yoktur**. Bu yokluk bir
+erteleme notu değil, ürün sınırıdır: iç Winkler uyumu RS2/PLAXIS geçişi değildir.
+Dış tablo biçimi [s4-external.md](../../s4-external.md).

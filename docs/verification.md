@@ -1,7 +1,7 @@
 # Doğrulama — Kapı 1 (Faz 1), Kapı 2 (Faz 2), Kapı 3 (Faz 3) ve Kapı 4 (Faz 4)
 
 **Güncel inceleme:** [Faz 4 düzeltmeleri](phase4-review.md),
-[Faz 5.1](phase5-desktop.md). S4 dış karşılaştırması ertelendi; Kapı 5 açık.
+[Faz 5.1](phase5-desktop.md). S4 dış karşılaştırması yoktur ([biçim](s4-external.md)); Kapı 5 açık.
 Aşağıdaki sayısal tablolar önceki koşuların kayıtlarıdır; güncel regresyon sonucu
 inceleme kaydındadır.
 
@@ -112,10 +112,12 @@ hibrit yöntem sınırda onu kullanır.
 | S2 | Ön germeli uç ankrajlı bolt, elastik blok, düzlem dışı aralık s = 1, 2 | Seri yay dengesi N = T₀/s · k_s/(k_s + k_b) | < %0.5 | 1e-9 (doğrusal yaylar için kesin); akma sınırı ve pasifleştirme |
 | S3 | Elastik tabakada 3 kademeli kazı; load split α = 0.25 / 0.4 / 0.9 + tamamlama | Tek aşamalı eşdeğer çözüm | Fark < 10⁻⁸ | 5e-15 (çok aşama), 2e-15 – 6e-15 (load split); ilk aşama α·u |
 | S4 | Kumda konsol palplanş (H = 4 m, D = 6 m, iki kademe kazı, iki yüzde R = 0.67 ara yüz) | Kendi kiriş-yay (Winkler, K₀ → Ka/Kp Lancellotta 2002, kademeli) ve LE (Blum, serbest uç) | M_max < %10 | SEY 71.8 / 72.2 / 73.8 kNm/m (h = 0.5 / 0.35 / 0.25), kiriş-yay 78.5, LE 78.2 → %6–9; M_max derinliği 5.1 m (kiriş-yay 5.2 m); tepe deplasmanı −30 mm (kiriş-yay −32 mm) |
+| S5 | Eşdeğer püskürtme+hasır+iksa kirişi, nu = 0, konsol uç yükü ve eksenel çekme | Timoshenko: w = PL³/(3EI) + PL/(GAs), u = NL/EA | bağıl 1e-8 | yuvarlama |
+| S6 | Kazık sırası, iki yüz, c = T_skin/(2s), rijit eksenel öteleme | Tutma kuvveti = (T_skin/s)·L | bağıl 1e-3 | kapalı form |
 
-S4 satırındaki Winkler/LE modeli bir **iç karşılaştırmadır**; ertelenen RS2/PLAXIS
-dış doğrulaması olarak kabul edilmez. Farklı palplanş girdileri
-[önceki S4 kaydından](s4-comparison.md) ayrı tutulur.
+S4 satırındaki Winkler/LE modeli bir **iç karşılaştırmadır**. RS2/PLAXIS sonucu
+repoda yoktur; dosya gelmeden bu kapı geçilmiş sayılmaz
+([s4-external.md](s4-external.md)).
 
 **Aşama bölme değişmezliği** (Kapı 3 ek şartı): S3'te tek aşama = n aşama ve tek aşama
 = load split + tamamlama, elastik malzemede yuvarlama hatası düzeyinde.

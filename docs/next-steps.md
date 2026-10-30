@@ -26,8 +26,9 @@ Bu depo Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** projesidir.
 
 ## Korunan sınırlar
 
-- S4 iş kaydı kullanıcı kararıyla kapalıdır; **RS2/PLAXIS bağımsız karşılaştırması
-  ertelenmiştir**. İç Winkler/LE testleri bu dış doğrulamayı geçilmiş yapmaz.
+- S4'ün RS2/PLAXIS karşılaştırması **yoktur**. Bu bir ürün sınırıdır, ertelenmiş
+  bir geçiş değildir. İç Winkler/LE testleri dış doğrulama sayılmaz.
+  [Nasıl konacağı](s4-external.md).
 - Eski kesmesiz P4, yerel dönüş hatası nedeniyle strict xfail olarak tutulur.
   Yerel malzeme reddi SRF göçme üst sınırı olamaz.
 - Sayısal yakınsamama tek başına fiziksel göçme kanıtı değildir. Açık Rankine-apex
@@ -56,7 +57,9 @@ kontrastı ve model alanını daraltan panel yerleşimi görülüyor. Sıradaki 
 3. ~~Model alanı, aşama listesi ve çözüm günlüğünün dengeli, ayarlanabilir yerleşimi.~~
    Uygulandı: tam genişlikte iş akışı satırı, Görünüm menüsü, kalıcı yerleşim.
 4. Gerçek Windows ekranında görsel kontrol ve kullanıcı kullanılabilirlik kabulü.
-   **Hâlâ açık**: Linux offscreen görüntüleri kabul yerine geçmez.
+   **Hâlâ açık**: Linux offscreen görüntüleri kabul yerine geçmez. Sayı üretmek için
+   `scripts/phase5_cases.py` (dört durumlu tünel ve, `--sheet-pile` ile, S4 duvarı)
+   log ve N–V–M yazar; bu betik Faz 5'i kapatmaz.
 5. ~~Yeniden ağda malzeme, aşama, ara yüz ve yapı tanımlarının korunması.~~
    Uygulandı: [ayrıntı](integrated-modeler.md#kayıt-geri-alma-ve-yeniden-ağ).
 
