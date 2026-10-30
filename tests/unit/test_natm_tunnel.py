@@ -17,6 +17,7 @@ from slipsurface.fe2d.cad.supports import (
 from slipsurface.fe2d.cad.tunnel import (
     BoltPattern,
     LiningSystem,
+    PartBolts,
     TunnelDesign,
     TunnelSection,
     bolt_pattern_along,
@@ -111,7 +112,10 @@ def test_place_tunnel_builds_staged_natm_sequence():
     names = {e.name for e in drawing.entities}
     assert {"Tunel_Ust", "Tunel_Alt", "Tunel_Inv", "Tunel_PB_Ust", "Tunel_PB_Inv"} <= names
     assert {"Tunel_PB_Alt_Sol", "Tunel_PB_Alt_Sag"} <= names
-    assert sum(n.startswith("Tunel_Bulon") for n in names) == 5
+    # legacy explicit count=5 applies to every part: 5 bolts per part
+    assert sum(n.startswith("Tunel_Bulon_Ust") for n in names) == 5
+    assert sum(n.startswith("Tunel_Bulon_Alt") for n in names) == 5
+    assert sum(n.startswith("Tunel_Bulon_Inv") for n in names) == 5
     assert all(not s.active for s in drawing.supports)
     steps = drawing.sequence
     assert [s.name for s in steps][:2] == ["Tunel Üst yarı kazı", "Tunel Üst yarı destek"]
@@ -122,7 +126,42 @@ def test_place_tunnel_builds_staged_natm_sequence():
     twin = place_tunnel(drawing, replace(design, bolts=None), (20.0, 5.0))
     assert {"Tunel2_Ust", "Tunel2_PB_Ust"} <= {e.name for e in twin.entities}
     assert len(twin.sequence) == 12
-    assert TunnelDesign.from_dict(design.to_dict()) == design
+    # legacy BoltPattern round-trips as the shared pattern of a PartBolts
+    assert TunnelDesign.from_dict(design.to_dict()).part_bolts() == PartBolts(design.bolts, {})
+
+
+def test_place_tunnel_per_part_bolts_from_spacing():
+    section = TunnelSection(radius=3.0, wall_radius=6.0, wall_height=1.0, invert_depth=1.0,
+                            heading_level=0.0, invert_level=-1.0, parts=3)
+    design = TunnelDesign(
+        section,
+        LiningSystem(),
+        PartBolts(
+            BoltPattern(spacing=1.5, length=3.0),
+            {
+                "heading": BoltPattern(spacing=1.0, length=3.0),
+                "bench": None,  # no bolts on the bench
+                "invert": BoltPattern(spacing=2.5, length=2.5),
+            },
+        ),
+    )
+    drawing = place_tunnel(ground(), design, (20.0, 15.0))
+    names = {e.name for e in drawing.entities}
+    heading = sorted(n for n in names if n.startswith("Tunel_Bulon_Ust"))
+    bench = [n for n in names if n.startswith("Tunel_Bulon_Alt")]
+    invert = sorted(n for n in names if n.startswith("Tunel_Bulon_Inv"))
+    assert not bench
+    # heading arc = pi * R = 9.42 m, spacing 1.0 -> 9 bolts
+    assert len(heading) == 9
+    # invert arc ~ 6.28 m, spacing 2.5 -> round(6.28/2.5) = 3 bolts
+    assert len(invert) == 3
+    # support steps install exactly the placed bolts
+    install = {name for s in drawing.sequence for name in s.install}
+    assert set(heading) | set(invert) <= install
+    # spacing-derived count, read-only: BoltPattern without count derives from spacing
+    assert BoltPattern(spacing=1.0).bolt_count(9.4248) == 9
+    assert BoltPattern(count=4).bolt_count(100.0) == 4  # legacy explicit count wins
+    assert TunnelDesign.from_dict(design.to_dict()).to_dict() == design.to_dict()
 
 
 def test_tunnel_sequence_becomes_cumulative_fe_stages():

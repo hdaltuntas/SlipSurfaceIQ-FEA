@@ -30,15 +30,19 @@ from PySide6.QtWidgets import (
 )
 
 from ..cad.tunnel import (
+    PART_KEYS,
     PART_LABELS,
     STEEL_RIBS,
     WIRE_MESH,
     BoltPattern,
     LiningSystem,
+    PartBolts,
     TunnelDesign,
     TunnelSection,
     _bolt_heads,
+    _chain_segs,
     _lining_chains,
+    _part_bolt_heads,
     _rounded,
 )
 
@@ -288,9 +292,15 @@ class SectionPreview(QWidget):
         design, section = self.design, self.design.section
         parts = section.parts_at((0.0, 0.0))
         ring = _rounded(section.outline())
-        reach = section.radius + (design.bolts.length if design.bolts else 0.0)
+        bolts_cfg0 = design.part_bolts()
+        bolt_len = max(
+            (pb.length for pb in ([bolts_cfg0.pattern, *bolts_cfg0.per_part.values()]
+                                  if bolts_cfg0 else []) if pb is not None),
+            default=0.0,
+        )
+        reach = section.radius + bolt_len
         lo, hi = section.bounds_y()
-        span = max(2 * reach, hi - lo + 2 * (design.bolts.length if design.bolts else 0)) * 1.1
+        span = max(2 * reach, hi - lo + 2 * bolt_len) * 1.1
         scale = min(self.width(), self.height() - 30) / span
         origin = QPointF(self.width() / 2, (self.height() - 30) / 2 + 10)
 
@@ -312,10 +322,18 @@ class SectionPreview(QWidget):
                 for chain in _lining_chains(pts, cuts):
                     for a, b in zip(chain[:-1], chain[1:]):
                         p.drawLine(at(a), at(b))
-        if design.bolts is not None:
+        bolts_cfg = design.part_bolts()
+        if bolts_cfg is not None:
             p.setPen(QPen(QColor("#218764"), 2))
-            for head, direction in _bolt_heads(design.bolts, ring, (0.0, 0.0), section.radius):
-                p.drawLine(at(head), at(head + direction * design.bolts.length))
+            for key, pts in parts.items():
+                pattern = bolts_cfg.for_part(key)
+                if pattern is None:
+                    continue
+                chains = _lining_chains(pts, cuts)
+                for head, direction in _part_bolt_heads(
+                    pattern, ring, (0.0, 0.0), section.radius, chains, key
+                ):
+                    p.drawLine(at(head), at(head + direction * pattern.length))
         p.setPen(QColor("#526677"))
         p.drawText(
             8,
@@ -415,34 +433,23 @@ class TunnelDesignerDialog(QDialog):
         v.addStretch(1)
         tabs.addTab(page, "Kaplama")
 
-        # Bolts
-        bolts = design.bolts or BoltPattern()
+        # Bolts: one page per excavation part (heading / bench / invert / full),
+        # count derived from the arc-length spacing (shown as read-only info).
+        bolts_cfg = design.part_bolts()
+        base_pattern = (bolts_cfg.pattern if bolts_cfg else None) or BoltPattern()
         page = QWidget()
-        f = QFormLayout(page)
+        v = QVBoxLayout(page)
         self.use_bolts = QCheckBox("Radyal bulon paterni")
         self.use_bolts.setChecked(design.bolts is not None)
-        self.bolt_count = QSpinBox()
-        self.bolt_count.setRange(1, 200)
-        self.bolt_count.setValue(max(bolts.count, 1))
-        self.bolt_length = _spin(bolts.length, 0.1, 50, 2, "m")
-        self.bolt_start = _spin(bolts.start_angle, -360, 360, 1, "°")
-        self.bolt_end = _spin(bolts.end_angle, -360, 360, 1, "°")
-        self.bolt_EA = _spin(bolts.EA, 1, 1e9, 0, "kN")
-        self.bolt_T = _spin(bolts.T_yield, 1, 1e6, 1, "kN")
-        self.bolt_spacing = _spin(bolts.spacing_out_of_plane, 0.1, 20, 2, "m")
-        self.bolt_pre = _spin(bolts.pretension, 0, 1e5, 1, "kN")
-        f.addRow(self.use_bolts)
-        for label, w in [
-            ("Bulon sayısı", self.bolt_count),
-            ("Boy", self.bolt_length),
-            ("Başlangıç açısı (+x'ten)", self.bolt_start),
-            ("Bitiş açısı", self.bolt_end),
-            ("EA (tek bulon)", self.bolt_EA),
-            ("Akma kuvveti", self.bolt_T),
-            ("Tünel ekseni boyunca aralık", self.bolt_spacing),
-            ("Öngerme", self.bolt_pre),
-        ]:
-            f.addRow(label, w)
+        v.addWidget(self.use_bolts)
+        self.bolt_tabs = QTabWidget()
+        v.addWidget(self.bolt_tabs, 1)
+        self.bolt_pages = {}
+        for key in ("full", "heading", "bench", "invert"):
+            pattern = (bolts_cfg.for_part(key) if bolts_cfg else None) or base_pattern
+            w = self._bolt_page(key, pattern)
+            self.bolt_pages[key] = w
+            self.bolt_tabs.addTab(w, PART_LABELS[key])
         tabs.addTab(page, "Bulon")
 
         # Staging
@@ -514,19 +521,100 @@ class TunnelDesignerDialog(QDialog):
             segments=self.segments.value(),
         )
 
+    def _bolt_page(self, key, pattern):
+        """One tab: enable + spacing/length/angles/props for one excavation part."""
+        page = QWidget()
+        f = QFormLayout(page)
+        enabled = QCheckBox(f"{PART_LABELS[key]} bölümüne bulon ekle")
+        enabled.setChecked(pattern is not None)
+        f.addRow(enabled)
+        length = _spin(pattern.length, 0.1, 50, 2, "m")
+        start = _spin(pattern.start_angle, -360, 360, 1, "°")
+        end = _spin(pattern.end_angle, -360, 360, 1, "°")
+        spacing = _spin(pattern.spacing, 0.1, 50, 2, "m")
+        spacing.setToolTip(
+            "Kazı çevresi boyunca bulon aralığı (m). Bulon adedi buradan otomatik "
+            "hesaplanır: adet = çevre uzunluğu / aralık (en az 1)."
+        )
+        count = QLabel("—")
+        count.setStyleSheet("color:#526677")
+        EA = _spin(pattern.EA, 1, 1e9, 0, "kN")
+        T = _spin(pattern.T_yield, 1, 1e6, 1, "kN")
+        out_of_plane = _spin(pattern.spacing_out_of_plane, 0.1, 20, 2, "m")
+        pre = _spin(pattern.pretension, 0, 1e5, 1, "kN")
+        for label, w in [
+            ("Boy", length),
+            ("Başlangıç açısı (+x'ten)", start),
+            ("Bitiş açısı", end),
+            ("Çevre boyunca aralık", spacing),
+            ("Bulon adedi (otomatik)", count),
+            ("EA (tek bulon)", EA),
+            ("Akma kuvveti", T),
+            ("Tünel ekseni boyunca aralık", out_of_plane),
+            ("Öngerme", pre),
+        ]:
+            f.addRow(label, w)
+        for w in (length, start, end, spacing):
+            w.valueChanged.connect(lambda *_: self._update_bolt_count(key))
+        enabled.toggled.connect(lambda *_: self._update_enabled(key))
+        self._update_enabled(key)
+        self._update_bolt_count(key)
+        page._bolt = dict(enabled=enabled, length=length, start=start, end=end,
+                          spacing=spacing, count=count, EA=EA, T=T,
+                          out_of_plane=out_of_plane, pre=pre, key=key)
+        return page
+
+    def _update_enabled(self, key):
+        w = self.bolt_pages[key]._bolt
+        on = self.use_bolts.isChecked() and w["enabled"].isChecked()
+        for name, widget in w.items():
+            if name in ("enabled", "key", "count"):
+                continue
+            widget.setEnabled(on)
+        w["count"].setEnabled(True)
+
+    def _update_bolt_count(self, key):
+        """Read-only bolt count: arc length of the part / spacing."""
+        w = self.bolt_pages[key]._bolt
+        try:
+            section = self.section()
+            parts = section.parts_at((0.0, 0.0))
+            cuts = [section.heading_level, section.invert_level][: section.parts - 1]
+            chains = _lining_chains(parts[key if key != "full" else "full"], cuts)
+            if key == "full" and len(chains) == 2:
+                arc = sum(
+                    float(np.linalg.norm(np.asarray(b) - a))
+                    for c in chains for a, b in zip(c[:-1], c[1:])
+                )
+            else:
+                segs, total = _chain_segs(chains)
+                arc = total
+            n = BoltPattern(spacing=w["spacing"].value()).bolt_count(arc)
+            w["count"].setText(f"{n} adet ({arc:.2f} m çevre / {w['spacing'].value():.2f} m)")
+        except Exception:
+            w["count"].setText("—")
+
     def design(self):
         bolts = None
         if self.use_bolts.isChecked():
-            bolts = BoltPattern(
-                self.bolt_count.value(),
-                self.bolt_length.value(),
-                self.bolt_start.value(),
-                self.bolt_end.value(),
-                self.bolt_EA.value(),
-                self.bolt_T.value(),
-                self.bolt_spacing.value(),
-                self.bolt_pre.value(),
-            )
+            per_part = {}
+            for key, page in self.bolt_pages.items():
+                w = page._bolt
+                if not w["enabled"].isChecked():
+                    per_part[key] = None
+                else:
+                    per_part[key] = BoltPattern(
+                        count=None,
+                        length=w["length"].value(),
+                        start_angle=w["start"].value(),
+                        end_angle=w["end"].value(),
+                        spacing=w["spacing"].value(),
+                        EA=w["EA"].value(),
+                        T_yield=w["T"].value(),
+                        spacing_out_of_plane=w["out_of_plane"].value(),
+                        pretension=w["pre"].value(),
+                    )
+            bolts = PartBolts(per_part.get("full"), {k: v for k, v in per_part.items() if k != "full"})
         return TunnelDesign(
             self.section(),
             self.lining_value if self.use_lining.isChecked() else None,
@@ -545,9 +633,9 @@ class TunnelDesignerDialog(QDialog):
         parts = self.parts.currentData()
         self.heading_level.setEnabled(parts >= 2)
         self.invert_level.setEnabled(parts == 3)
-        for w in self.findChildren(QWidget):
-            if w.parent() is self.use_bolts.parent() and w is not self.use_bolts:
-                w.setEnabled(self.use_bolts.isChecked())
+        for key in self.bolt_pages:
+            self._update_enabled(key)
+            self._update_bolt_count(key)
         p = self.lining_value.liner_properties()
         EA, EI = self.lining_value.stiffness()
         self.lining_label.setText(
@@ -599,18 +687,23 @@ class TunnelDesignerDialog(QDialog):
             self.lining_value = design.lining
         self.use_bolts.setChecked(design.bolts is not None)
         if design.bolts is not None:
-            b = design.bolts
-            self.bolt_count.setValue(max(b.count, 1))
-            for w, value in [
-                (self.bolt_length, b.length),
-                (self.bolt_start, b.start_angle),
-                (self.bolt_end, b.end_angle),
-                (self.bolt_EA, b.EA),
-                (self.bolt_T, b.T_yield),
-                (self.bolt_spacing, b.spacing_out_of_plane),
-                (self.bolt_pre, b.pretension),
-            ]:
-                w.setValue(value)
+            cfg = design.part_bolts()
+            for key, page in self.bolt_pages.items():
+                pattern = cfg.for_part(key)
+                w = page._bolt
+                w["enabled"].setChecked(pattern is not None)
+                if pattern is not None:
+                    for name, value in [
+                        ("length", pattern.length),
+                        ("start", pattern.start_angle),
+                        ("end", pattern.end_angle),
+                        ("spacing", pattern.spacing),
+                        ("EA", pattern.EA),
+                        ("T", pattern.T_yield),
+                        ("out_of_plane", pattern.spacing_out_of_plane),
+                        ("pre", pattern.pretension),
+                    ]:
+                        w[name].setValue(value)
         self.separate.setChecked(design.separate_support_stage)
         self.refresh()
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
 
 from ..core.enums import ElemType
@@ -47,6 +47,7 @@ class MeshCanvas(QGraphicsView):
         self.stage_index = 0
         self.cell_count = 0
         self.legend = "Geometri · m"
+        self.struct_labels = False
         self._press_pos = None
 
     def show_model(
@@ -60,9 +61,11 @@ class MeshCanvas(QGraphicsView):
         principal=False,
         plastic_points=False,
         stage_index=0,
+        struct_labels=False,
     ):
         changed_model = self.model is not model
         self.model, self.stage, self.stage_index = model, stage, stage_index
+        self.struct_labels = struct_labels
         self.scene().clear()
         self.cell_count = 0
         self.principal_count = self.plastic_count = 0
@@ -194,6 +197,8 @@ class MeshCanvas(QGraphicsView):
                     line_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
                     line_item.setZValue(2.5)
                     line_item.setData(0, ("structure", block.tag))
+        if stage is not None and self.struct_labels:
+            self.draw_structure_labels(coords, stage)
         unit = "m" if field in ("|u|", "ux", "uy") else "oran" if field == "plastic" else "kPa"
         if stage is None:
             st_name = (
@@ -219,6 +224,32 @@ class MeshCanvas(QGraphicsView):
             self.legend += self.overlay_note
         if changed_model:
             self.fit_model()
+
+    def draw_structure_labels(self, coords, stage):
+        """N (and M/V for beams) at each active structure element's midpoint."""
+        mesh = self.model.mesh
+        font = QFont()
+        font.setPointSize(8)
+        for block in mesh.blocks:
+            if block.etype not in (ElemType.BEAM2, ElemType.BAR2):
+                continue
+            active = stage.active.get(block.tag, np.ones(block.ne, bool))
+            forces = stage.beams.get(block.tag) if block.etype is ElemType.BEAM2 else stage.bars.get(block.tag)
+            if forces is None:
+                continue
+            for e in np.flatnonzero(active):
+                a, b = coords[block.conn[e]]
+                mid = 0.5 * (a + b)
+                if block.etype is ElemType.BEAM2:
+                    f = np.nanmean(forces[e], axis=0)
+                    text = f"N={f[0]:.4g} kN/m\nV={f[1]:.4g} kN/m\nM={f[2]:.4g} kNm/m"
+                else:
+                    text = f"N={float(np.nanmean(forces[e])):.4g} kN"
+                item = self.scene().addSimpleText(text, font)
+                item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+                item.setPos(float(mid[0]), float(-mid[1]))
+                item.setBrush(QColor("#173b52"))
+                item.setZValue(4)
 
     def draw_overlays(self, result, stage, coords, principal, plastic):
         extent = max(float(np.ptp(coords, axis=0).max()), 1e-9)

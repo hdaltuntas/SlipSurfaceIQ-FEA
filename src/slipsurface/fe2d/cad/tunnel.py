@@ -137,29 +137,47 @@ class TunnelSection:
 
 @dataclass(frozen=True)
 class BoltPattern:
-    """Radial rock bolts between two angles (degrees from +x, counter-clockwise)."""
+    """Radial rock bolts over an angular range (degrees from +x, counter-clockwise).
 
-    count: int = 7
+    The bolt count is derived from the arc length and ``spacing`` (m along the
+    excavation contour): ``count = max(1, round(arc / spacing))``, then spread evenly
+    between ``start_angle`` and ``end_angle``. A legacy explicit ``count`` still wins.
+    """
+
+    count: int | None = None  # legacy explicit count; None -> derive from spacing
     length: float = 4.0
     start_angle: float = 20.0
     end_angle: float = 160.0
+    spacing: float = 1.5  # m along the contour between bolts (used when count is None)
     EA: float = 1e5  # kN per bolt
     T_yield: float = 250.0  # kN per bolt
     spacing_out_of_plane: float = 1.5
     pretension: float = 0.0
 
     def __post_init__(self):
-        if self.count < 0 or self.length <= 0 or self.EA <= 0 or self.T_yield <= 0:
-            raise ValueError("Bulon sayısı ≥ 0; boy, EA ve akma kuvveti pozitif olmalıdır.")
-        if self.spacing_out_of_plane <= 0 or self.pretension < 0:
-            raise ValueError("Bulon aralığı pozitif, öngerme negatif olamaz.")
+        if self.count is not None and self.count < 0:
+            raise ValueError("Bulon sayısı ≥ 0 olmalıdır.")
+        if self.length <= 0 or self.EA <= 0 or self.T_yield <= 0:
+            raise ValueError("Boy, EA ve akma kuvveti pozitif olmalıdır.")
+        if self.spacing <= 0 or self.spacing_out_of_plane <= 0 or self.pretension < 0:
+            raise ValueError("Aralıklar pozitif, öngerme negatif olamaz.")
 
-    def angles(self):
-        if self.count == 0:
+    def bolt_count(self, arc_length: float | None = None) -> int:
+        """Number of bolts on an arc of ``arc_length`` metres."""
+        if self.count is not None:
+            return self.count
+        span = arc_length if arc_length is not None else np.radians(
+            abs(self.end_angle - self.start_angle)
+        )
+        return max(1, int(round(span / self.spacing)))
+
+    def angles(self, arc_length: float | None = None):
+        n = self.bolt_count(arc_length)
+        if n == 0:
             return np.empty(0)
-        if self.count == 1:
+        if n == 1:
             return np.array([(self.start_angle + self.end_angle) / 2])
-        return np.linspace(self.start_angle, self.end_angle, self.count)
+        return np.linspace(self.start_angle, self.end_angle, n)
 
     def properties(self):
         return dict(EA=self.EA, T_yield=self.T_yield, pretension=self.pretension,
@@ -168,30 +186,77 @@ class BoltPattern:
     def to_dict(self):
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data):
+        data = dict(data)
+        if "spacing" not in data:  # legacy file without a contour-spacing field
+            data["spacing"] = data.get("spacing_out_of_plane", 1.5)
+        return cls(**data)
+
+
+@dataclass(frozen=True)
+class PartBolts:
+    """Bolt patterns of one tunnel: a shared ``pattern`` plus optional per-part
+    overrides in ``per_part`` (part key -> BoltPattern | None; None = no bolts there)."""
+
+    pattern: BoltPattern | None = field(default_factory=BoltPattern)
+    per_part: dict = field(default_factory=dict)
+
+    def for_part(self, key):
+        return self.per_part.get(key, self.pattern)
+
+    def to_dict(self):
+        return {
+            "pattern": None if self.pattern is None else self.pattern.to_dict(),
+            "per_part": {
+                k: (None if v is None else v.to_dict()) for k, v in self.per_part.items()
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        if isinstance(data, dict) and "pattern" in data:
+            return cls(
+                None if data.get("pattern") is None else BoltPattern.from_dict(data["pattern"]),
+                {
+                    k: (None if v is None else BoltPattern.from_dict(v))
+                    for k, v in (data.get("per_part") or {}).items()
+                },
+            )
+        return cls(BoltPattern.from_dict(data), {})  # legacy: one pattern for all parts
+
 
 @dataclass(frozen=True)
 class TunnelDesign:
     section: TunnelSection = field(default_factory=TunnelSection)
     lining: LiningSystem | None = field(default_factory=LiningSystem)
-    bolts: BoltPattern | None = field(default_factory=BoltPattern)
+    bolts: PartBolts | BoltPattern | None = field(default_factory=PartBolts)
     load_split: float = 0.5  # share of the excavation unbalance released before support
     separate_support_stage: bool = True
 
+    def part_bolts(self):
+        """``PartBolts`` of this design (a legacy BoltPattern becomes the shared one)."""
+        if self.bolts is None or isinstance(self.bolts, PartBolts):
+            return self.bolts
+        return PartBolts(self.bolts, {})
+
     def to_dict(self):
+        bolts = self.part_bolts()
         return {
             "section": self.section.to_dict(),
             "lining": None if self.lining is None else self.lining.to_dict(),
-            "bolts": None if self.bolts is None else self.bolts.to_dict(),
+            "bolts": None if bolts is None else bolts.to_dict(),
             "load_split": self.load_split,
             "separate_support_stage": self.separate_support_stage,
         }
 
     @classmethod
     def from_dict(cls, data):
+        bolts = data.get("bolts")
         return cls(
             TunnelSection(**data["section"]),
             None if data.get("lining") is None else LiningSystem(**data["lining"]),
-            None if data.get("bolts") is None else BoltPattern(**data["bolts"]),
+            None if bolts is None else PartBolts.from_dict(bolts),
             float(data.get("load_split", 0.5)),
             bool(data.get("separate_support_stage", True)),
         )
@@ -248,24 +313,92 @@ def _unique(prefix, names):
     return f"{prefix}{n}"
 
 
-def _bolt_heads(pattern, ring, center, radius):
-    """``(head, direction)`` per bolt: the head is the outline vertex nearest to the ray, so
-    the mesh stays conforming without T-junctions."""
+def _ring_arclength(ring, center):
+    """Unwrapped angle (rad, from ring[0] around ``center``) and cumulative arc length."""
+    c = np.asarray(center, float)
+    pts = np.vstack([ring, ring[:1]])
+    ang = np.unwrap(np.arctan2(pts[:, 1] - c[1], pts[:, 0] - c[0]))
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    return ang, np.concatenate([[0.0], np.cumsum(seg)])
+
+
+def _chain_segs(chains):
+    """Flatten boundary chains into ``(a, b, length, s_start)`` segments and total length."""
+    segs, total = [], 0.0
+    for chain in chains:
+        arr = np.asarray(chain, float)
+        for a, b in zip(arr[:-1], arr[1:]):
+            length = float(np.linalg.norm(b - a))
+            segs.append((a, b, length, total))
+            total += length
+    return segs, total
+
+
+def _point_at(segs, total, s):
+    s = min(max(float(s), 0.0), total)
+    for i, (a, b, length, s0) in enumerate(segs):
+        if s <= s0 + length or i == len(segs) - 1:
+            t = 0.0 if length == 0 else (s - s0) / length
+            return a + t * (b - a)
+    return segs[-1][1]
+
+
+def _part_bolt_heads(pattern, ring, center, radius, chains, part_key):
+    """``(head, direction)`` per bolt of one excavation part.
+
+    The head is the outline vertex nearest to the ray from the tunnel centre, so the
+    mesh stays conforming without T-junctions. For a split part (heading/bench/invert)
+    bolts are spread at equal arc-length stations over the part's excavation contour
+    (its boundary without the cut lines); for a full-face section they are spread over
+    the angular range ``start_angle..end_angle`` of the whole outline. The count comes
+    from ``pattern.bolt_count(arc)``.
+    """
     if pattern is None:
         return []
+    c = np.asarray(center, float)
+    if part_key == "full":
+        a0, a1 = np.radians(pattern.start_angle), np.radians(pattern.end_angle)
+        if a1 <= a0:
+            a1 += 2 * np.pi
+        ang, s = _ring_arclength(ring, c)
+        s0, s1 = np.interp([a0, a1], ang, s)
+        arc = float(s1 - s0)
+        n = pattern.bolt_count(arc)
+        if n == 0:
+            return []
+        stations = np.array([0.5 * (s0 + s1)]) if n == 1 else np.linspace(s0, s1, n)
+        pts = np.column_stack([np.interp(stations, s, ring[:, 0]),
+                               np.interp(stations, s, ring[:, 1])])
+    else:
+        segs, total = _chain_segs(chains)
+        if total <= 0:
+            return []
+        n = pattern.bolt_count(total)
+        if n == 0:
+            return []
+        stations = (np.arange(n) + 0.5) * total / n
+        pts = np.array([_point_at(segs, total, s) for s in stations])
     outline = Polygon(ring).exterior
+    origin = Point(c)
     out = []
-    for angle in pattern.angles():
-        direction = np.array([np.cos(np.radians(angle)), np.sin(np.radians(angle))])
-        far = np.asarray(center) + direction * 40 * radius
-        hit = LineString([center, tuple(far)]).intersection(outline)
+    for p in pts:
+        d = p - c
+        length = float(np.linalg.norm(d))
+        if length < 1e-12:
+            continue
+        direction = d / length
+        hit = LineString([tuple(c), tuple(c + direction * 40 * radius)]).intersection(outline)
         if hit.is_empty:
             continue
-        origin = Point(center)
         point = hit if hit.geom_type == "Point" else min(hit.geoms, key=origin.distance)
         head = ring[np.argmin(np.linalg.norm(ring - np.asarray(point.coords[0]), axis=1))]
         out.append((head, direction))
     return out
+
+
+def _bolt_heads(pattern, ring, center, radius):
+    """Bolt heads of a full-face section (angular range of ``pattern``)."""
+    return _part_bolt_heads(pattern, ring, center, radius, None, "full")
 
 
 def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -> Drawing:
@@ -281,8 +414,16 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -
     next_region = max((e.region for e in drawing.entities if e.kind == "region"), default=0) + 1
     entities, supports, steps = [], [], []
     ring = _rounded(section.outline() + np.asarray(center))
-    heads = _bolt_heads(design.bolts, ring, center, section.radius)
-    claimed: set[int] = set()
+    bolts_cfg = design.part_bolts()
+    heads_by_part = {}
+    for key, points in parts.items():
+        pattern = bolts_cfg.for_part(key) if bolts_cfg is not None else None
+        if pattern is not None:
+            chains = _lining_chains(points, cut_levels)
+            heads_by_part[key] = _part_bolt_heads(
+                pattern, ring, center, section.radius, chains, key
+            )
+    claimed: set[tuple] = set()
     for key, points in parts.items():
         region_name = f"{name}_{PART_KEYS[key]}"
         entities.append(Entity(region_name, "region", tuple(points), next_region))
@@ -303,15 +444,16 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -
                 )
                 installed.append(liner)
         vertices = {tuple(p) for p in points}
-        for j, (head, direction) in enumerate(heads):
-            if j in claimed or tuple(head) not in vertices:
+        pattern = bolts_cfg.for_part(key) if bolts_cfg is not None else None
+        for j, (head, direction) in enumerate(heads_by_part.get(key, [])):
+            if tuple(head) in claimed or tuple(head) not in vertices:
                 continue  # a head on a cut point goes with the first (upper) part
-            claimed.add(j)
-            assert design.bolts is not None  # heads exist only with a bolt pattern
-            tail = _rounded(head + direction * design.bolts.length)
-            bolt = f"{name}_Bulon{j + 1}"
+            claimed.add(tuple(head))
+            assert pattern is not None  # heads exist only with a bolt pattern
+            tail = _rounded(head + direction * pattern.length)
+            bolt = f"{name}_Bulon_{PART_KEYS[key]}{j + 1}"
             entities.append(Entity(bolt, "line", (tuple(head), tuple(tail))))
-            supports.append(SupportAssignment(bolt, "bolt", design.bolts.properties(), False))
+            supports.append(SupportAssignment(bolt, "bolt", pattern.properties(), False))
             installed.append(bolt)
         label = PART_LABELS[key]
         if design.separate_support_stage and installed:

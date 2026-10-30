@@ -222,7 +222,12 @@ class MainWindow(QMainWindow):
         self.deform.valueChanged.connect(self.draw)
         self.principal = QCheckBox("Asal oklar")
         self.plastic_points = QCheckBox("Plastik noktalar")
-        for checkbox in [self.principal, self.plastic_points]:
+        self.struct_labels = QCheckBox("Desteklerde N\u2013V\u2013M değerleri")
+        self.struct_labels.setToolTip(
+            "Aktif kiri\u015f (kaplama) ve ankraj elemanlar\u0131n\u0131n orta noktas\u0131nda "
+            "N\u2013V\u2013M de\u011ferlerini yazar."
+        )
+        for checkbox in [self.principal, self.plastic_points, self.struct_labels]:
             checkbox.toggled.connect(self.draw)
         reset = QPushButton("Varsayılanlara dön")
         reset.clicked.connect(self._reset_display)
@@ -245,6 +250,7 @@ class MainWindow(QMainWindow):
         right.addLayout(row)
         right.addWidget(self.principal)
         right.addWidget(self.plastic_points)
+        right.addWidget(self.struct_labels)
         right.addStretch(1)
         right.addWidget(reset)
         options = QWidget()
@@ -264,6 +270,7 @@ class MainWindow(QMainWindow):
         self.deform.setValue(1.0)
         self.principal.setChecked(False)
         self.plastic_points.setChecked(False)
+        self.struct_labels.setChecked(False)
         self.fields.setCurrentText("|u|")
         self.draw()
 
@@ -689,6 +696,7 @@ class MainWindow(QMainWindow):
             principal=self.principal.isChecked(),
             plastic_points=self.plastic_points.isChecked(),
             stage_index=stage_idx,
+            struct_labels=self.struct_labels.isChecked(),
         )
         self.legend.setText(self.canvas.legend)
         if st is not None:
