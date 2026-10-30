@@ -111,7 +111,7 @@ def test_world_coordinates_do_not_remove_last_corner():
 
 
 def test_analytic_patch_and_both_project_formats(tmp_path):
-    d = replace(Drawing.example(), h=2)
+    d = replace(Drawing.example(), h=2, gamma=0)
     m = d.build_model()
     result = api.run(m)
     assert np.allclose(result.last.sig["soil"][:, :, 1], -50, atol=1e-9)

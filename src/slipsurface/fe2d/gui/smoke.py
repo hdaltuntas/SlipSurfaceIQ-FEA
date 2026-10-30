@@ -1,6 +1,7 @@
 """Installed/frozen application smoke check; failures return nonzero, never masked."""
 
 import json
+import os
 import sys
 import time
 import traceback
@@ -92,4 +93,9 @@ def smoke_check(app, directory):
         if window is not None and not window.busy:
             window.dirty = False
             window.close()
-    return 0 if report["success"] else 1
+            app.processEvents()
+    code = 0 if report["success"] else 1
+    # Frozen Qt builds can abort in interpreter finalization after a successful check.
+    if getattr(sys, "frozen", False):
+        os._exit(code)
+    return code

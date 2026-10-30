@@ -51,10 +51,7 @@ from .boundary_editor import BoundaryDialog
 from .canvas import MeshCanvas
 from .dialogs import MaterialDialog, NewModelDialog, StageDialog
 from .editing import (
-    append_stage_rs2,
     region_label,
-    set_region_stage_state,
-    set_structure_stage_state,
     stage_active_structures,
     stage_region_material,
     structure_label,
@@ -133,7 +130,6 @@ class MainWindow(QMainWindow):
 
         self.status = CadStatusBar(self, shortcuts=False)
         self.setStatusBar(self.status)
-        self._build_rs2_stage_bar(right)
         self.canvas = MeshCanvas()
         self.canvas.queried.connect(self.status.showMessage)
         self.canvas.mouse_world.connect(self.status.show_coords)
@@ -472,22 +468,33 @@ class MainWindow(QMainWindow):
         support_menu = self.menuBar().addMenu("Destek")
         for title, kind in [
             ("Kazık çiz", "pile"),
-            ("Tünel çiz", "tunnel"),
-            ("Kaplama çiz", "liner"),
+            ("Kaplama / kiriş çiz", "liner"),
             ("Tek bulon / ankraj / zemin çivisi çiz", "bolt"),
         ]:
             support_menu.addAction(action(title, lambda _=False, k=kind: self.draft_tool(k)))
         support_menu.addSeparator()
+        support_menu.addAction(
+            action(
+                "Bulon paterni (seçili çizgi)…",
+                lambda _=False: self.drawing_file_action("bolt_pattern"),
+            )
+        )
+        support_menu.addSeparator()
+        support_menu.addAction(action("Mevcut ağdaki yapı özellikleri…", self.edit_mesh_structures))
+        tunnel_menu = self.menuBar().addMenu("Tünel")
+        tunnel_menu.addAction(
+            action(
+                "Tünel çiz (merkez + yarıçap)",
+                lambda _=False: self.draft_tool("tunnel"),
+            )
+        )
         for title, method in [
             ("Eşdeğer kesit tünel…", "open_tunnel_designer"),
             ("Kaplama / püskürtme beton / iksa tasarımcısı…", "open_lining_designer"),
-            ("Bulon paterni (seçili çizgi)…", "bolt_pattern"),
         ]:
-            support_menu.addAction(
+            tunnel_menu.addAction(
                 action(title, lambda _=False, m=method: self.drawing_file_action(m))
             )
-        support_menu.addSeparator()
-        support_menu.addAction(action("Mevcut ağdaki yapı özellikleri…", self.edit_mesh_structures))
         result_menu = self.menuBar().addMenu("Sonuç incele")
         for title, slot in [
             ("Sorgu çizgisi", self.query_line),
@@ -507,54 +514,6 @@ class MainWindow(QMainWindow):
             export_menu.addAction(a)
             self.export_actions.append(a)
 
-    def _build_rs2_stage_bar(self, parent_layout):
-        """RS2-style interactive stage bar above the mesh/results canvas."""
-        bar = QWidget()
-        self.rs2_bar = bar
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(4, 2, 4, 2)
-        row.addWidget(QLabel("Aşama aracı:"))
-        self.click_mode = QComboBox()
-        for label, mode in [
-            ("🔍 Seç / Sorgula", "query"),
-            ("⛏️ Tıkla → Kazı / Geri doldur", "excavate"),
-            ("🧱 Tıkla → Malzeme ata", "material"),
-            ("🔩 Tıkla → Destek aç/kapat", "support"),
-        ]:
-            self.click_mode.addItem(label, mode)
-        self.click_mode.currentIndexChanged.connect(self._on_click_mode_changed)
-        row.addWidget(self.click_mode)
-        self.assign_material_combo = QComboBox()
-        self.assign_material_combo.setEnabled(False)
-        row.addWidget(self.assign_material_combo)
-        self.propagate_stages = QCheckBox("Sonraki aşamalara yay")
-        self.propagate_stages.setChecked(True)
-        self.propagate_stages.setToolTip(
-            "RS2 tarzı: bu aşamada yapılan kazı, malzeme veya destek değişimini "
-            "izleyen aşamalara da uygular."
-        )
-        row.addWidget(self.propagate_stages)
-        row.addStretch(1)
-        add_btn = QPushButton("+ Aşama ekle")
-        add_btn.clicked.connect(self.quick_add_stage)
-        del_btn = QPushButton("Aşama sil")
-        del_btn.clicked.connect(self.quick_delete_stage)
-        mgr_btn = QPushButton("Aşama yöneticisi…")
-        mgr_btn.clicked.connect(self.edit_stages)
-        for btn in (add_btn, del_btn, mgr_btn):
-            row.addWidget(btn)
-        parent_layout.addWidget(bar)
-
-    def _on_click_mode_changed(self, *_):
-        mode = self.click_mode.currentData()
-        self.assign_material_combo.setEnabled(mode == "material")
-        if hasattr(self, "canvas"):
-            self.canvas.setCursor(
-                Qt.CursorShape.PointingHandCursor
-                if mode in {"excavate", "material", "support"}
-                else Qt.CursorShape.ArrowCursor
-            )
-
     def _sync_stage_tabs(self, selected_row: int):
         self.stage_tabs.blockSignals(True)
         while self.stage_tabs.count():
@@ -568,17 +527,6 @@ class MainWindow(QMainWindow):
                 self.stage_tabs.addTab(name)
             self.stage_tabs.setCurrentIndex(max(0, min(selected_row, self.stage_tabs.count() - 1)))
         self.stage_tabs.blockSignals(False)
-        self.assign_material_combo.blockSignals(True)
-        cur_mat = self.assign_material_combo.currentData()
-        self.assign_material_combo.clear()
-        if self.model is not None:
-            for m_name in self.model.materials:
-                self.assign_material_combo.addItem(m_name, m_name)
-            if cur_mat in self.model.materials:
-                self.assign_material_combo.setCurrentIndex(
-                    self.assign_material_combo.findData(cur_mat)
-                )
-        self.assign_material_combo.blockSignals(False)
 
     def _on_stage_list_changed(self, row: int):
         if hasattr(self, "stage_tabs") and 0 <= row < self.stage_tabs.count():
@@ -593,80 +541,27 @@ class MainWindow(QMainWindow):
         else:
             self.draw()
 
-    def _apply_stage_edit(self, updated_model, target_stage_row: int, message: str):
-        self.set_model(updated_model, result=None, path=self.path, dirty=True)
-        row = max(0, min(target_stage_row, self.stages.count() - 1))
-        self.stages.setCurrentRow(row)
-        self.status.showMessage(message, 6000)
-
     def _on_canvas_region_clicked(self, region: int):
         if self.busy or self.model is None:
             return
         stage_idx = max(0, self.stages.currentRow())
-        mode = self.click_mode.currentData()
-        propagate = self.propagate_stages.isChecked()
-        r_lbl = region_label(self.model, region)
         cur_mat = stage_region_material(self.model, stage_idx, region)
-        try:
-            if mode == "excavate":
-                new_state = "__active__" if cur_mat is None else None
-                updated = set_region_stage_state(
-                    self.model, stage_idx, region, new_state, propagate=propagate
-                )
-                action_txt = (
-                    "geri dolduruldu (aktif)" if cur_mat is None else "kazıldı (boşaltıldı)"
-                )
-                self._apply_stage_edit(updated, stage_idx, f"{r_lbl} bu aşamada {action_txt}.")
-            elif mode == "material":
-                mat_name = self.assign_material_combo.currentData()
-                if mat_name:
-                    updated = set_region_stage_state(
-                        self.model, stage_idx, region, mat_name, propagate=propagate
-                    )
-                    self._apply_stage_edit(
-                        updated, stage_idx, f"{r_lbl} → '{mat_name}' malzemesi atandı."
-                    )
-            elif self.result is None:
-                state_str = f"Malzeme: {cur_mat}" if cur_mat else "Durum: KAZILDI (Boş)"
-                self.status.showMessage(
-                    f"{r_lbl} · {state_str} · "
-                    "Sağ tıklayarak veya üstteki araçla kazı/malzeme atayın.",
-                    6000,
-                )
-        except Exception as exc:
-            self.show_error(str(exc))
+        state = f"malzeme {cur_mat}" if cur_mat else "bu aşamada kazılmış"
+        self.status.showMessage(
+            f"{region_label(self.model, region)} · {state}. "
+            "Kesit tesiri için kaplama, kazık veya ankraja tıklayın.",
+            6000,
+        )
 
     def _on_canvas_structure_clicked(self, tag: str):
         if self.busy or self.model is None:
             return
-        stage_idx = max(0, self.stages.currentRow())
-        mode = self.click_mode.currentData()
-        propagate = self.propagate_stages.isChecked()
-        s_lbl = structure_label(self.model, tag)
-        is_active = tag in stage_active_structures(self.model, stage_idx)
-        try:
-            if mode in {"support", "excavate"}:
-                updated = set_structure_stage_state(
-                    self.model, stage_idx, tag, not is_active, propagate=propagate
-                )
-                state_txt = "etkinleştirildi" if not is_active else "devre dışı bırakıldı"
-                self._apply_stage_edit(updated, stage_idx, f"{s_lbl} bu aşamada {state_txt}.")
-            elif self.result is not None:
-                self.show_structure_forces(tag)
-            else:
-                self.status.showMessage(
-                    f"{s_lbl} · {'Aktif' if is_active else 'Pasif'} · "
-                    "Sağ tıklayarak veya destek aracıyla etkinliğini değiştirin.",
-                    6000,
-                )
-        except Exception as exc:
-            self.show_error(str(exc))
+        self.show_structure_forces(tag)
 
     def _on_canvas_context_menu(self, region: int, struct_tag: str, global_pos):
         if self.busy or self.model is None:
             return
         stage_idx = max(0, self.stages.currentRow())
-        propagate = self.propagate_stages.isChecked()
         menu = QMenu(self)
         st_title = (
             "0. Başlangıç"
@@ -675,133 +570,21 @@ class MainWindow(QMainWindow):
         )
         header = menu.addAction(f"Aşama: {st_title}")
         header.setEnabled(False)
-        menu.addSeparator()
         if region > 0:
-            r_lbl = region_label(self.model, region)
             cur_mat = stage_region_material(self.model, stage_idx, region)
-            if cur_mat is not None:
-                exc_act = menu.addAction(f"⛏️ {r_lbl}: Bu aşamada kaz (boşalt)")
-                exc_act.triggered.connect(
-                    lambda _=False, r=region: self._context_set_region(
-                        stage_idx, r, None, propagate
-                    )
-                )
-            else:
-                rest_act = menu.addAction(f"↩️ {r_lbl}: Bu aşamada geri doldur (etkinleştir)")
-                rest_act.triggered.connect(
-                    lambda _=False, r=region: self._context_set_region(
-                        stage_idx, r, "__active__", propagate
-                    )
-                )
-            mat_menu = menu.addMenu(f"🧱 {r_lbl}: Malzeme ata")
-            for m_name in self.model.materials:
-                m_act = mat_menu.addAction(m_name)
-                m_act.setCheckable(True)
-                m_act.setChecked(cur_mat == m_name)
-                m_act.triggered.connect(
-                    lambda _=False, r=region, m=m_name: self._context_set_region(
-                        stage_idx, r, m, propagate
-                    )
-                )
-            menu.addSeparator()
+            state = cur_mat if cur_mat else "kazılmış"
+            label = menu.addAction(f"{region_label(self.model, region)} · {state}")
+            label.setEnabled(False)
         if struct_tag:
             s_lbl = structure_label(self.model, struct_tag)
-            is_act = struct_tag in stage_active_structures(self.model, stage_idx)
-            s_action = menu.addAction(
-                f"{'🚫 Devre dışı bırak' if is_act else '✅ Etkinleştir'}: {s_lbl}"
-            )
-            s_action.triggered.connect(
-                lambda _=False, t=struct_tag, a=not is_act: self._context_set_structure(
-                    stage_idx, t, a, propagate
-                )
-            )
-            if self.result is not None:
-                forces = menu.addAction(f"📈 Kesit tesirleri (N–V–M): {s_lbl}")
-                forces.triggered.connect(
-                    lambda _=False, t=struct_tag: self.show_structure_forces(t)
-                )
-            menu.addSeparator()
-        elif self.model.structure_tags():
-            sup_menu = menu.addMenu("🔩 Destek etkinliği")
-            active_set = stage_active_structures(self.model, stage_idx)
-            for tag in self.model.structure_tags():
-                is_act = tag in active_set
-                t_act = sup_menu.addAction(structure_label(self.model, tag))
-                t_act.setCheckable(True)
-                t_act.setChecked(is_act)
-                t_act.triggered.connect(
-                    lambda _=False, t=tag, a=not is_act: self._context_set_structure(
-                        stage_idx, t, a, propagate
-                    )
-                )
-            menu.addSeparator()
-        add_st = menu.addAction("➕ Bu aşamadan sonra yeni aşama ekle")
-        add_st.triggered.connect(self.quick_add_stage)
-        open_mgr = menu.addAction("⚙️ Aşama yöneticisi…")
-        open_mgr.triggered.connect(self.edit_stages)
+            active = struct_tag in stage_active_structures(self.model, stage_idx)
+            forces = menu.addAction(f"Kesit tesirleri (N–V–M): {s_lbl}")
+            forces.setEnabled(self.result is not None)
+            forces.triggered.connect(lambda _=False, t=struct_tag: self.show_structure_forces(t))
+            if not active:
+                note = menu.addAction("Bu aşamada henüz yok; pencere yüklü aşamayı açar")
+                note.setEnabled(False)
         menu.exec(global_pos)
-
-    def _context_set_region(self, stage_idx: int, region: int, state: str | None, propagate: bool):
-        try:
-            updated = set_region_stage_state(
-                self.model, stage_idx, region, state, propagate=propagate
-            )
-            r_lbl = region_label(self.model, region)
-            msg = (
-                f"{r_lbl} kazıldı (boşaltıldı)."
-                if state is None
-                else f"{r_lbl} etkinleştirildi / malzeme atandı."
-            )
-            self._apply_stage_edit(updated, stage_idx, msg)
-        except Exception as exc:
-            self.show_error(str(exc))
-
-    def _context_set_structure(self, stage_idx: int, tag: str, active: bool, propagate: bool):
-        try:
-            updated = set_structure_stage_state(
-                self.model, stage_idx, tag, active, propagate=propagate
-            )
-            s_lbl = structure_label(self.model, tag)
-            self._apply_stage_edit(
-                updated,
-                stage_idx,
-                f"{s_lbl} {'etkinleştirildi' if active else 'devre dışı bırakıldı'}.",
-            )
-        except Exception as exc:
-            self.show_error(str(exc))
-
-    def quick_add_stage(self):
-        if self.busy or not self._require_model():
-            return
-        try:
-            cur_row = max(0, self.stages.currentRow())
-            updated, new_row = append_stage_rs2(self.model, after_index=cur_row)
-            st_name = updated.stages[new_row - 1].name
-            self._apply_stage_edit(updated, new_row, f"Yeni aşama eklendi: {st_name}")
-        except Exception as exc:
-            self.show_error(str(exc))
-
-    def quick_delete_stage(self):
-        if self.busy or not self._require_model():
-            return
-        cur_row = self.stages.currentRow()
-        if cur_row <= 0:
-            self.status.showMessage(
-                "Başlangıç durumu silinemez; silmek için bir inşaat aşaması seçin."
-            )
-            return
-        if len(self.model.stages) <= 1:
-            self.status.showMessage("Modelde en az bir aşama bulunmalıdır.")
-            return
-        from dataclasses import replace
-
-        stages = list(self.model.stages)
-        removed = stages.pop(cur_row - 1)
-        self._apply_stage_edit(
-            replace(self.model, stages=stages),
-            min(cur_row, len(stages)),
-            f"'{removed.name}' aşaması silindi.",
-        )
 
     @property
     def busy(self):
@@ -826,9 +609,9 @@ class MainWindow(QMainWindow):
             f"{model.analysis.value}\n\n{model.mesh.nn} düğüm\n"
             f"{sum(b.ne for b in model.mesh.blocks)} eleman\n"
             f"{len(model.materials)} malzeme · {len(model.mesh.regions())} bölge\n\n"
-            "RS2 aşamalı kazı:\n"
+            "Sonuç:\n"
             "· Alt sekmelerden aşama seçin\n"
-            "· Bölgeye sağ tıklayıp Kaz / Malzeme ata\n"
+            "· Kaplama, kazık veya ankraja tıklayınca N–V–M açılır\n"
             "· Düğüm sorgusu: çift tık"
         )
         for a in self.export_actions:
@@ -871,7 +654,7 @@ class MainWindow(QMainWindow):
         self.legend.setText("")
         self._update_guidance()
         self.statusBar().showMessage(
-            "Modelleyici · Geometri veya Destek menüsünden çizime başlayın"
+            "Modelleyici · Geometri, Tünel veya Destek menüsünden çizime başlayın"
         )
 
     def _require_model(self):
@@ -1120,6 +903,9 @@ class MainWindow(QMainWindow):
         self.edit_geometry()
         if kind in {"region", "split", "hole", "line"}:
             self.cad.start_tool(kind)
+        elif kind == "tunnel":
+            self.workflow.set_current(0, emit=False)
+            self.cad.start_engineering_tool(kind)
         else:
             self.workflow.set_current(1, emit=False)
             self.cad.start_engineering_tool(kind)

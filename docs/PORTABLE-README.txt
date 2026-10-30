@@ -1,4 +1,4 @@
-SlipSurfaceIQ-FEA 1.0.0 - Windows x64 portable
+SlipSurfaceIQ-FEA 0.9.0 - Windows x64 portable
 
 1. ZIP dosyasinin tamamini yazilabilir bir klasore cikarin.
 2. SlipSurfaceIQ-FEA.exe dosyasini calistirin.

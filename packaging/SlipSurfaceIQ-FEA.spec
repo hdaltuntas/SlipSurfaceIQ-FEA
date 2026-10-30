@@ -14,6 +14,10 @@ a = Analysis(
     excludes=['pyvista', 'vtkmodules', 'PyQt5', 'PyQt6', 'tkinter', 'IPython', 'pytest'],
     noarchive=False,
 )
+# The desktop UI does not use the web/PDF/3D modules that the PySide6 metapackage pulls in.
+_skip = ("WebEngine", "QtPdf", "QtQuick3D", "Qt3D", "QtMultimedia")
+a.binaries = [item for item in a.binaries if not any(part in item[0] for part in _skip)]
+a.datas = [item for item in a.datas if not any(part in item[0] for part in _skip)]
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='SlipSurfaceIQ-FEA',
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False, console=False)

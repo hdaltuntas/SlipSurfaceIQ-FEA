@@ -847,11 +847,18 @@ class CadDialog(QDialog):
         strip.addSeparator()
         for key, title, ic, shortcut in [
             ("pile", "Kazık", "cad_pile", "K"),
-            ("tunnel", "Tünel (merkez + yarıçap)", "cad_tunnel", "T"),
             ("liner", "Kaplama / kiriş", "cad_liner", "C"),
             ("bolt", "Tek bulon / ankraj / zemin çivisi", "bolt", "A"),
         ]:
             tool(key, title, ic, lambda _=False, k=key: self.start_engineering_tool(k), shortcut)
+        strip.addSeparator()
+        tool(
+            "tunnel",
+            "Tünel (merkez + yarıçap)",
+            "cad_tunnel",
+            lambda _=False: self.start_engineering_tool("tunnel"),
+            "T",
+        )
         natm = tool(
             "natm",
             "Eşdeğer kesit tünel",
@@ -875,7 +882,8 @@ class CadDialog(QDialog):
             tunnel_button.setMenu(options)
             tunnel_button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
             self.tool_actions["tunnel"].setToolTip(
-                "Tünel (merkez + yarıçap) · T · Basılı tutun: kaplama / kazı seçenekleri"
+                "Tünel, destek değildir (T). Merkez, sonra çember üzerinde bir nokta. "
+                "Basılı tutun: kaplama ve kazı seçenekleri."
             )
         strip.addSeparator()
         for title, ic, slot in [
@@ -963,9 +971,9 @@ class CadDialog(QDialog):
                 "split",
                 "hole",
                 "line",
-                "pile",
-                "natm",
                 "tunnel",
+                "natm",
+                "pile",
                 "bolt",
             ):
                 tool = self.tool_actions[key]

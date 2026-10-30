@@ -132,7 +132,6 @@ def test_clicking_pile_and_anchor_opens_section_force_diagrams(qt_app):
     result = api.run(model)
     window.set_model(result.model, result)
     qt_app.processEvents()
-    window.click_mode.setCurrentIndex(window.click_mode.findData("query"))
     window._on_canvas_structure_clicked("cad_Kazik")
     dialog = window.force_dialog
     assert dialog.kind == "beam" and dialog.segments and dialog.component.count() == 3

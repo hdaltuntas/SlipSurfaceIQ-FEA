@@ -115,10 +115,14 @@ def excavation_model():
 
 
 def footing_model():
-    """Two-layer elastic strip footing example."""
-    mesh = layered_box(20.0, [0.0, -4.0], -12.0, nx=20, ny_per_layer=[4, 8])
+    """Half of a strip footing on sand over clay. The left edge is the centre line.
+
+    B/2 = 1.5 m. Stage 1 only equilibrates the K0 field; stage 2 applies 150 kPa.
+    The settlement to read is stage 2, not the K0 correction.
+    """
+    mesh = layered_box(30.0, [0.0, -4.0], -20.0, nx=24, ny_per_layer=[4, 8])
     top_edges = mesh.edges("top")
-    footing = top_edges[mesh.coords[top_edges[:, 1], 0] <= 2.0 + 1e-9]
+    footing = top_edges[mesh.coords[top_edges[:, 1], 0] <= 1.5 + 1e-9]
     mesh = api.Mesh(
         mesh.coords, mesh.blocks, mesh.node_sets, {**mesh.edge_sets, "footing": footing}
     )
@@ -136,5 +140,10 @@ def footing_model():
             api.Fixity("right", True, False),
         ),
         initial=api.InitialStress("k0_field"),
-        stages=[api.Stage("Temel yüklemesi (150 kPa)", loads=(api.EdgeLoad("footing", qn=150.0),))],
+        stages=[
+            api.Stage("1. Öz ağırlık", reset_displacements=True),
+            api.Stage(
+                "2. Şerit temel (150 kPa)", loads=(api.EdgeLoad("footing", qn=150.0),)
+            ),
+        ],
     )

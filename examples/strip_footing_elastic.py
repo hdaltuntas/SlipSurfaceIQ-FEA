@@ -30,13 +30,17 @@ model = api.Model(
         api.Fixity("right", True, False),
     ),
     initial=api.InitialStress("k0_field"),
-    stages=[api.Stage("footing", loads=(api.EdgeLoad("footing", qn=150.0),))],
+    stages=[
+        api.Stage("1. Öz ağırlık", reset_displacements=True),
+        api.Stage("2. Şerit temel (150 kPa)", loads=(api.EdgeLoad("footing", qn=150.0),)),
+    ],
 )
 
 res = api.run(model)
-u = res.last.u
+u0, u1 = res.stages[0].u, res.stages[1].u
 centre = int(np.argmin(np.hypot(*mesh.coords.T)))
-print(f"settlement under footing centre: {-u[centre, 1] * 1000:.1f} mm")
+print(f"K0 correction at centre: {-u0[centre, 1] * 1000:.2f} mm")
+print(f"settlement under footing centre after 150 kPa: {-u1[centre, 1] * 1000:.1f} mm")
 print(f"timings: {res.initial.timings | res.last.timings}")
 api.export_vtu(res, "strip_footing.vtu")
 print("wrote strip_footing.vtu")

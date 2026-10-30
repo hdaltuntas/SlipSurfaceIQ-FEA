@@ -462,8 +462,24 @@ class StructureForceDialog(QDialog):
         self.kind, self.segments = "beam", []
         self.stage.currentIndexChanged.connect(self.refresh)
         self.component.currentIndexChanged.connect(self.draw)
-        self.stage.setCurrentIndex(max(0, min(stage_index, len(snapshots) - 1)))
+        shown = max(0, min(stage_index, len(snapshots) - 1))
+        if not self._has_forces(shown):
+            for i in range(len(snapshots) - 1, -1, -1):
+                if self._has_forces(i):
+                    shown = i
+                    break
+        self.stage.setCurrentIndex(shown)
         self.refresh()
+
+    def _has_forces(self, index: int) -> bool:
+        snapshots = [self.result.initial, *self.result.stages]
+        if not 0 <= index < len(snapshots):
+            return False
+        try:
+            _, segments = structure_segments(self.result, snapshots[index], self.tag)
+        except Exception:
+            return False
+        return any(np.isfinite(f).any() for *_, f in segments)
 
     def refresh(self, *_):
         i = self.stage.currentData() or 0
@@ -494,11 +510,15 @@ class StructureForceDialog(QDialog):
             self.status.setText("Bu aşamada yapı pasif; kesit tesiri yok.")
             return
         (vmin, pmin), (vmax, pmax) = ext
+        ranges = []
+        for j, (name, _, unit) in enumerate(FORCE_COMPONENTS[self.kind]):
+            col = np.array([f[:, j] for *_, f in self.segments], float)
+            ranges.append(f"{name} [{np.nanmin(col):.4g}, {np.nanmax(col):.4g}] {unit}")
         self.status.setText(
             f"{key}: min {vmin:.5g} {unit} @ ({pmin[0]:.3g}, {pmin[1]:.3g}) m · "
             f"maks {vmax:.5g} {unit} @ ({pmax[0]:.3g}, {pmax[1]:.3g}) m · "
-            f"{len(self.segments)} eleman · N çekme (+); diyagram yerel y (eksenin solu) "
-            "yönünde pozitif çizilir."
+            + " · ".join(ranges)
+            + f" · {len(self.segments)} eleman · N çekme (+)"
         )
 
     def export_image(self):

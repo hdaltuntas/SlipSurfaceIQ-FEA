@@ -251,19 +251,18 @@ def test_rs2_staged_excavation_workflow_split_and_interactive_assign(application
     assert window.model.stages[0].active_regions is None
     assert window.model.stages[1].active_regions == frozenset({1, 3})
 
-    # Switch Stage 1 region 2 to excavated via RS2 click tool with propagation off
-    window.propagate_stages.setChecked(False)
-    window.click_mode.setCurrentIndex(window.click_mode.findData("excavate"))
+    # A region click only reports the stage; it does not excavate.
+    before = window.model.stages[0].active_regions
     window._on_canvas_region_clicked(2)
-    assert window.model.stages[0].active_regions == frozenset({1, 3})
+    assert window.model.stages[0].active_regions == before
 
-    # Test StageDialog RS2 region & support controls with propagation on
+    # Stage manager still edits excavation, and the change carries forward.
     dialog = StageDialog(window.model)
     dialog.table.selectRow(0)
     cb_r3 = dialog.region_table.cellWidget(2, 1)  # region 3
     cb_r3.setCurrentIndex(cb_r3.findData("__excavated__"))
     dialog.apply()
-    assert dialog.updated.stages[0].active_regions == frozenset({1})
+    assert dialog.updated.stages[0].active_regions == frozenset({1, 2})
     assert dialog.updated.stages[1].active_regions == frozenset({1})
     dialog.close()
     window.dirty = False

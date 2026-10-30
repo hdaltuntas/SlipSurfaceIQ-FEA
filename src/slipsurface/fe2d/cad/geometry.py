@@ -109,14 +109,15 @@ class Drawing:
     h: float = 1.0
     E: float = 20000.0
     nu: float = 0.3
+    gamma: float = 20.0
     supports: tuple[SupportAssignment, ...] = ()
     sequence: tuple[ConstructionStep, ...] = ()
 
     def __post_init__(self):
-        if not np.isfinite([self.h, self.E, self.nu]).all():
+        if not np.isfinite([self.h, self.E, self.nu, self.gamma]).all():
             raise ValueError("Ağ ve malzeme değerleri sonlu olmalıdır.")
-        if self.h <= 0 or self.E <= 0 or not 0 <= self.nu < 0.5:
-            raise ValueError("h ve E pozitif, 0 ≤ ν < 0.5 olmalıdır.")
+        if self.h <= 0 or self.E <= 0 or self.gamma < 0 or not 0 <= self.nu < 0.5:
+            raise ValueError("h ve E pozitif, γ ≥ 0 ve 0 ≤ ν < 0.5 olmalıdır.")
 
     def to_dict(self):
         return {"version": 2, **asdict(self)}
@@ -131,6 +132,7 @@ class Drawing:
             float(data["h"]),
             float(data["E"]),
             float(data["nu"]),
+            float(data.get("gamma", 20.0)),
             tuple(SupportAssignment(**s) for s in data.get("supports", [])),
             tuple(ConstructionStep(**c) for c in data.get("sequence", [])),
         )
@@ -349,7 +351,11 @@ class Drawing:
         return d
 
     def build_model(self, checkpoint=None):
-        """Create a fresh weightless elastic model; never remap existing FE definitions."""
+        """Elastic model with a K0 self-weight field.
+
+        Structures stay off in the initial state, so a pile's skin interfaces remain
+        tied until the pile is installed. γ = 0 keeps a weightless mesh (patch tests).
+        """
         mesh = unstructured_mesh(self.domain(), h=self.h, max_points=100000, checkpoint=checkpoint)
         if checkpoint:
             checkpoint()
@@ -374,11 +380,12 @@ class Drawing:
         model = api.Model(
             api.Analysis.PLANE_STRAIN,
             mesh,
-            {"soil": api.MaterialSpec.elastic("soil", self.E, self.nu)},
+            {"soil": api.MaterialSpec.elastic("soil", self.E, self.nu, gamma=self.gamma)},
             {r: "soil" for r in mesh.regions()},
             fixities=tuple(fixities),
             # No structures in the initial state: pile skin interfaces stay tied (continuous).
-            initial=api.InitialStress("none", active_structures=frozenset()),
+            # K0 from self-weight is what loads a lining when the opening is excavated.
+            initial=api.InitialStress("k0_field", active_structures=frozenset()),
             stages=[api.Stage("CAD yükleme", loads=tuple(loads))],
             geometry=self.to_dict(),
         )

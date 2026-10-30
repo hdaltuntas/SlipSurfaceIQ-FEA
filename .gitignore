@@ -12,3 +12,5 @@ dist/
 *.ssproj
 .portable-env/
 python-dist/
+SlipSurfaceIQ-FEA-linux-x64.tar.gz
+SHA256SUMS-linux.txt

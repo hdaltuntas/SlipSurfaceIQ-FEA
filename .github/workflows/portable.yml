@@ -55,6 +55,43 @@ jobs:
           path: python-dist/*
           retention-days: 90
 
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Qt shared libraries used by the frozen binary
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-0 libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libxcb-cursor0
+      - name: Isolated build environment
+        run: |
+          python -m venv .portable-env
+          .portable-env/bin/python -m pip install --upgrade pip
+          .portable-env/bin/python -m pip install '.[desktop]' 'pyinstaller>=6.12,<7' build
+      - name: Build wheel, source distribution and native onedir app
+        run: |
+          . .portable-env/bin/activate
+          sh packaging/build_linux_portable.sh
+      - name: Offscreen smoke of the frozen binary
+        env:
+          QT_QPA_PLATFORM: offscreen
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
+        run: |
+          rm -rf /tmp/ss-smoke
+          ./dist/SlipSurfaceIQ-FEA/SlipSurfaceIQ-FEA --smoke-test /tmp/ss-smoke
+          python -c 'import json; r=json.load(open("/tmp/ss-smoke/smoke-result.json")); assert r["success"] and r["frozen"]'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-portable
+          path: |
+            SlipSurfaceIQ-FEA-linux-x64.tar.gz
+            SHA256SUMS-linux.txt
+          retention-days: 90
+
   clean-windows-smoke:
     needs: build
     runs-on: windows-latest
