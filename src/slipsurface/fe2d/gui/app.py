@@ -227,7 +227,14 @@ class MainWindow(QMainWindow):
             "Aktif kiri\u015f (kaplama) ve ankraj elemanlar\u0131n\u0131n orta noktas\u0131nda "
             "N\u2013V\u2013M de\u011ferlerini yazar."
         )
-        for checkbox in [self.principal, self.plastic_points, self.struct_labels]:
+        self.node_labels = QCheckBox("Düğüm değerleri (seçili alan)")
+        self.node_labels.setToolTip(
+            "Kullanılan düğümlerde seçili alanın (deplasman veya gerilme) değerini yazar."
+        )
+        self.legend_bar = QCheckBox("Deplasman renk lejantı")
+        self.legend_bar.setToolTip("Deplasman alanı için renk çubuğu lejantı gösterir.")
+        for checkbox in [self.principal, self.plastic_points, self.struct_labels,
+                         self.node_labels, self.legend_bar]:
             checkbox.toggled.connect(self.draw)
         reset = QPushButton("Varsayılanlara dön")
         reset.clicked.connect(self._reset_display)
@@ -251,6 +258,8 @@ class MainWindow(QMainWindow):
         right.addWidget(self.principal)
         right.addWidget(self.plastic_points)
         right.addWidget(self.struct_labels)
+        right.addWidget(self.node_labels)
+        right.addWidget(self.legend_bar)
         right.addStretch(1)
         right.addWidget(reset)
         options = QWidget()
@@ -271,6 +280,10 @@ class MainWindow(QMainWindow):
         self.principal.setChecked(False)
         self.plastic_points.setChecked(False)
         self.struct_labels.setChecked(False)
+        self.node_labels.setChecked(False)
+        self.legend_bar.setChecked(False)
+        for a, _ in self.force_overlay_actions:
+            a.setChecked(False)
         self.fields.setCurrentText("|u|")
         self.draw()
 
@@ -510,6 +523,14 @@ class MainWindow(QMainWindow):
             a = action(title, slot)
             result_menu.addAction(a)
             self.export_actions.append(a)
+        overlay_menu = result_menu.addMenu("Model üzerinde kesit tesirleri")
+        self.force_overlay_actions = []
+        for title, comp in [("Tüm yapılarda N", 0), ("Tüm yapılarda V", 1),
+                            ("Tüm yapılarda M", 2), ("Kapalı", None)]:
+            a = action(title, lambda _=False, c=comp: self.set_force_overlay(c), checkable=True)
+            overlay_menu.addAction(a)
+            self.force_overlay_actions.append((a, comp))
+            self.export_actions.append(a)
         export_menu = self.menuBar().addMenu("Sonuç aktar")
         for title, kind in [
             ("VTU / ParaView", "vtu"),
@@ -697,6 +718,11 @@ class MainWindow(QMainWindow):
             plastic_points=self.plastic_points.isChecked(),
             stage_index=stage_idx,
             struct_labels=self.struct_labels.isChecked(),
+            force_overlay=next(
+                (c for a, c in self.force_overlay_actions if a.isChecked()), None
+            ),
+            node_labels=self.node_labels.isChecked(),
+            show_legend_bar=self.legend_bar.isChecked(),
         )
         self.legend.setText(self.canvas.legend)
         if st is not None:
@@ -735,6 +761,13 @@ class MainWindow(QMainWindow):
             from .result_tools import BeamDiagramDialog
 
             BeamDiagramDialog(self.result, self.selected_stage(), self).exec()
+
+    def set_force_overlay(self, comp):
+        """comp: 0=N, 1=V, 2=M, None=off. Exclusive within the overlay menu."""
+        for a, c in self.force_overlay_actions:
+            a.setChecked(c == comp)
+        if not self.busy:
+            self.draw()
 
     def discard_changes(self):
         if not self.dirty and not self.cad.unsaved:

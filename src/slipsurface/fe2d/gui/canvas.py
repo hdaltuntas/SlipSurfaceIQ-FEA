@@ -48,6 +48,9 @@ class MeshCanvas(QGraphicsView):
         self.cell_count = 0
         self.legend = "Geometri · m"
         self.struct_labels = False
+        self.force_overlay = None  # (result, stage, component_key) or None
+        self.node_labels = False
+        self.show_legend_bar = False
         self._press_pos = None
 
     def show_model(
@@ -62,10 +65,16 @@ class MeshCanvas(QGraphicsView):
         plastic_points=False,
         stage_index=0,
         struct_labels=False,
+        force_overlay=None,
+        node_labels=False,
+        show_legend_bar=False,
     ):
         changed_model = self.model is not model
         self.model, self.stage, self.stage_index = model, stage, stage_index
         self.struct_labels = struct_labels
+        self.force_overlay = force_overlay
+        self.node_labels = node_labels
+        self.show_legend_bar = show_legend_bar
         self.scene().clear()
         self.cell_count = 0
         self.principal_count = self.plastic_count = 0
@@ -199,6 +208,12 @@ class MeshCanvas(QGraphicsView):
                     line_item.setData(0, ("structure", block.tag))
         if stage is not None and self.struct_labels:
             self.draw_structure_labels(coords, stage)
+        if stage is not None and self.force_overlay is not None and result is not None:
+            self.draw_force_overlay(result, stage, coords)
+        if stage is not None and self.node_labels:
+            self.draw_node_labels(coords, stage, field)
+        if stage is not None and self.show_legend_bar and field in ("|u|", "ux", "uy"):
+            self.draw_color_legend(coords, stage, field)
         unit = "m" if field in ("|u|", "ux", "uy") else "oran" if field == "plastic" else "kPa"
         if stage is None:
             st_name = (
@@ -224,6 +239,146 @@ class MeshCanvas(QGraphicsView):
             self.legend += self.overlay_note
         if changed_model:
             self.fit_model()
+
+    def draw_force_overlay(self, result, stage, coords):
+        """Draw the selected section-force component of every active structure on the model.
+
+        ``self.force_overlay`` is ``(component_index,)``; component 0 = N, 1 = V, 2 = M
+        for beams, 0 = N for bars. Amplitude is scaled to 12 % of the model extent.
+        """
+        from .result_tools import structure_segments
+
+        comp = self.force_overlay[0]
+        mesh = self.model.mesh
+        extent = max(float(np.ptp(coords, axis=0).max()), 1e-9)
+        peak = 1e-30
+        segments = []
+        for tag in self.model.structure_tags():
+            try:
+                kind, segs = structure_segments(result, stage, tag)
+            except Exception:
+                continue
+            for a, b, _s, f in segs:
+                f = np.asarray(f, float)
+                if f.ndim != 2 or f.shape[1] <= comp:
+                    continue
+                peak = max(peak, float(np.nanmax(np.abs(f[:, comp]))))
+                segments.append((a, b, f[:, comp]))
+        if not segments:
+            return
+        amplitude = 0.12 * extent / peak
+        pen = QPen(QColor("#8a1c2c"), 1.4)
+        pen.setCosmetic(True)
+        for a, b, vals in segments:
+            a, b = np.asarray(a, float), np.asarray(b, float)
+            t = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
+            normal = np.array([-t[1], t[0]])
+            fa, fb = vals[0], vals[1]
+            poly = QPolygonF(
+                [
+                    QPointF(float(a[0]), float(-a[1])),
+                    QPointF(float(a[0] + amplitude * fa * normal[0]),
+                            float(-(a[1] + amplitude * fa * normal[1]))),
+                    QPointF(float(b[0] + amplitude * fb * normal[0]),
+                            float(-(b[1] + amplitude * fb * normal[1]))),
+                    QPointF(float(b[0]), float(-b[1])),
+                ]
+            )
+            fill = QColor("#d9485f" if fa + fb > 0 else "#2f6fd6")
+            fill.setAlpha(90)
+            item = self.scene().addPolygon(poly, pen, fill)
+            item.setData(0, ("structure", ""))
+            item.setZValue(3.5)
+
+    def draw_node_labels(self, coords, stage, field):
+        """Write the nodal value of the current field at used nodes (deformed position)."""
+        font = QFont()
+        font.setPointSize(7)
+        if field in ("|u|", "ux", "uy"):
+            v = stage.u
+            vals = (
+                np.linalg.norm(v, axis=1)
+                if field == "|u|"
+                else v[:, 0 if field == "ux" else 1]
+            )
+            fmt, unit = "{:.4g}", "m"
+        elif field == "plastic":
+            return  # plastic fraction is a cell field, not nodal
+        else:
+            from ..post.recovery import nodal_average
+
+            from ..post.result_fields import active_mesh, active_values
+
+            mesh = self.model.mesh
+            view = active_mesh(mesh, stage)
+            sig = active_values(mesh, stage, stage.sig)
+            nodal = nodal_average(view, sig)
+            if field in ("sxx", "syy", "szz", "txy"):
+                vals = nodal[:, ("sxx", "syy", "szz", "txy").index(field)]
+            elif field in ("pore", "excess_pore"):
+                data = getattr(stage, field)
+                merged = {}
+                for tag, arr in data.items():
+                    merged[tag] = arr[..., None] if arr.ndim == 2 else arr
+                vals = nodal_average(view, active_values(mesh, stage, merged))[:, 0]
+            else:
+                from ..post.recovery import principal_stresses
+
+                vals = principal_stresses(nodal)[field]
+            fmt, unit = "{:.4g}", "kPa"
+        used = np.isfinite(vals)
+        stride = max(1, int(np.ceil(int(used.sum()) / 400)))  # keep the view readable
+        for n in np.flatnonzero(used)[::stride]:
+            item = self.scene().addSimpleText(fmt.format(float(vals[n])) + " " + unit, font)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+            item.setPos(float(coords[n, 0]), float(-coords[n, 1]))
+            item.setBrush(QColor("#0f172a"))
+            item.setZValue(4.5)
+
+    def draw_color_legend(self, coords, stage, field):
+        """Vertical colour bar for the displacement field, drawn in scene coordinates."""
+        finite = np.asarray(
+            [
+                (np.linalg.norm(stage.u[conn], axis=1).mean() if field == "|u|"
+                 else stage.u[conn][:, 0 if field == "ux" else 1].mean())
+                for block in self.model.mesh.continuum_blocks()
+                for e, conn in enumerate(block.conn)
+                if stage.active.get(block.tag, np.ones(block.ne, bool))[e]
+            ]
+        )
+        finite = finite[np.isfinite(finite)]
+        if not finite.size:
+            return
+        lo, hi = float(finite.min()), float(finite.max())
+        span = hi - lo if hi - lo > 1e-12 * max(abs(lo), abs(hi), 1.0) else max(abs(hi), 1.0)
+        lo, hi = lo - 0.05 * span, hi + 0.05 * span
+        x0, y0 = float(coords[:, 0].min()), float(coords[:, 1].min())
+        x1, y1 = float(coords[:, 0].max()), float(coords[:, 1].max())
+        w = 0.02 * (x1 - x0) + 0.15
+        h = 0.25 * (y1 - y0) + 0.5
+        bx, by = x1 + 0.03 * (x1 - x0) + 0.3, y1 - h
+        steps = 24
+        font = QFont()
+        font.setPointSize(7)
+        for i in range(steps):
+            t0, t1 = i / steps, (i + 1) / steps
+            t = 0.5 * (t0 + t1)
+            color = QColor.fromHsvF(0.62 * (1 - min(max(t, 0.0), 1.0)), 0.65, 0.9)
+            rect = QRectF(bx, -(by + h * t1), w, h / steps + 0.02)
+            self.scene().addRect(rect, QPen(QColor("#42657b"), 0), color)
+        for i in range(5):
+            t = i / 4
+            value = lo + (hi - lo) * t
+            item = self.scene().addSimpleText(f"{value:.4g} m", font)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+            item.setPos(bx + w + 0.1, -(by + h * (1 - t)))
+            item.setBrush(QColor("#213547"))
+            item.setZValue(5)
+        title = self.scene().addSimpleText(f"{field} (m)", font)
+        title.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        title.setPos(bx, -(by + h + 0.25))
+        title.setBrush(QColor("#213547"))
+        title.setZValue(5)
 
     def draw_structure_labels(self, coords, stage):
         """N (and M/V for beams) at each active structure element's midpoint."""
