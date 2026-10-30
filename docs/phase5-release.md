@@ -59,11 +59,9 @@ Linux/Windows, Python 3.10–3.13 ve iki native GUI işi: **10/10 başarılı**
 
 ## Paket ve yayın
 
-`portable.yml` onedir Windows x64 paketi, wheel/sdist, SHA256 ve bağımlılık lisans
-arşivi üretir. Ayrı Windows makinesi, kaynak kod ve Python kurulumu yapmadan,
-Python yollarını ortamdan kaldırıp ZIP içindeki EXE'yi test eder; dört durumlu
-çözüm, kayıt, DXF, grafikler ve plastik bünye derlemesini kontrol eder. CI kanıtı
-ayrı artifact olarak saklanır. Paket imzasızdır.
+Portable (PyInstaller onedir) paket kaldırıldı: `packaging/` ve `.github/workflows/portable.yml`
+silindi. Uygulama yalnızca `python main.py` ile çalışır. Wheel/sdist yine de üretilir ve
+`scripts/check_distributions.py` ile denetlenir.
 
 İlk bağımsız Windows paket testi **başarılı**:
 [`39674915048`](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/actions/runs/39674915048),
@@ -74,5 +72,5 @@ beyaz listeyle sınırlandı. Her derleme dosya içeriğini ve 20 MB boyut sın�
 
 PyPI denemesi `invalid-publisher` ile başarısız oldu; başarılı bir PyPI yayını yok.
 `publish.yml` artık yalnızca elle çağrılan paket kontrolüdür: PyPI yükleme işi,
-OIDC yetkisi ve release tetikleyicisi kaldırıldı. `portable.yml` geliştirme paketi
-ve smoke testi üretir; GitHub release oluşturmaz veya dosya yüklemez.
+OIDC yetkisi ve release tetikleyicisi kaldırıldı; `portable.yml` de kaldırıldı.
+GitHub release oluşturulmaz veya dosya yüklenmez.
