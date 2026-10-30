@@ -84,12 +84,17 @@ class MeshCanvas(QGraphicsView):
                 active = stage.active.get(block.tag, np.ones(block.ne, bool))
             for e in range(block.ne):
                 conn = block.conn[e]
-                xy = coords[conn[_ORDERS[block.etype]]]
+                order = _ORDERS[block.etype]
                 reg_id = int(block.region[e])
-                region_centers.setdefault(reg_id, []).append(xy.mean(axis=0))
                 if not active[e]:
+                    # Passive (e.g. excavated) cells keep their undeformed shape: their
+                    # nodes are NaN in stage.u, so deforming them would collapse/fold them.
+                    xy = mesh.coords[conn[order]]
                     excavated_cells.append((block, e, reg_id, xy))
+                    region_centers.setdefault(reg_id, []).append(xy.mean(axis=0))
                     continue
+                xy = coords[conn[order]]
+                region_centers.setdefault(reg_id, []).append(xy.mean(axis=0))
                 if stage is None:
                     value = float(reg_id)
                 elif field in ("|u|", "ux", "uy"):
