@@ -164,6 +164,8 @@ class MeshCanvas(QGraphicsView):
                 f"{region_label(model, reg_id)} · Kazıldı (boş) — sağ tık veya araçla geri doldurun"
             )
         pen = QPen(QColor("#42657b"), 0)
+        if section:
+            pen = QPen(Qt.PenStyle.NoPen)  # N-V-M view: mesh edges off, filled diagrams only
         region_colors = ("#c5dfe8", "#dfd4b8", "#cbdcc4", "#d7cce5", "#f2d0c4", "#bfe3dc")
         for (block, e, reg_id, xy), value in zip(cells, values):
             t = (value - lo) / (hi - lo) if not constant and np.isfinite(value) else 0.5
@@ -340,6 +342,12 @@ class MeshCanvas(QGraphicsView):
             if stride > 1:
                 self.overlay_note += f" (her {stride}. GP)"
 
+    @staticmethod
+    def _seg_normal(mapped, seg_idx):
+        a, b = np.asarray(mapped[seg_idx][0], float), np.asarray(mapped[seg_idx][1], float)
+        t = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
+        return np.array([-t[1], t[0]])
+
     def draw_structure_results(self, result, stage, coords, field):
         """N–V–M as an offset polyline on the member. Displacement stays a heatmap."""
         show_nvm = field in SECTION_FIELDS
@@ -387,6 +395,29 @@ class MeshCanvas(QGraphicsView):
             line = force_diagram_line(mapped, comp, amplitude)
             pen = QPen(QColor("#156798"), 0)
             pen.setCosmetic(True)
+            # Filled, unbroken diagram band: close each element's offset pair back
+            # along the member itself, so the whole structure reads as one ribbon.
+            fill_pen = QPen(Qt.PenStyle.NoPen)
+            for seg_idx in range(0, len(line) - 1, 2):
+                (p0, v0), (p1, v1) = line[seg_idx], line[seg_idx + 1]
+                normal = self._seg_normal(mapped, seg_idx // 2)
+                base_a = p0 - amplitude * v0 * normal
+                base_b = p1 - amplitude * v1 * normal
+                sign = 1.0 if (v0 + v1) >= 0 else -1.0
+                fill = QColor("#d9485f" if sign > 0 else "#2f6fd6")
+                fill.setAlpha(110)
+                poly = QPolygonF(
+                    [
+                        QPointF(float(base_a[0]), float(-base_a[1])),
+                        QPointF(float(p0[0]), float(-p0[1])),
+                        QPointF(float(p1[0]), float(-p1[1])),
+                        QPointF(float(base_b[0]), float(-base_b[1])),
+                    ]
+                )
+                item = self.scene().addPolygon(poly, fill_pen, fill)
+                item.setZValue(2.1)
+                item.setData(0, ("structure", block.tag))
+                item.setToolTip(f"{s_lbl} · {title} {unit}")
             for (xy0, _v0), (xy1, _v1) in zip(line, line[1:]):
                 item = self.scene().addLine(
                     float(xy0[0]), float(-xy0[1]), float(xy1[0]), float(-xy1[1]), pen
