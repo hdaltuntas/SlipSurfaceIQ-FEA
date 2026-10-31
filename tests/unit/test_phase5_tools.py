@@ -73,3 +73,28 @@ def test_plastic_gp_overlay_uses_active_gauss_points(qt_app):
     assert canvas.principal_count == 2 * flags[active].size
     canvas.show_model(result.model)
     assert canvas.plastic_count == canvas.principal_count == 0
+    assert canvas.nvm_count == canvas.disp_label_count == 0
+    assert not canvas.colorbar_visible
+
+
+def test_tunnel_and_pile_overlays_follow_selected_field(qt_app):
+    from slipsurface.fe2d.gui.demo import excavation_model, tunnel_model
+
+    for model in (tunnel_model(), excavation_model()):
+        result = api.run(model)
+        canvas = MeshCanvas()
+        canvas.resize(640, 480)
+        canvas.show()
+        canvas.show_model(result.model, result.last, field="|u|", result=result)
+        qt_app.processEvents()
+        assert canvas.colorbar_visible
+        assert canvas.disp_label_count == 0
+        assert canvas.nvm_count == 0
+        canvas.show_model(result.model, result.last, field="N", result=result)
+        assert canvas.nvm_count > 0
+        assert canvas.disp_label_count == 0
+        assert not canvas.colorbar_visible
+        canvas.show_model(result.model, result.last, field="sxx", result=result)
+        assert canvas.nvm_count == 0
+        assert canvas.disp_label_count == 0
+        assert canvas.colorbar_visible

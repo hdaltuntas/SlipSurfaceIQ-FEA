@@ -303,6 +303,24 @@ def test_mcc_return_tangent_and_unloading(rng):
     assert np.array_equal(q2[back, 1], q[pl][back, 1])
 
 
+def test_hoek_brown_disturbance_reduces_modulus_and_strength():
+    from slipsurface.fe2d.fem.materials import hb_parameters
+    from slipsurface.fe2d.model.materials import MaterialSpec, hoek_diederichs_ratio
+
+    intact = MaterialSpec.hoek_brown("rock", 5e6, 0.25, 5e4, 50, 10, D=0.0)
+    disturbed = intact.with_disturbance(0.8)
+    assert disturbed.name == "rock_D0.8"
+    assert disturbed.params["D"] == pytest.approx(0.8)
+    expected = intact.params["E"] * hoek_diederichs_ratio(50, 0.8) / hoek_diederichs_ratio(50, 0.0)
+    assert disturbed.params["E"] == pytest.approx(expected)
+    assert disturbed.params["E"] < intact.params["E"]
+    mb0, s0, _ = hb_parameters(50, 10, 0.0)
+    mb, s, _ = hb_parameters(50, 10, 0.8)
+    assert mb < mb0 and s < s0
+    with pytest.raises(Exception, match="Hoek-Brown"):
+        MaterialSpec.elastic("e", 1e4, 0.3).with_disturbance(0.5)
+
+
 def _hb_cases():
     from slipsurface.fe2d.fem.materials import HoekBrown, hb_parameters
 

@@ -14,9 +14,10 @@ from slipsurface.fe2d import api
 from slipsurface.fe2d.gui.app import MainWindow
 from slipsurface.fe2d.gui.condition_editor import LoadEditor, WaterEditor
 from slipsurface.fe2d.gui.dialogs import sample_model
-from slipsurface.fe2d.gui.editing import put_structure, remove_structure
+from slipsurface.fe2d.gui.editing import apply_blast_disturbance, put_structure, remove_structure
 from slipsurface.fe2d.gui.material_editor import (
     MODELS,
+    DisturbanceDialog,
     MaterialDialog,
     MaterialSpecDialog,
     default_material,
@@ -61,6 +62,39 @@ def test_material_rename_preserves_references_and_cancel_is_atomic(qt_app):
     accepted.assignments.cellWidget(0, 1).setCurrentText("fill")
     accepted.apply()
     assert accepted.updated.region_material == {1: "fill"}
+
+
+def test_hoek_brown_disturbance_copy_assigns_blast_halo(qt_app):
+    rock = api.MaterialSpec.hoek_brown("rock", 1e6, 0.25, 5e4, 50, 10)
+    model = sample_model(nx=1, ny=1)
+    model = replace(
+        model,
+        materials={"rock": rock},
+        region_material={1: "rock"},
+        stages=[
+            replace(model.stages[0], name="CAD yükleme"),
+            api.Stage("kazı"),
+            api.Stage("destek"),
+        ],
+        geometry={
+            "entities": [{"name": "Tunel_Orselenme", "kind": "region", "region": 1, "points": []}],
+            "sequence": [
+                {"name": "kazı", "excavate": ["Tunel_Ust"], "install": [], "disturb": []},
+                {"name": "destek", "excavate": [], "install": [], "disturb": ["Tunel_Orselenme"]},
+            ],
+            "disturbance": {"D": 0.8, "thickness": 2.0, "regions": ["Tunel_Orselenme"]},
+        },
+    )
+    dialog = DisturbanceDialog(rock, model)
+    dialog.D.setValue(0.8)
+    dialog.assign_box.setChecked(True)
+    dialog._accept()
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    updated = apply_blast_disturbance(model, dialog.updated, parent="rock")
+    assert "rock_D0.8" in updated.materials
+    assert 1 not in updated.stages[0].material_override
+    assert updated.stages[2].material_override[1] == "rock_D0.8"
+    dialog.deleteLater()
 
 
 def test_rankine_checkbox_and_invalid_input_do_not_replace_spec(qt_app):

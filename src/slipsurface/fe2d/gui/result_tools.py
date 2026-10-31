@@ -4,7 +4,7 @@ import csv
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -340,6 +340,57 @@ def structure_segments(result, stage, tag):
     raise ValueError(f"'{tag}' bir kiriş/kazık veya ankraj değil.")
 
 
+def diagram_amplitude(segments, component, extent, fraction=0.22):
+    """World-unit scale so the largest ordinate is ``fraction`` of ``extent``."""
+    peak = max(
+        (abs(float(v)) for *_, f in segments for v in np.asarray(f)[:, component]),
+        default=0.0,
+    )
+    return fraction * extent / max(peak, 1e-30)
+
+
+def force_diagram_line(segments, component, amplitude):
+    """Offset polyline vertices ``(xy, value)`` of the section-force diagram."""
+    pts = []
+    for a, b, _, f in segments:
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        tangent = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
+        normal = np.array([-tangent[1], tangent[0]])
+        fa, fb = float(f[0, component]), float(f[1, component])
+        pts.append((a + amplitude * fa * normal, fa))
+        pts.append((b + amplitude * fb * normal, fb))
+    return pts
+
+
+def segment_end_displacements(result, stage, segments):
+    """``s, |u|, ux, uy`` at each segment end, in traversal order."""
+    X = result.model.mesh.coords
+    s_vals, ux, uy = [], [], []
+    for a, b, station, _f in segments:
+        station = np.asarray(station, float).reshape(-1)
+        for pt, st in ((a, station[0]), (b, station[-1])):
+            i = int(np.argmin(np.sum((X - pt) ** 2, axis=1)))
+            u = stage.u[i]
+            s_vals.append(float(st))
+            ux.append(float(u[0]) if np.isfinite(u[0]) else np.nan)
+            uy.append(float(u[1]) if np.isfinite(u[1]) else np.nan)
+    s_vals = np.asarray(s_vals, float)
+    ux, uy = np.asarray(ux, float), np.asarray(uy, float)
+    return s_vals, np.hypot(ux, uy), ux, uy
+
+
+def beam_profile_tags(model):
+    """``(tag, label)`` for liners and piles (beam members), in display order."""
+    from .editing import structure_label
+
+    tags = []
+    for tag, kind in model.structure_tags().items():
+        if kind != "beam":
+            continue
+        tags.append((tag, structure_label(model, tag)))
+    return tags
+
+
 class StructureDiagram(QWidget):
     """Force diagram drawn on the structure itself, perpendicular to its axis."""
 
@@ -373,10 +424,7 @@ class StructureDiagram(QWidget):
         pts = np.array([pt for a, b, _, _ in self.segments for pt in (a, b)], float)
         lo, hi = pts.min(0), pts.max(0)
         extent = max(float(np.ptp(pts, axis=0).max()), 1e-9)
-        peak = max(
-            max(abs(float(v)) for *_, f in self.segments for v in f[:, self.component]), 1e-30
-        )
-        amplitude = 0.22 * extent / peak  # largest ordinate = 22 % of the structure size
+        amplitude = diagram_amplitude(self.segments, self.component, extent)
         # World box including the diagram, then an equal-aspect map into the widget.
         lo, hi = lo - 0.3 * extent, hi + 0.3 * extent
         margin = 30
@@ -391,28 +439,17 @@ class StructureDiagram(QWidget):
                 self.width() / 2 + (xy[0] - cx) * scale, self.height() / 2 - (xy[1] - cy) * scale
             )
 
-        for a, b, _, f in self.segments:
-            a, b = np.asarray(a, float), np.asarray(b, float)
-            t = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
-            normal = np.array([-t[1], t[0]])
-            fa, fb = f[0, self.component], f[1, self.component]
-            poly = QPolygonF(
-                [
-                    screen(a),
-                    screen(a + amplitude * fa * normal),
-                    screen(b + amplitude * fb * normal),
-                    screen(b),
-                ]
-            )
-            sign = fa + fb
-            fill = QColor("#d9485f" if sign > 0 else "#2f6fd6")
-            fill.setAlpha(70)
-            p.setPen(QPen(QColor("#8a1c2c" if sign > 0 else "#174ea6"), 1.2))
-            p.setBrush(fill)
-            p.drawPolygon(poly)
         p.setPen(QPen(QColor("#213547"), 3))
         for a, b, _, _ in self.segments:
             p.drawLine(screen(a), screen(b))
+        line = force_diagram_line(self.segments, self.component, amplitude)
+        path = QPainterPath()
+        for i, (xy, _value) in enumerate(line):
+            pt = screen(xy)
+            path.moveTo(pt) if i == 0 else path.lineTo(pt)
+        p.setPen(QPen(QColor("#156798"), 2.2))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
         ext = self.extremes()
         p.setPen(QColor("#213547"))
         for label, (value, where) in zip(("min", "maks"), ext):
@@ -448,6 +485,15 @@ class StructureForceDialog(QDialog):
         self.trace = TracePlot()
         self.tabs.addTab(self.diagram, "Yapı üzerinde")
         self.tabs.addTab(self.trace, "Uzunluk boyunca")
+        self.disp_plots = [
+            TracePlot(title, "m") for title in ("|u|", "ux", "uy")
+        ]
+        disp_page = QWidget()
+        disp_layout = QVBoxLayout(disp_page)
+        disp_layout.setContentsMargins(0, 0, 0, 0)
+        for plot in self.disp_plots:
+            disp_layout.addWidget(plot, 1)
+        self.tabs.addTab(disp_page, "Deplasman")
         layout.addWidget(self.tabs, 1)
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -499,12 +545,18 @@ class StructureForceDialog(QDialog):
         self.draw()
 
     def draw(self, *_):
-        k = max(0, self.component.currentIndex())
-        key, title, unit = FORCE_COMPONENTS[self.kind][k]
+        items = FORCE_COMPONENTS[self.kind]
+        k = max(0, min(self.component.currentIndex(), len(items) - 1))
+        key, title, unit = items[k]
         self.diagram.set_data(self.segments, k, unit)
         s = np.array([st for *_, st, _ in self.segments], float).reshape(-1)
         values = np.array([f[:, k] for *_, f in self.segments], float).reshape(-1)
         self.trace.set_data(s, values, title, unit)
+        i = self.stage.currentData() or 0
+        st = self.result.initial if i == 0 else self.result.stages[i - 1]
+        ds, umag, ux, uy = segment_end_displacements(self.result, st, self.segments)
+        for plot, y, name in zip(self.disp_plots, (umag, ux, uy), ("|u|", "ux", "uy")):
+            plot.set_data(ds, y, name, "m")
         ext = self.diagram.extremes()
         if ext is None:
             self.status.setText("Bu aşamada yapı pasif; kesit tesiri yok.")
@@ -525,3 +577,80 @@ class StructureForceDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, "Kesit tesiri", "kesit.png", "PNG (*.png)")
         if path and not self.tabs.currentWidget().grab().save(path, "PNG"):
             self.status.setText("PNG kaydedilemedi.")
+
+
+class StructureDisplacementDialog(QDialog):
+    """Displacement along tunnel lining and piles, as line charts vs path length."""
+
+    def __init__(self, result, stage_index, parent=None):
+        super().__init__(parent)
+        self.result = result
+        self.setWindowTitle("Deplasman · tünel / kazık")
+        self.resize(920, 640)
+        layout = QVBoxLayout(self)
+        controls = QHBoxLayout()
+        self.stage = QComboBox()
+        snapshots = [result.initial, *result.stages]
+        for i, st in enumerate(snapshots):
+            self.stage.addItem(st.name, i)
+        self.tag = QComboBox()
+        for tag, label in beam_profile_tags(result.model):
+            self.tag.addItem(label, tag)
+        controls.addWidget(QLabel("Aşama"))
+        controls.addWidget(self.stage, 1)
+        controls.addWidget(QLabel("Yapı"))
+        controls.addWidget(self.tag, 1)
+        layout.addLayout(controls)
+        note = QLabel(
+            "Kaplama (tünel çevresi) ve kazık boyunca düğüm deplasmanı. "
+            "Kanvasta yalnız ısı haritası kalır; sayısal değerler bu grafiktedir."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.plots = [TracePlot(title, "m") for title in ("|u|", "ux", "uy")]
+        for plot in self.plots:
+            layout.addWidget(plot, 1)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        close = QPushButton("Kapat")
+        close.clicked.connect(self.accept)
+        row.addWidget(close)
+        layout.addLayout(row)
+        shown = max(0, min(stage_index, len(snapshots) - 1))
+        self.stage.setCurrentIndex(shown)
+        self.stage.currentIndexChanged.connect(self.draw)
+        self.tag.currentIndexChanged.connect(self.draw)
+        self.draw()
+
+    def draw(self, *_):
+        tag = self.tag.currentData()
+        if not tag:
+            for plot in self.plots:
+                plot.set_data([], [])
+            self.status.setText("Kaplama veya kazık yok.")
+            return
+        i = self.stage.currentData() or 0
+        st = self.result.initial if i == 0 else self.result.stages[i - 1]
+        try:
+            _kind, segments = structure_segments(self.result, st, tag)
+        except Exception as exc:
+            for plot in self.plots:
+                plot.set_data([], [])
+            self.status.setText(str(exc))
+            return
+        s, umag, ux, uy = segment_end_displacements(self.result, st, segments)
+        for plot, y, name in zip(self.plots, (umag, ux, uy), ("|u|", "ux", "uy")):
+            plot.set_data(s, y, name, "m")
+        finite = np.isfinite(umag)
+        if not finite.any():
+            self.status.setText("Bu aşamada yapı pasif; deplasman yok.")
+            return
+        imin, imax = int(np.nanargmin(umag)), int(np.nanargmax(umag))
+        self.status.setText(
+            f"|u| min {umag[imin]:.5g} m @ s={s[imin]:.4g} m · "
+            f"maks {umag[imax]:.5g} m @ s={s[imax]:.4g} m · "
+            f"{len(segments)} eleman"
+        )

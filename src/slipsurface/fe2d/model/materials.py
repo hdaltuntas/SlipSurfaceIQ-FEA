@@ -8,6 +8,12 @@ from dataclasses import dataclass, field
 from ..core.enums import Drainage
 from ..core.errors import ModelError
 
+
+def hoek_diederichs_ratio(GSI: float, D: float = 0.0) -> float:
+    """``Erm / Ei`` of Hoek & Diederichs (2006); ``D`` is the blast disturbance factor."""
+    return 0.02 + (1.0 - D / 2.0) / (1.0 + math.exp((60.0 + 15.0 * D - GSI) / 11.0))
+
+
 _REQUIRED = {
     "elastic": ("E", "nu"),
     "mohr_coulomb": ("E", "nu", "c", "phi"),
@@ -189,6 +195,26 @@ class MaterialSpec:
         if Kw_n is not None:
             p["Kw_n"] = Kw_n
         return dataclasses.replace(self, params=p, drainage=drainage)
+
+    def with_disturbance(self, D: float, name: str | None = None) -> MaterialSpec:
+        """Hoek-Brown copy with blast disturbance ``D`` and Hoek–Diederichs reduced E.
+
+        The parent ``E`` is the rock-mass modulus at the parent's ``D`` (usually 0).
+        ``mb``, ``s`` follow from GSI, mi and the new ``D`` at constitutive build time.
+        """
+        if self.model != "hoek_brown":
+            raise ModelError("örselenme yalnız Hoek-Brown kaya malzemesinde tanımlanır")
+        if not 0.0 <= D <= 1.0:
+            raise ModelError(f"material '{self.name}': need 0 <= D <= 1")
+        p = dict(self.params)
+        D0 = float(p.get("D", 0.0))
+        p["E"] = p["E"] * hoek_diederichs_ratio(p["GSI"], D) / hoek_diederichs_ratio(p["GSI"], D0)
+        p["D"] = D
+        new_name = name if name is not None else f"{self.name}_D{D:g}"
+        return MaterialSpec(
+            new_name, self.model, p, self.gamma_unsat, self.gamma_sat,
+            self.drainage, self.k_sat, self.vg,
+        )  # fmt: skip
 
     def with_strength_factor(self, F: float) -> MaterialSpec:
         """Strength reduced by F: c/F, tan(phi)/F, psi -> min(psi, phi_F) (SRF)."""

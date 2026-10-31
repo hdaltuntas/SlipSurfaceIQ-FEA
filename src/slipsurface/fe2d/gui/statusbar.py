@@ -7,7 +7,7 @@ are currently drawing (the CAD dialog); the result canvas ignores them.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QLabel, QStatusBar, QToolButton
 
@@ -46,6 +46,23 @@ class CadStatusBar(QStatusBar):
                     sc = QShortcut(QKeySequence(key), parent or self)
                     sc.setContext(Qt.WindowShortcut)
                     sc.activated.connect(b.toggle)
+
+    def add_fit_button(self, action) -> None:
+        """Icon-only fit-view control on the status bar (bottom of the window)."""
+        button = QToolButton()
+        button.setObjectName("fit_view")
+        button.setDefaultAction(action)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        button.setAutoRaise(True)
+        button.setIconSize(QSize(16, 16))
+        button.setStyleSheet(
+            "QToolButton{border:1px solid transparent;border-radius:3px;padding:2px;"
+            "background:transparent;min-height:16px;min-width:16px;}"
+            "QToolButton:hover{background:#dcecf7;border-color:#6e9dbb;}"
+            "QToolButton:disabled{background:transparent;}"
+        )
+        self.insertPermanentWidget(0, button)
+        self.fit_button = button
 
     def attach(self, canvas) -> None:
         """Bind toggles to a CAD canvas (the one used for drawing)."""

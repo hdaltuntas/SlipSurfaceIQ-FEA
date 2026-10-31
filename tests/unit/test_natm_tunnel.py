@@ -15,10 +15,13 @@ from slipsurface.fe2d.cad.supports import (
     pile_section,
 )
 from slipsurface.fe2d.cad.tunnel import (
+    BlastDisturbance,
     BoltPattern,
     LiningSystem,
+    SteelSet,
     TunnelDesign,
     TunnelSection,
+    _stations,
     bolt_pattern_along,
     place_tunnel,
 )
@@ -69,6 +72,111 @@ def test_pile_interfaces_mesh_and_activate_with_the_pile():
     assert {"cad_Kazik_ifL", "cad_Kazik_ifR"} <= set(model.interfaces)
     assert model.initial.active_structures == frozenset()
     assert {"cad_Kazik", "cad_Kazik_ifL", "cad_Kazik_ifR"} <= model.stages[0].active_structures
+
+
+def test_bolt_count_follows_circumferential_spacing():
+    pattern = BoltPattern(spacing=1.5)
+    assert pattern.count_on_length(9.0) == 6
+    assert pattern.count_on_length(0.0) == 0
+    assert BoltPattern(count=5, spacing=99.0).count_on_length(9.0) == 5
+
+
+def test_spacing_stations_fill_the_chain_equally():
+    s = _stations(10.0, 2.0)
+    assert len(s) == 5
+    np.testing.assert_allclose(np.diff(s), s[1] - s[0])
+    assert s[0] == pytest.approx(1.0)
+    assert s[-1] == pytest.approx(9.0)
+    explicit = _stations(6.0, 99.0, count=3, margin=1.0)
+    np.testing.assert_allclose(explicit, [1.0, 3.0, 5.0])
+
+
+def test_tunnel_bolts_are_equally_spaced_along_the_lining():
+    design = TunnelDesign(
+        TunnelSection(
+            radius=4.0,
+            wall_radius=7.0,
+            wall_height=1.5,
+            invert_level=-1.5,
+            parts=1,
+            segments=48,
+        ),
+        LiningSystem(rib="Yok"),
+        BoltPattern(spacing=1.5, length=3.0),
+    )
+    drawing = place_tunnel(ground(), design, (20.0, 15.0))
+    bolts = [e for e in drawing.entities if e.name.startswith("Tunel_Bulon")]
+    assert len(bolts) >= 8
+    heads = np.array([e.points[0] for e in bolts])
+    liners = [e for e in drawing.entities if e.name.startswith("Tunel_PB")]
+    liner_pts = {tuple(np.round(p, 6)) for e in liners for p in e.points}
+    assert all(tuple(np.round(h, 6)) in liner_pts for h in heads)
+    for liner in liners:
+        pts = np.asarray(liner.points, float)
+        station = np.concatenate(
+            [[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))]
+        )
+        on_this = []
+        for h in heads:
+            dist = np.linalg.norm(pts - h, axis=1)
+            if dist.min() < 1e-6:
+                on_this.append(station[int(dist.argmin())])
+        on_this = np.sort(on_this)
+        if len(on_this) < 3:
+            continue
+        gaps = np.diff(on_this)
+        assert gaps.std() / gaps.mean() < 0.05, gaps
+
+
+def test_place_tunnel_adds_bench_invert_bolts_and_steel_sets():
+    design = TunnelDesign(
+        TunnelSection(radius=4.0, wall_radius=7.0, wall_height=1.5, invert_level=-1.5),
+        LiningSystem(rib="Yok"),
+        BoltPattern(spacing=1.5, length=3.0),
+        bench_bolts=BoltPattern(spacing=2.0, length=3.0),
+        invert_bolts=BoltPattern(spacing=1.8, length=2.5),
+        steel=SteelSet(rib="HEB 140", spacing=0.8),
+    )
+    drawing = place_tunnel(ground(), design, (20.0, 15.0))
+    names = {e.name for e in drawing.entities}
+    bolts = [e for e in drawing.entities if e.name.startswith("Tunel_Bulon")]
+    assert len(bolts) >= 6
+    assert any("PB_Ust" in n for n in names)
+    liner = next(s for s in drawing.supports if s.kind == "liner")
+    combined = LiningSystem(rib="Yok").with_steel(SteelSet(rib="HEB 140", spacing=0.8))
+    assert liner.properties["A"] == pytest.approx(combined.liner_properties()["A"])
+    assert TunnelDesign.from_dict(design.to_dict()) == design
+
+
+def test_steel_only_liner_uses_rib_spacing():
+    steel = SteelSet(rib="HEB 140", spacing=1.0)
+    double = SteelSet(rib="HEB 140", spacing=2.0)
+    assert steel.liner_properties()["A"] == pytest.approx(2 * double.liner_properties()["A"])
+    design = TunnelDesign(
+        TunnelSection(radius=4.0, wall_radius=7.0, wall_height=1.5, invert_level=-1.5, parts=1),
+        None,
+        None,
+        steel=steel,
+    )
+    drawing = place_tunnel(ground(), design, (20.0, 15.0))
+    assert any(e.name.startswith("Tunel_Iksa") for e in drawing.entities)
+
+
+def test_blast_disturbance_halo_is_applied_on_the_stage_after_the_blast():
+    from shapely.geometry import Polygon
+
+    design = TunnelDesign(
+        TunnelSection(radius=4.0, wall_radius=7.0, wall_height=1.5, invert_level=-1.5),
+        LiningSystem(),
+        None,
+        disturbance=BlastDisturbance(0.8, 2.0),
+    )
+    drawing = place_tunnel(ground(), design, (20.0, 15.0))
+    halo = next(e for e in drawing.entities if e.name.endswith("_Orselenme"))
+    assert drawing.sequence[0].excavate and not drawing.sequence[0].disturb
+    assert drawing.sequence[1].disturb == (halo.name,)
+    assert drawing.disturbance["D"] == pytest.approx(0.8)
+    assert Polygon(halo.points).area > Polygon(design.section.outline()).area
 
 
 def test_lining_stiffness_combines_shotcrete_mesh_and_ribs():
@@ -157,8 +265,10 @@ def test_bolt_pattern_along_a_wall_inserts_conforming_heads():
     assert {(4.0, 2.0), (4.0, 4.0), (4.0, 6.0)} <= set(map(tuple, host.points))
     # Turned clockwise from an upward wall the bolts point to +x.
     assert all(b.points[1][0] == pytest.approx(6.0) for b in bolts)
+    spaced = bolt_pattern_along(drawing, "Duvar", 0, 2.0, angle=-90.0, margin=0.0, spacing=2.0)
+    assert len([e for e in spaced.entities if e.name.startswith("Bulon_Duvar")]) == 3
     with pytest.raises(ValueError):
-        bolt_pattern_along(drawing, "Duvar", 0, 2.0)
+        bolt_pattern_along(drawing, "Duvar", 2, 0.0)
 
 
 def test_library_persists_designs_between_sessions(qt_app):
@@ -181,9 +291,19 @@ def test_designer_dialogs_round_trip(qt_app):
     tunnel = TunnelDesignerDialog()
     design = tunnel.design()
     assert isinstance(design, TunnelDesign) and design.section.parts == 3
+    assert design.bolts is not None and design.bolts.count == 0
+    tunnel.bench_bolts.use.setChecked(True)
+    tunnel.invert_bolts.use.setChecked(True)
+    tunnel.use_steel.setChecked(True)
+    tunnel.rib_spacing.setValue(0.75)
+    tunnel.use_disturbance.setChecked(True)
+    design = tunnel.design()
+    assert design.bench_bolts is not None and design.invert_bolts is not None
+    assert design.steel is not None and design.steel.spacing == pytest.approx(0.75)
+    assert design.disturbance is not None and design.disturbance.D == pytest.approx(0.8)
     lining = LiningDesignerDialog()
     assert isinstance(lining.lining(), LiningSystem)
-    bolts = BoltPatternDialog("Duvar")
-    assert isinstance(bolts.pattern(), BoltPattern)
+    bolts = BoltPatternDialog("Duvar", chain_length=6.0)
+    assert isinstance(bolts.pattern(), BoltPattern) and bolts.pattern().count == 0
     for dialog in (tunnel, lining, bolts):
         dialog.deleteLater()

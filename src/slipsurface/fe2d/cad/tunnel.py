@@ -22,7 +22,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import split
 
 from .geometry import ConstructionStep, Drawing, Entity
-from .lining import STEEL_RIBS, WIRE_MESH, LiningSystem  # noqa: F401  re-exported
+from .lining import STEEL_RIBS, WIRE_MESH, LiningSystem, SteelSet  # noqa: F401  re-exported
 from .supports import SupportAssignment
 
 PART_LABELS = {"heading": "Üst yarı", "bench": "Alt yarı", "invert": "İnvert", "full": "Tam kesit"}
@@ -137,9 +137,14 @@ class TunnelSection:
 
 @dataclass(frozen=True)
 class BoltPattern:
-    """Radial rock bolts between two angles (degrees from +x, counter-clockwise)."""
+    """Rock bolts along a lining chain (or, with ``count > 0``, radial rays).
 
-    count: int = 7
+    ``spacing`` is the distance along the excavation perimeter; the bolt count is
+    ``round(length / spacing)``. Legacy ``count > 0`` keeps equally spaced rays
+    between ``start_angle`` and ``end_angle`` (degrees from +x, counter-clockwise).
+    """
+
+    count: int = 0  # 0 → from circumferential spacing; >0 → explicit (legacy rays)
     length: float = 4.0
     start_angle: float = 20.0
     end_angle: float = 160.0
@@ -147,11 +152,12 @@ class BoltPattern:
     T_yield: float = 250.0  # kN per bolt
     spacing_out_of_plane: float = 1.5
     pretension: float = 0.0
+    spacing: float = 1.2  # m along the perimeter when count == 0
 
     def __post_init__(self):
         if self.count < 0 or self.length <= 0 or self.EA <= 0 or self.T_yield <= 0:
             raise ValueError("Bulon sayısı ≥ 0; boy, EA ve akma kuvveti pozitif olmalıdır.")
-        if self.spacing_out_of_plane <= 0 or self.pretension < 0:
+        if self.spacing_out_of_plane <= 0 or self.spacing <= 0 or self.pretension < 0:
             raise ValueError("Bulon aralığı pozitif, öngerme negatif olamaz.")
 
     def angles(self):
@@ -160,6 +166,14 @@ class BoltPattern:
         if self.count == 1:
             return np.array([(self.start_angle + self.end_angle) / 2])
         return np.linspace(self.start_angle, self.end_angle, self.count)
+
+    def count_on_length(self, length):
+        """Number of bolts on a chain of ``length`` metres."""
+        if self.count > 0:
+            return self.count
+        if length <= 0:
+            return 0
+        return max(1, int(round(length / self.spacing)))
 
     def properties(self):
         return dict(EA=self.EA, T_yield=self.T_yield, pretension=self.pretension,
@@ -170,12 +184,51 @@ class BoltPattern:
 
 
 @dataclass(frozen=True)
+class BlastDisturbance:
+    """Blast-damage halo around the excavation; remaining rock uses D > 0 after the blast."""
+
+    D: float = 0.8
+    thickness: float = 2.0  # m, outward offset of the section
+
+    def __post_init__(self):
+        if not 0.0 <= self.D <= 1.0:
+            raise ValueError("Örselenme faktörü D [0, 1] aralığında olmalıdır.")
+        if not np.isfinite(self.thickness) or self.thickness <= 0:
+            raise ValueError("Örselenme zonu kalınlığı pozitif olmalıdır.")
+
+    def to_dict(self):
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class TunnelDesign:
     section: TunnelSection = field(default_factory=TunnelSection)
     lining: LiningSystem | None = field(default_factory=LiningSystem)
-    bolts: BoltPattern | None = field(default_factory=BoltPattern)
+    bolts: BoltPattern | None = field(default_factory=BoltPattern)  # heading / full face
     load_split: float = 0.5  # share of the excavation unbalance released before support
     separate_support_stage: bool = True
+    bench_bolts: BoltPattern | None = None
+    invert_bolts: BoltPattern | None = None
+    steel: SteelSet | None = None
+    disturbance: BlastDisturbance | None = None
+
+    def pattern_for(self, part):
+        if part in ("heading", "full"):
+            return self.bolts
+        if part == "bench":
+            return self.bench_bolts
+        if part == "invert":
+            return self.invert_bolts
+        return None
+
+    def liner_properties(self):
+        """Smeared Timoshenko properties, or None when neither shotcrete nor steel is set."""
+        lining, steel = self.lining, self.steel
+        if lining is not None:
+            return (lining.with_steel(steel) if steel is not None else lining).liner_properties()
+        if steel is not None:
+            return steel.liner_properties()
+        return None
 
     def to_dict(self):
         return {
@@ -184,6 +237,10 @@ class TunnelDesign:
             "bolts": None if self.bolts is None else self.bolts.to_dict(),
             "load_split": self.load_split,
             "separate_support_stage": self.separate_support_stage,
+            "bench_bolts": None if self.bench_bolts is None else self.bench_bolts.to_dict(),
+            "invert_bolts": None if self.invert_bolts is None else self.invert_bolts.to_dict(),
+            "steel": None if self.steel is None else self.steel.to_dict(),
+            "disturbance": None if self.disturbance is None else self.disturbance.to_dict(),
         }
 
     @classmethod
@@ -194,6 +251,10 @@ class TunnelDesign:
             None if data.get("bolts") is None else BoltPattern(**data["bolts"]),
             float(data.get("load_split", 0.5)),
             bool(data.get("separate_support_stage", True)),
+            None if data.get("bench_bolts") is None else BoltPattern(**data["bench_bolts"]),
+            None if data.get("invert_bolts") is None else BoltPattern(**data["invert_bolts"]),
+            None if data.get("steel") is None else SteelSet(**data["steel"]),
+            None if data.get("disturbance") is None else BlastDisturbance(**data["disturbance"]),
         )
 
 
@@ -268,6 +329,125 @@ def _bolt_heads(pattern, ring, center, radius):
     return out
 
 
+def _chain_length(chain):
+    pts = np.asarray(chain, float)
+    if len(pts) < 2:
+        return 0.0
+    return float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
+
+
+def _stations(total, spacing, count=0, margin=0.0):
+    """Bolt stations along a chain: ``count > 0`` is explicit, otherwise equal fill.
+
+    Spacing mode places ``round(usable / spacing)`` bolts at equal intervals, offset by
+    half a step from each end so they cover the chain instead of clustering on vertices.
+    """
+    if total <= 0:
+        return np.empty(0)
+    usable = max(total - 2 * margin, 0.0)
+    if count > 0:
+        n = count
+        if n == 1:
+            return np.array([margin + usable / 2 if usable > 0 else total / 2])
+        return np.linspace(margin, total - margin, n)
+    if spacing <= 0 or usable <= 0:
+        return np.empty(0)
+    n = max(1, int(round(usable / spacing)))
+    if n == 1:
+        return np.array([margin + usable / 2])
+    step = usable / n
+    return margin + (np.arange(n) + 0.5) * step
+
+
+def _insert_point_on_polyline(pts, point, closed=False):
+    """Insert ``point`` on the nearest segment if it is not already a vertex."""
+    pts = [tuple(p) for p in np.asarray(pts, float)]
+    p = tuple(_rounded(point))
+    arr = np.asarray(pts, float)
+    if np.min(np.linalg.norm(arr - p, axis=1)) <= 1e-9:
+        return pts
+    n = len(pts)
+    segs = n if closed else n - 1
+    best_i, best_d, best_t = 0, np.inf, 0.0
+    target = np.asarray(p, float)
+    for i in range(segs):
+        a, b = arr[i], arr[(i + 1) % n]
+        ab = b - a
+        length2 = float(np.dot(ab, ab))
+        t = 0.0 if length2 < 1e-30 else float(np.clip(np.dot(target - a, ab) / length2, 0, 1))
+        d = float(np.linalg.norm(target - (a + t * ab)))
+        if d < best_d:
+            best_i, best_d, best_t = i, d, t
+    if best_t <= 1e-12 or best_t >= 1 - 1e-12:
+        return pts
+    out = list(pts)
+    out.insert(best_i + 1, p)
+    return out
+
+
+def _bolts_on_chain(pattern, chain, center):
+    """``(head, direction)`` along ``chain``; direction is outward from ``center``."""
+    pts = np.asarray(chain, float)
+    if len(pts) < 2 or pattern is None:
+        return []
+    seg = np.diff(pts, axis=0)
+    seg_len = np.linalg.norm(seg, axis=1)
+    station = np.concatenate([[0.0], np.cumsum(seg_len)])
+    total = float(station[-1])
+    out = []
+    origin = np.asarray(center, float)
+    for s in _stations(total, pattern.spacing, pattern.count):
+        s = min(max(float(s), 0.0), total)
+        k = min(int(np.searchsorted(station, s, side="right")) - 1, len(seg) - 1)
+        t = (s - station[k]) / max(seg_len[k], 1e-30)
+        head = _rounded(pts[k] + t * seg[k])
+        delta = head - origin
+        norm = np.linalg.norm(delta)
+        direction = delta / norm if norm > 1e-12 else np.array([0.0, 1.0])
+        out.append((head, direction))
+    return out
+
+
+def _bolts_on_chains(pattern, chains, center):
+    heads = []
+    for chain in chains:
+        heads.extend(_bolts_on_chain(pattern, chain, center))
+    return heads
+
+
+def _part_bolt_heads(pattern, points, cut_levels, center, ring, radius):
+    """Bolts of one excavation part: legacy rays when ``count > 0``, else chain spacing."""
+    if pattern is None:
+        return []
+    if pattern.count > 0:
+        vertices = {tuple(p) for p in map(tuple, points)}
+        return [(h, d) for h, d in _bolt_heads(pattern, ring, center, radius)
+                if tuple(h) in vertices]  # fmt: skip
+    return _bolts_on_chains(pattern, _lining_chains(points, cut_levels), center)
+
+
+def _halo_polygon(ring, thickness, ground):
+    """Outward offset of the tunnel, clipped to the ground mass."""
+    tunnel = Polygon(ring)
+    if not tunnel.is_valid:
+        tunnel = tunnel.buffer(0)
+    outer = tunnel.buffer(thickness)
+    if ground is not None and not ground.is_empty:
+        outer = outer.intersection(ground)
+    if outer.is_empty:
+        raise ValueError(
+            "Örselenme zonu zemin içinde oluşmadı; kalınlığı küçültün veya tüneli içeri alın."
+        )
+    if outer.geom_type == "MultiPolygon":
+        covering = [g for g in outer.geoms if g.covers(tunnel) or g.intersects(tunnel)]
+        outer = max(covering or outer.geoms, key=lambda g: g.area)
+    if outer.area <= tunnel.area + 1e-9:
+        raise ValueError(
+            "Örselenme zonu tünel kesitinden taşmıyor; kalınlığı artırın veya tüneli içeri alın."
+        )
+    return _clean(_rounded(np.asarray(outer.exterior.coords[:-1])))
+
+
 def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -> Drawing:
     """Add the tunnel parts, liners, bolts and the NATM construction sequence to ``drawing``."""
     section = design.section
@@ -281,37 +461,57 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -
     next_region = max((e.region for e in drawing.entities if e.kind == "region"), default=0) + 1
     entities, supports, steps = [], [], []
     ring = _rounded(section.outline() + np.asarray(center))
-    heads = _bolt_heads(design.bolts, ring, center, section.radius)
-    claimed: set[int] = set()
+    liner_props = design.liner_properties()
+    liner_kind = "PB" if design.lining is not None else "Iksa"
+    halo_name = None
+    if design.disturbance is not None:
+        ground = drawing.validate()
+        halo_name = f"{name}_Orselenme"
+        entities.append(
+            Entity(
+                halo_name,
+                "region",
+                tuple(_halo_polygon(ring, design.disturbance.thickness, ground)),
+                next_region,
+            )
+        )
+        next_region += 1
+    claimed: set[tuple] = set()
+    bolt_index = 0
     for key, points in parts.items():
+        pattern = design.pattern_for(key)
+        bolt_heads = _part_bolt_heads(
+            pattern, points, cut_levels, center, ring, section.radius
+        )
+        pts = list(map(tuple, points))
+        for head, _direction in bolt_heads:
+            pts = _insert_point_on_polyline(pts, head, closed=True)
         region_name = f"{name}_{PART_KEYS[key]}"
-        entities.append(Entity(region_name, "region", tuple(points), next_region))
+        entities.append(Entity(region_name, "region", tuple(pts), next_region))
         next_region += 1
         installed = []
-        if design.lining is not None:
-            chains = _lining_chains(points, cut_levels)
+        if liner_props is not None:
+            chains = _lining_chains(pts, cut_levels)
             if section.parts > 1 and len(chains) == 2:  # bench walls: left, then right
                 chains.sort(key=lambda c: float(np.mean([p[0] for p in c])))
                 suffixes = ["_Sol", "_Sag"]
             else:
                 suffixes = [""] if len(chains) == 1 else [f"_{i + 1}" for i in range(len(chains))]
             for chain, suffix in zip(chains, suffixes):
-                liner = f"{name}_PB_{PART_KEYS[key]}{suffix}"
+                liner = f"{name}_{liner_kind}_{PART_KEYS[key]}{suffix}"
                 entities.append(Entity(liner, "line", tuple(map(tuple, chain))))
-                supports.append(
-                    SupportAssignment(liner, "liner", design.lining.liner_properties(), False)
-                )
+                supports.append(SupportAssignment(liner, "liner", liner_props, False))
                 installed.append(liner)
-        vertices = {tuple(p) for p in points}
-        for j, (head, direction) in enumerate(heads):
-            if j in claimed or tuple(head) not in vertices:
-                continue  # a head on a cut point goes with the first (upper) part
-            claimed.add(j)
-            assert design.bolts is not None  # heads exist only with a bolt pattern
-            tail = _rounded(head + direction * design.bolts.length)
-            bolt = f"{name}_Bulon{j + 1}"
+        for head, direction in bolt_heads:
+            head_t = tuple(head)
+            if head_t in claimed:
+                continue
+            claimed.add(head_t)
+            bolt_index += 1
+            tail = _rounded(head + direction * pattern.length)
+            bolt = f"{name}_Bulon{bolt_index}"
             entities.append(Entity(bolt, "line", (tuple(head), tuple(tail))))
-            supports.append(SupportAssignment(bolt, "bolt", design.bolts.properties(), False))
+            supports.append(SupportAssignment(bolt, "bolt", pattern.properties(), False))
             installed.append(bolt)
         label = PART_LABELS[key]
         if design.separate_support_stage and installed:
@@ -321,33 +521,51 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -
             steps.append(ConstructionStep(f"{name} {label} destek", (), tuple(installed)))
         else:
             steps.append(ConstructionStep(f"{name} {label} kazı", (region_name,), tuple(installed)))
+    if halo_name is not None:
+        # Blast in an excavation stage; the following stage uses the disturbed halo.
+        for i, step in enumerate(steps):
+            if step.excavate:
+                target = i + 1 if i + 1 < len(steps) else i
+                steps[target] = replace(steps[target], disturb=(halo_name,))
+                break
+    disturbance = drawing.disturbance
+    if design.disturbance is not None:
+        regions = list((disturbance or {}).get("regions") or [])
+        regions.append(halo_name)
+        disturbance = {**design.disturbance.to_dict(), "regions": regions}
     updated = replace(
         drawing,
         entities=(*drawing.entities, *entities),
         supports=(*drawing.supports, *supports),
         sequence=(*drawing.sequence, *steps),
+        disturbance=disturbance,
     )
     updated.validate()
     return updated
 
 
-def bolt_pattern_along(drawing: Drawing, entity_name, count, length, angle=90.0,
-                       pattern=None, prefix="Bulon", margin=0.0):  # fmt: skip
-    """Bolts at ``count`` equally spaced stations of a line/edge chain, turned ``angle``
-    degrees (counter-clockwise) from its direction; ``margin`` keeps them off the ends."""
+def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angle=90.0,
+                       pattern=None, prefix="Bulon", margin=0.0, spacing=None):  # fmt: skip
+    """Bolts along a line/edge chain, turned ``angle`` degrees (counter-clockwise) from its
+    direction. ``spacing`` (or ``pattern.spacing``) sets the count when ``count`` is 0;
+    ``margin`` keeps them off the ends."""
     entity = next(e for e in drawing.entities if e.name == entity_name)
     pts = np.asarray(entity.points if entity.kind == "line" else (*entity.points, entity.points[0]))
     seg = np.diff(pts, axis=0)
     seg_len = np.linalg.norm(seg, axis=1)
     station = np.concatenate([[0.0], np.cumsum(seg_len)])
     total = station[-1]
-    if count < 1 or length <= 0 or not 0 <= margin < total / 2:
-        raise ValueError(
-            "Bulon sayısı ≥ 1, boy pozitif ve kenar payı yarı uzunluktan küçük olmalıdır."
-        )
-    s_values = (np.array([total / 2]) if count == 1
-                else np.linspace(margin, total - margin, count))  # fmt: skip
     pattern = pattern or BoltPattern()
+    length = pattern.length if length is None else length
+    space = spacing if spacing is not None else pattern.spacing
+    if length <= 0 or not 0 <= margin < total / 2:
+        raise ValueError(
+            "Bulon boyu pozitif ve kenar payı yarı uzunluktan küçük olmalıdır."
+        )
+    n = count if count > 0 else max(1, int(round((total - 2 * margin) / space)))
+    if n < 1:
+        raise ValueError("Bulon sayısı ≥ 1 olmalıdır.")
+    s_values = _stations(total, space, n, margin)
     names = {e.name for e in drawing.entities}
     entities, supports = [], []
     vertices = {tuple(p) for p in map(tuple, _rounded(pts))}

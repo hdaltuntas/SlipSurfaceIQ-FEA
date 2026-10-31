@@ -139,6 +139,74 @@ def test_clicking_pile_and_anchor_opens_section_force_diagrams(qt_app):
     assert dialog.status.text().startswith("M:")
     values = np.array([f[:, 2] for *_, f in dialog.segments])
     assert np.isfinite(values).all() and np.abs(values).max() > 0
+    assert dialog.tabs.count() == 3 and dialog.disp_plots[0].y.size
+    assert np.isfinite(dialog.disp_plots[0].y).any()
     window.show_structure_forces("cad_Ankraj1")
     assert window.force_dialog.kind == "bar" and window.force_dialog.component.count() == 1
+    from slipsurface.fe2d.gui.result_tools import StructureDisplacementDialog
+
+    disp = StructureDisplacementDialog(result, window.stages.currentRow(), window)
+    assert disp.tag.count() >= 1
+    assert np.isfinite(disp.plots[0].y).any()
+    disp.close()
+    window.close()
+
+
+def test_left_tools_and_file_icons(qt_app):
+    from PySide6.QtWidgets import QToolBar, QToolButton
+
+    window = MainWindow()
+    window.show()
+    qt_app.processEvents()
+    cad = window.cad
+    assert "destek değildir" not in cad.tool_actions["tunnel"].toolTip().lower()
+    assert cad.tool_actions["tunnel"].toolTip().startswith("Tünel")
+    assert cad.tool_actions["natm"].toolTip().startswith("Eşdeğer kesit tünel")
+    toolbar = window.findChild(QToolBar, "main_toolbar")
+    labels = []
+    for action in toolbar.actions():
+        if action.isSeparator() or not action.text():
+            continue
+        button = toolbar.widgetForAction(action)
+        if not isinstance(button, QToolButton):
+            continue
+        assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
+        assert not action.icon().isNull()
+        labels.append(action.text())
+    assert labels == ["Yeni", "Aç", "Kaydet", "Ağı üret", "Çöz", "Durdur", "Ağ", "Sonuçlar"]
+    assert "Görünüme sığdır" not in labels
+    assert window.status.fit_button.defaultAction() is window.fit_action
+    assert window.fit_action.shortcut().toString() == "F2"
+    strip = cad.tool_strip
+    last = [a for a in strip.actions() if a.text()][-1]
+    assert last.text().startswith("Görünüme sığdır")
+    window.close()
+
+
+def test_results_show_only_the_selected_field(qt_app):
+    window = MainWindow()
+    window.show()
+    model = excavation_model()
+    result = api.run(model)
+    window.set_model(result.model, result)
+    qt_app.processEvents()
+    canvas = window.canvas
+    assert window.fields.currentText() == "|u|"
+    assert canvas.colorbar_visible
+    assert canvas.disp_label_count == 0
+    assert canvas.nvm_count == 0
+    window.fields.setCurrentText("N")
+    qt_app.processEvents()
+    assert window.canvas.nvm_count > 0
+    assert window.canvas.disp_label_count == 0
+    assert not window.canvas.colorbar_visible
+    window.fields.setCurrentText("M")
+    qt_app.processEvents()
+    assert window.canvas.nvm_count > 0
+    assert window.canvas.disp_label_count == 0
+    window.fields.setCurrentText("syy")
+    qt_app.processEvents()
+    assert window.canvas.nvm_count == 0
+    assert window.canvas.disp_label_count == 0
+    assert window.canvas.colorbar_visible
     window.close()

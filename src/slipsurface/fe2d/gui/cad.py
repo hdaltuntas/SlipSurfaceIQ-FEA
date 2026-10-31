@@ -731,8 +731,11 @@ class CadDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
         if embedded:
-            self.build_button.setText("Ağı üret")
-            self.build_button.setToolTip(note.text())
+            self.build_button.setText("")
+            self.build_button.setIcon(icon("mesh"))
+            self.build_button.setIconSize(QSize(20, 20))
+            self.build_button.setToolTip("Ağı üret\n" + note.text())
+            self.build_button.setFixedWidth(36)
             buttons.removeButton(self.build_button)
             buttons.removeButton(self.cancel_button)
             self.build_button.setParent(self.editor)
@@ -867,8 +870,8 @@ class CadDialog(QDialog):
             "N",
         )
         natm.setToolTip(
-            "At nalı veya daire; püskürtme + hasır + iksa tek kirişe toplanır (N). "
-            "Kiriş teorisiyle doğrulandı. RS2/PLAXIS veya 3B NATM doğrulaması değildir."
+            "Eşdeğer kesit tünel (N). At nalı veya daire; "
+            "püskürtme + hasır + iksa tek kirişe toplanır."
         )
         pattern = strip.addAction(icon("bolt_pattern"), "Bulon paterni (seçili çizgi boyunca)")
         pattern.triggered.connect(self.bolt_pattern)
@@ -882,18 +885,20 @@ class CadDialog(QDialog):
             tunnel_button.setMenu(options)
             tunnel_button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
             self.tool_actions["tunnel"].setToolTip(
-                "Tünel, destek değildir (T). Merkez, sonra çember üzerinde bir nokta. "
+                "Tünel (T). Merkez, sonra çember üzerinde bir nokta. "
                 "Basılı tutun: kaplama ve kazı seçenekleri."
             )
         strip.addSeparator()
         for title, ic, slot in [
-            ("Tümünü sığdır (F2)", "zoom_all", self.canvas.fit_drawing),
             ("Seçileni sil (Del)", "delete", self.delete_entity),
             ("Özellikler / mesnet / destek", "settings", lambda: self.show_inspector()),
             ("Kaplama / iksa tasarımcısı", "facing_props", self.open_lining_designer),
         ]:
             a = strip.addAction(icon(ic), title)
             a.triggered.connect(slot)
+        strip.addSeparator()
+        fit = strip.addAction(icon("zoom_all"), "Görünüme sığdır (F2)")
+        fit.triggered.connect(self.canvas.fit_drawing)
         self.delete_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self)
         self.delete_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.delete_shortcut.activated.connect(self.delete_entity)
@@ -1431,7 +1436,10 @@ class CadDialog(QDialog):
             )
             return
         host = self.document.entities[index].name
-        dialog = BoltPatternDialog(host, self)
+        entity = self.document.entities[index]
+        pts = np.asarray(entity.points)
+        chain_length = float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
+        dialog = BoltPatternDialog(host, self, chain_length=chain_length)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
@@ -1439,15 +1447,17 @@ class CadDialog(QDialog):
                 bolt_pattern_along(
                     self.current_drawing(),
                     host,
-                    dialog.count.value(),
+                    0,
                     dialog.length.value(),
                     dialog.angle.value(),
                     dialog.pattern(),
                     margin=dialog.margin.value(),
+                    spacing=dialog.spacing_along.value(),
                 )
             )
             self.status.setStyleSheet("")
-            self.status.setText(f"{dialog.count.value()} bulon eklendi · {host}")
+            n = dialog.pattern().count_on_length(max(chain_length - 2 * dialog.margin.value(), 0))
+            self.status.setText(f"{n} bulon eklendi · {host}")
         except Exception as exc:
             self.show_error(exc)
 

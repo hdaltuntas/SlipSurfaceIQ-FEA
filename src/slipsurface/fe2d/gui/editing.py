@@ -63,6 +63,65 @@ def put_material(model, spec, old_name=None):
     )
 
 
+def blast_disturbance_regions(geometry):
+    """Region ids marked as blast-disturbed in the CAD construction sequence."""
+    if not geometry:
+        return []
+    by_name = {e["name"]: e for e in geometry.get("entities", [])}
+    names = []
+    for step in geometry.get("sequence", []):
+        names.extend(step.get("disturb") or ())
+    extra = (geometry.get("disturbance") or {}).get("regions") or []
+    names.extend(extra)
+    seen, regions = set(), []
+    for name in names:
+        entity = by_name.get(name)
+        if entity is None or entity.get("kind") != "region":
+            continue
+        region = entity["region"]
+        if region not in seen:
+            seen.add(region)
+            regions.append(region)
+    return regions
+
+
+def apply_blast_disturbance(model, spec, parent=None):
+    """Add disturbed ``spec`` and assign it to halo regions from the first blast onward.
+
+    ``parent`` (if given) is the intact rock assigned to those regions before the blast;
+    later stages keep the disturbed override. Stages without a CAD sequence are unchanged.
+    """
+    model = put_material(model, spec)
+    regions = blast_disturbance_regions(model.geometry)
+    if not regions or not model.geometry:
+        return model
+    sequence = model.geometry.get("sequence") or []
+    offset = 1 if model.stages and sequence else 0
+    stages = list(model.stages)
+    active = {}
+    for i, step in enumerate(sequence):
+        si = offset + i
+        if si >= len(stages):
+            break
+        if step.get("disturb"):
+            active.update({r: spec.name for r in regions})
+        if active:
+            stages[si] = replace(
+                stages[si],
+                material_override={**stages[si].material_override, **active},
+            )
+    geometry = {
+        **model.geometry,
+        "disturbed_material": spec.name,
+        "disturbance": {
+            **(model.geometry.get("disturbance") or {}),
+            "material": spec.name,
+            "parent": None if parent is None else parent,
+        },
+    }
+    return validate_edit(replace(model, stages=stages, geometry=geometry))
+
+
 def remove_material(model, name):
     used = set(model.region_material.values())
     used.update(n for s in model.stages for n in s.material_override.values())

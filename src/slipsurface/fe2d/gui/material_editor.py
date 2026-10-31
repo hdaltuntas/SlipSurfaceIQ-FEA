@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QLabel,
     QLineEdit,
@@ -19,9 +21,9 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api
-from ..fem.materials import build
-from ..model.materials import DP_MATCH
-from .editing import put_material, remove_material, validate_edit
+from ..fem.materials import build, hb_parameters
+from ..model.materials import DP_MATCH, hoek_diederichs_ratio
+from .editing import apply_blast_disturbance, put_material, remove_material, validate_edit
 from .form_helpers import EditorDialog, table, toolbar
 
 MODELS = ["elastic", "mohr_coulomb", "hoek_brown", "mcc", "drucker_prager", "von_mises"]
@@ -37,7 +39,7 @@ PARAM_LABELS = {
     "sigci": "Sağlam kaya UCS (kPa)",
     "GSI": "GSI",
     "mi": "mi",
-    "D": "Bozulma D",
+    "D": "Örselenme faktörü D",
     "M": "M",
     "lam": "λ (e–ln p)",
     "kappa": "κ (e–ln p)",
@@ -83,6 +85,10 @@ class MaterialSpecDialog(EditorDialog):
         scroll.setWidget(content)
         self.root.addWidget(scroll, 1)
         self.fields = {}
+        self.hb_preview = QLabel()
+        self.hb_preview.setWordWrap(True)
+        self.hb_preview.setStyleSheet("padding:6px;background:#eef4f8;color:#173b52")
+        self.root.addWidget(self.hb_preview)
         self.populate(self.original)
         self.kind.currentTextChanged.connect(lambda k: self.populate(default_material(k)))
         other = QFormLayout()
@@ -133,6 +139,29 @@ class MaterialSpecDialog(EditorDialog):
                 widget = QLineEdit("" if value is None else str(value))
             self.fields[key] = widget
             self.parameters.addRow(PARAM_LABELS.get(key, key), widget)
+            if spec.model == "hoek_brown" and key in {"E", "GSI", "mi", "D"} and isinstance(
+                widget, QLineEdit
+            ):
+                widget.textChanged.connect(self._update_hb)
+        self.hb_preview.setVisible(spec.model == "hoek_brown")
+        if spec.model == "hoek_brown":
+            self._update_hb()
+
+    def _update_hb(self, *_):
+        try:
+            E = float(self.fields["E"].text())
+            gsi = float(self.fields["GSI"].text())
+            mi = float(self.fields["mi"].text())
+            D = float(self.fields["D"].text() or 0)
+            mb, s, a = hb_parameters(gsi, mi, D)
+            ratio = hoek_diederichs_ratio(gsi, D) / hoek_diederichs_ratio(gsi, 0.0)
+            self.hb_preview.setText(
+                f"Kaya kütlesi: mb = {mb:.4g} · s = {s:.4g} · a = {a:.4g} · E = {E:.4g} kPa\n"
+                f"Hoek–Diederichs Erm(D)/Erm(0) = {ratio:.3f}. "
+                f"Örselenmiş kopya bu D ile E ve D'yi günceller; ana malzeme D=0 kalmalıdır."
+            )
+        except (KeyError, TypeError, ValueError):
+            self.hb_preview.setText("GSI, mi ve D girilince mb, s, a ve E oranı hesaplanır.")
 
     def specification(self):
         params = {}
@@ -194,6 +223,7 @@ class MaterialDialog(EditorDialog):
                 ("Yeni", self.add_material),
                 ("Düzenle", self.edit_material),
                 ("Kopyala", self.copy_material),
+                ("Örselenmiş kopya", self.disturb_material),
                 ("Sil", self.delete_material),
             ],
         )
@@ -257,6 +287,28 @@ class MaterialDialog(EditorDialog):
             index += 1
         self.store_material(replace(self.model.materials[name], name=f"{name} ({index})"))
 
+    def disturb_material(self):
+        name = self.selected_name()
+        if name is None:
+            return
+        spec = self.model.materials[name]
+        if spec.model != "hoek_brown":
+            self.error(ValueError("Örselenme yalnız Hoek-Brown kaya malzemesinde tanımlanır."))
+            return
+        dialog = DisturbanceDialog(spec, self.model, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            if dialog.assign:
+                self.model = apply_blast_disturbance(
+                    self.current_model(), dialog.updated, parent=spec.name
+                )
+                self.refresh()
+            else:
+                self.store_material(dialog.updated)
+        except Exception as exc:
+            self.error(exc)
+
     def delete_material(self):
         name = self.selected_name()
         if name is not None:
@@ -272,4 +324,74 @@ class MaterialDialog(EditorDialog):
         except Exception as exc:
             self.error(exc)
             return
+        self.accept()
+
+
+class DisturbanceDialog(QDialog):
+    """Create a Hoek-Brown copy with blast factor D and reduced E."""
+
+    def __init__(self, spec, model, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Örselenmiş kopya · {spec.name}")
+        self.parent_spec = spec
+        self.updated = None
+        self.assign = False
+        from .editing import blast_disturbance_regions
+
+        layout = QFormLayout(self)
+        D0 = float(spec.params.get("D", 0.0))
+        self.D = QDoubleSpinBox()
+        self.D.setRange(0.0, 1.0)
+        self.D.setDecimals(2)
+        self.D.setValue(0.8 if D0 == 0 else D0)
+        self.name = QLineEdit(f"{spec.name}_D{self.D.value():g}")
+        self.preview = QLabel()
+        self.preview.setWordWrap(True)
+        self.assign_box = QCheckBox("Patlatma zonuna ve kazıdan sonraki aşamalara ata")
+        regions = blast_disturbance_regions(model.geometry)
+        self.assign_box.setEnabled(bool(regions))
+        self.assign_box.setChecked(bool(regions))
+        if not regions:
+            self.assign_box.setText("Patlatma zonu yok (tünel tasarımcısından eklenir)")
+        layout.addRow("Örselenme faktörü D", self.D)
+        layout.addRow("Yeni malzeme adı", self.name)
+        layout.addRow(self.preview)
+        layout.addRow(self.assign_box)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+        self.D.valueChanged.connect(self._refresh)
+        self._refresh()
+
+    def _refresh(self, *_):
+        D = self.D.value()
+        try:
+            spec = self.parent_spec.with_disturbance(D, self.name.text().strip() or None)
+        except Exception as exc:
+            self.preview.setText(str(exc))
+            return
+        p, q = self.parent_spec.params, spec.params
+        mb0, s0, a0 = hb_parameters(p["GSI"], p["mi"], p.get("D", 0.0))
+        mb, s, a = hb_parameters(q["GSI"], q["mi"], q["D"])
+        self.preview.setText(
+            f"E {p['E']:.4g} → {q['E']:.4g} kPa  (×{q['E'] / p['E']:.3f})\n"
+            f"mb {mb0:.4g} → {mb:.4g} · s {s0:.4g} → {s:.4g} · a = {a:.4g}"
+        )
+        auto = f"{self.parent_spec.name}_D{self.D.value():g}"
+        if not self.name.text() or self.name.text() == auto:
+            self.name.setText(f"{self.parent_spec.name}_D{D:g}")
+
+    def _accept(self):
+        try:
+            self.updated = self.parent_spec.with_disturbance(
+                self.D.value(), self.name.text().strip() or None
+            )
+            build(self.updated)
+        except Exception as exc:
+            self.preview.setText(str(exc))
+            return
+        self.assign = self.assign_box.isChecked() and self.assign_box.isEnabled()
         self.accept()

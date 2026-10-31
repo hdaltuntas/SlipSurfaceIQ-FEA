@@ -86,16 +86,20 @@ class ConstructionStep:
 
     ``load_split`` < 1 stops an excavation stage early (stress-release/beta method); the
     rest of the unbalance is carried by the next stage, after its support is installed.
+    ``disturb`` names remaining regions that switch to the blast-disturbed material in
+    this stage (typically the halo, on the step after the blast).
     """
 
     name: str
     excavate: tuple[str, ...] = ()
     install: tuple[str, ...] = ()
     load_split: float = 1.0
+    disturb: tuple[str, ...] = ()
 
     def __post_init__(self):
         object.__setattr__(self, "excavate", tuple(self.excavate))
         object.__setattr__(self, "install", tuple(self.install))
+        object.__setattr__(self, "disturb", tuple(self.disturb))
         if not self.name.strip():
             raise ValueError("Aşama adı boş olamaz.")
         if not 0.0 < float(self.load_split) <= 1.0:
@@ -112,6 +116,8 @@ class Drawing:
     gamma: float = 20.0
     supports: tuple[SupportAssignment, ...] = ()
     sequence: tuple[ConstructionStep, ...] = ()
+    disturbance: dict | None = None  # {D, thickness, regions, material?}
+    disturbed_material: str = ""
 
     def __post_init__(self):
         if not np.isfinite([self.h, self.E, self.nu, self.gamma]).all():
@@ -135,6 +141,8 @@ class Drawing:
             float(data.get("gamma", 20.0)),
             tuple(SupportAssignment(**s) for s in data.get("supports", [])),
             tuple(ConstructionStep(**c) for c in data.get("sequence", [])),
+            data.get("disturbance"),
+            str(data.get("disturbed_material") or ""),
         )
 
     def without_entity(self, name):
@@ -146,8 +154,9 @@ class Drawing:
                 step,
                 excavate=tuple(n for n in step.excavate if n != name),
                 install=tuple(n for n in step.install if n != name),
+                disturb=tuple(n for n in step.disturb if n != name),
             )
-            if step.excavate or step.install:
+            if step.excavate or step.install or step.disturb:
                 steps.append(step)
         return replace(
             self,
@@ -166,6 +175,7 @@ class Drawing:
                     step,
                     excavate=tuple(new if n == old else n for n in step.excavate),
                     install=tuple(new if n == old else n for n in step.install),
+                    disturb=tuple(new if n == old else n for n in step.disturb),
                 )
                 for step in self.sequence
             ),
@@ -206,6 +216,9 @@ class Drawing:
             for name in step.install:
                 if name not in supported:
                     raise ValueError(f"{step.name}: yerleştirilecek destek '{name}' bulunamadı.")
+            for name in step.disturb:
+                if name not in by_name or by_name[name].kind != "region":
+                    raise ValueError(f"{step.name}: örselenecek bölge '{name}' bulunamadı.")
         regions = [e for e in self.entities if e.kind == "region"]
         holes = [e for e in self.entities if e.kind == "hole"]
         if not regions:
@@ -405,6 +418,8 @@ class Drawing:
         base = model.stages[0]
         excavated: set[int] = set()
         installed = set(base.active_structures)
+        overrides = dict(base.material_override)
+        disturbed = self.disturbed_material
         stages = []
         for step in self.sequence:
             excavated.update(by_name[n].region for n in step.excavate)
@@ -412,6 +427,9 @@ class Drawing:
                 support = tags[name]
                 installed.add(support.tag)
                 installed.update(t for t in companion_tags(support.tag) if t in model.interfaces)
+            if disturbed:
+                for name in step.disturb:
+                    overrides[by_name[name].region] = disturbed
             stages.append(
                 api.Stage(
                     step.name,
@@ -419,6 +437,7 @@ class Drawing:
                     active_structures=frozenset(installed),
                     loads=base.loads,
                     load_split=step.load_split,
+                    material_override=dict(overrides),
                 )
             )
         return stages

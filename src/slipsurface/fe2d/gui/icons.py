@@ -499,6 +499,45 @@ def _draw(name: str, p: QPainter) -> None:
         p.setPen(_pen(RED, 8))
         p.drawLine(QPointF(14, 14), QPointF(50, 50))
         p.drawLine(QPointF(50, 14), QPointF(14, 50))
+    elif name in ("mesh", "mesh_view", "results"):
+        nodes = (
+            (8, 12),
+            (32, 12),
+            (56, 12),
+            (8, 32),
+            (32, 32),
+            (56, 32),
+            (8, 52),
+            (32, 52),
+            (56, 52),
+        )
+        tris = (
+            (0, 3, 4),
+            (0, 4, 1),
+            (1, 4, 5),
+            (1, 5, 2),
+            (3, 6, 7),
+            (3, 7, 4),
+            (4, 7, 8),
+            (4, 8, 5),
+        )
+        fills = (
+            [BLUE, GREEN, YELLOW, ORANGE, QColor("#6f8fd0"), GREEN, ORANGE, BLUE]
+            if name == "results"
+            else [QColor(47, 111, 214, 70)] * 8
+        )
+        p.setPen(_pen(INK, 2.2))
+        for (a, b, c), fill in zip(tris, fills):
+            p.setBrush(fill)
+            p.drawPolygon(_poly(nodes[a], nodes[b], nodes[c]))
+        if name == "mesh":
+            p.setPen(_pen(GREEN, 5))
+            p.drawLine(QPointF(44, 8), QPointF(58, 8))
+            p.drawLine(QPointF(51, 1), QPointF(51, 15))
+    elif name == "stop":
+        p.setPen(_pen(QColor("#8a1f18"), 3))
+        p.setBrush(RED)
+        p.drawRoundedRect(QRectF(14, 14, 36, 36), 6, 6)
     else:
         p.setPen(_pen(RED, 4))
         p.drawRect(QRectF(8, 8, 48, 48))

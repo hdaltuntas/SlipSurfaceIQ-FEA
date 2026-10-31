@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTabBar,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -130,6 +131,7 @@ class MainWindow(QMainWindow):
 
         self.status = CadStatusBar(self, shortcuts=False)
         self.setStatusBar(self.status)
+        self.status.add_fit_button(self.fit_action)
         self.canvas = MeshCanvas()
         self.canvas.queried.connect(self.status.showMessage)
         self.canvas.mouse_world.connect(self.status.show_coords)
@@ -203,6 +205,9 @@ class MainWindow(QMainWindow):
                 "|u|",
                 "ux",
                 "uy",
+                "N",
+                "V",
+                "M",
                 "sxx",
                 "syy",
                 "szz",
@@ -222,7 +227,7 @@ class MainWindow(QMainWindow):
         self.deform.valueChanged.connect(self.draw)
         self.principal = QCheckBox("Asal oklar")
         self.plastic_points = QCheckBox("Plastik noktalar")
-        for checkbox in [self.principal, self.plastic_points]:
+        for checkbox in (self.principal, self.plastic_points):
             checkbox.toggled.connect(self.draw)
         reset = QPushButton("Varsayılanlara dön")
         reset.clicked.connect(self._reset_display)
@@ -321,6 +326,8 @@ class MainWindow(QMainWindow):
 
     def _view_menu(self):
         menu = self.menuBar().addMenu("Görünüm")
+        menu.addAction(self.fit_action)
+        menu.addSeparator()
         # The dock is hidden by design while drawing; this is the results-view choice.
         self.dock_action = QAction("Proje paneli", self)
         self.dock_action.setCheckable(True)
@@ -395,14 +402,23 @@ class MainWindow(QMainWindow):
                 a.setShortcut(shortcut)
             return a
 
-        file_menu = self.menuBar().addMenu("Dosya")
-        for title, slot, shortcut in [
-            ("Yeni", self.new_model, "Ctrl+N"),
-            ("Aç", self.open_dialog, "Ctrl+O"),
-            ("Kaydet", self.save_dialog, "Ctrl+S"),
-        ]:
-            a = action(title, slot, shortcut)
+        def add_icon(a):
             toolbar.addAction(a)
+            button = toolbar.widgetForAction(a)
+            if isinstance(button, QToolButton):
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                button.setAutoRaise(True)
+            return a
+
+        file_menu = self.menuBar().addMenu("Dosya")
+        for title, slot, shortcut, ic in [
+            ("Yeni", self.new_model, "Ctrl+N", "new"),
+            ("Aç", self.open_dialog, "Ctrl+O", "open"),
+            ("Kaydet", self.save_dialog, "Ctrl+S", "save"),
+        ]:
+            a = action(title, slot, shortcut, ic)
+            a.setToolTip(f"{title} ({shortcut})")
+            add_icon(a)
             file_menu.addAction(a)
             self.edit_actions.append(a)
         file_menu.addAction(action("Parametrik dikdörtgen model…", self.new_mesh_model))
@@ -447,16 +463,25 @@ class MainWindow(QMainWindow):
             model_menu.addAction(a)
             self.edit_actions.append(a)
         toolbar.addSeparator()
-        self.mesh_action = action("Ağı üret", self.build_mesh, "Ctrl+M")
-        toolbar.addAction(self.mesh_action)
+        self.mesh_action = action("Ağı üret", self.build_mesh, "Ctrl+M", "mesh")
+        self.mesh_action.setToolTip("Ağı üret (Ctrl+M)")
+        add_icon(self.mesh_action)
         self.edit_actions.append(self.mesh_action)
-        self.run_action = action("▶ Çöz", self.start_solve, "F5")
-        self.stop_action = action("■ Durdur", self.cancel_solve)
+        self.run_action = action("Çöz", self.start_solve, "F5", "compute")
+        self.run_action.setToolTip("Çöz (F5)")
+        self.stop_action = action("Durdur", self.cancel_solve, ic="stop")
+        self.stop_action.setToolTip("Durdur")
         self.stop_action.setEnabled(False)
-        toolbar.addAction(self.run_action)
-        toolbar.addAction(self.stop_action)
-        toolbar.addAction(action("Görünüme sığdır", self.fit_active_view, "F2", "zoom_all"))
-        toolbar.addAction(action("Ağ / Sonuçlar", self.show_results, "F6"))
+        add_icon(self.run_action)
+        add_icon(self.stop_action)
+        self.mesh_view_action = action("Ağ", self.show_results, "F6", "mesh_view")
+        self.mesh_view_action.setToolTip("Ağ (F6)")
+        self.results_action = action("Sonuçlar", self.show_results, ic="results")
+        self.results_action.setToolTip("Sonuçlar")
+        add_icon(self.mesh_view_action)
+        add_icon(self.results_action)
+        self.fit_action = action("Görünüme sığdır", self.fit_active_view, "F2", "zoom_all")
+        self.fit_action.setToolTip("Görünüme sığdır (F2)")
         geometry_menu = self.menuBar().addMenu("Geometri")
         for title, kind in [
             ("Çokgen bölge", "region"),
@@ -499,6 +524,7 @@ class MainWindow(QMainWindow):
         for title, slot in [
             ("Sorgu çizgisi", self.query_line),
             ("Liner N–V–M", self.beam_diagrams),
+            ("Tünel / kazık deplasmanı", self.structure_displacements),
         ]:
             a = action(title, slot)
             result_menu.addAction(a)
@@ -611,8 +637,8 @@ class MainWindow(QMainWindow):
             f"{len(model.materials)} malzeme · {len(model.mesh.regions())} bölge\n\n"
             "Sonuç:\n"
             "· Alt sekmelerden aşama seçin\n"
-            "· Kaplama, kazık veya ankraja tıklayınca N–V–M açılır\n"
-            "· Düğüm sorgusu: çift tık"
+            "· Alan: |u| / ux / uy veya N / V / M\n"
+            "· Kesit penceresi için yapıya tıklayın · Düğüm: çift tık"
         )
         for a in self.export_actions:
             a.setEnabled(result is not None)
@@ -680,14 +706,18 @@ class MainWindow(QMainWindow):
             return
         st = self.selected_stage()
         stage_idx = max(0, self.stages.currentRow())
+        field = self.fields.currentText()
+        section = field in ("N", "V", "M")
+        self.principal.setEnabled(not section)
+        self.plastic_points.setEnabled(not section)
         self.canvas.show_model(
             self.model,
             st,
-            self.fields.currentText(),
+            field,
             self.deform.value(),
             result=self.result,
-            principal=self.principal.isChecked(),
-            plastic_points=self.plastic_points.isChecked(),
+            principal=self.principal.isChecked() and not section,
+            plastic_points=self.plastic_points.isChecked() and not section,
             stage_index=stage_idx,
         )
         self.legend.setText(self.canvas.legend)
@@ -727,6 +757,18 @@ class MainWindow(QMainWindow):
             from .result_tools import BeamDiagramDialog
 
             BeamDiagramDialog(self.result, self.selected_stage(), self).exec()
+
+    def structure_displacements(self):
+        if self.result is None:
+            self.status.showMessage(
+                "Deplasman grafiği için önce Çöz (F5) ile analizi tamamlayın.", 6000
+            )
+            return
+        from .result_tools import StructureDisplacementDialog
+
+        StructureDisplacementDialog(
+            self.result, max(0, self.stages.currentRow()), self
+        ).exec()
 
     def discard_changes(self):
         if not self.dirty and not self.cad.unsaved:

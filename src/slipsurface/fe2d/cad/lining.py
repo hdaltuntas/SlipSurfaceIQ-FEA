@@ -7,7 +7,7 @@ factor ``1 / (1 - nu^2)`` applied by the beam element.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 
@@ -95,6 +95,57 @@ class LiningSystem:
         EA, EI = self.stiffness()
         A, I = EA / self.E_shotcrete, EI / self.E_shotcrete  # noqa: E741
         return dict(E=self.E_shotcrete, nu=self.nu, A=A, I=I, As=A * 5 / 6,
+                    unit_weight=self.unit_weight)  # fmt: skip
+
+    def to_dict(self):
+        return asdict(self)
+
+    def with_steel(self, steel: SteelSet) -> LiningSystem:
+        """Smear ``steel`` into this shotcrete lining (one Timoshenko beam)."""
+        return replace(
+            self,
+            rib=steel.rib,
+            rib_area=steel.rib_area,
+            rib_inertia=steel.rib_inertia,
+            rib_spacing=steel.spacing,
+            E_steel=steel.E_steel,
+        )
+
+
+@dataclass(frozen=True)
+class SteelSet:
+    """Discrete steel ribs smeared per metre of tunnel (spacing along the axis)."""
+
+    rib: str = "HEB 140"
+    spacing: float = 1.0  # m along the tunnel axis
+    rib_area: float = 0.0  # cm2 (custom when rib == "Özel")
+    rib_inertia: float = 0.0  # cm4
+    E_steel: float = 2.1e8  # kPa
+    nu: float = 0.3
+    unit_weight: float = 78.5  # kN/m3
+
+    def __post_init__(self):
+        if not np.isfinite([self.spacing, self.E_steel, self.unit_weight]).all():
+            raise ValueError("Çelik iksa aralığı, E ve birim ağırlık sonlu olmalıdır.")
+        if self.spacing <= 0 or self.E_steel <= 0 or self.unit_weight < 0:
+            raise ValueError("Çelik iksa aralığı ve E pozitif, birim ağırlık ≥ 0 olmalıdır.")
+        if self.rib != "Özel" and (self.rib not in STEEL_RIBS or self.rib == "Yok"):
+            raise ValueError("Çelik iksa profili seçilmelidir.")
+        if not -1.0 < self.nu < 0.5:
+            raise ValueError("Çelik iksa ν (-1, 0.5) aralığında olmalıdır.")
+
+    def rib_section(self):
+        """Steel set area [m2] and inertia [m4] of one rib."""
+        if self.rib == "Özel":
+            return self.rib_area * 1e-4, self.rib_inertia * 1e-8
+        area, inertia = STEEL_RIBS[self.rib]
+        return area * 1e-4, inertia * 1e-8
+
+    def liner_properties(self):
+        """Equivalent Timoshenko section per metre of tunnel (no shotcrete)."""
+        area, inertia = self.rib_section()
+        A, I = area / self.spacing, inertia / self.spacing  # noqa: E741
+        return dict(E=self.E_steel, nu=self.nu, A=A, I=I, As=A * 5 / 6,
                     unit_weight=self.unit_weight)  # fmt: skip
 
     def to_dict(self):
