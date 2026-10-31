@@ -64,8 +64,8 @@ deneyimi anlamına gelmez. [Açık işler](next-steps.md).
 [Faz 5 sürüm kaydı](phase5-release.md): zaman çizelgesi, mekanik sınır ve yer değiştirme
 formları, ara yüz oluşturma/özellik/silme, asal oklar ve plastik GP, sorgu çizgileri,
 liner N–V–M grafikleri ve dört aşamalı tünelin boş GUI'den API eşitlik kabulü eklendi.
-Windows portable, temiz makine smoke testi ve wheel/sdist iş akışı vardır; yayın
-ve gerçek CI sonucu sürüm kaydında tutulur.
+Portable (PyInstaller) paket çıkarıldı: uygulama artık yalnızca `python main.py` ile çalışıyor.
+Wheel/sdist iş akışı ve gerçek CI sonucu sürüm kaydında tutulur.
 
 İleri CAD (DWG, eğri/blok DXF, katman sınırını kesen boşluk, yeniden ağda mevcut FE
 atamalarını taşıma) v1'in desteklenen çizgisel CAD kapsamının dışındadır.
