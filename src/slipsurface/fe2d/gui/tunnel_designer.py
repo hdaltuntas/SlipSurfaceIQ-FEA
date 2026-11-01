@@ -191,7 +191,7 @@ class LiningDesignerDialog(QDialog):
         layout.addLayout(groups)
         self.summary = QLabel()
         self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("padding:6px;background:#eef4f8;color:#173b52")
+        self.summary.setStyleSheet("padding:6px;background:#363E4D;color:#EDF1F7")
         layout.addWidget(self.summary)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -325,7 +325,9 @@ class SectionPreview(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), QColor("#f7fafc"))
+        from .theme import CANVAS_BG
+
+        p.fillRect(self.rect(), QColor(CANVAS_BG))
         if self.design is None:
             p.setPen(QColor("#a32d26"))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.error or "Geçersiz kesit")

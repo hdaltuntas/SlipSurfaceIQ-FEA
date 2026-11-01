@@ -93,6 +93,12 @@ class MainWindow(QMainWindow):
 
         apply_theme()
         self.setWindowTitle("SlipSurfaceIQ-FEA · Masaüstü")
+        from PySide6.QtGui import QIcon
+        from pathlib import Path as _P
+
+        _brand = _P(__file__).resolve().parent / "assets" / "brand"
+        if (_brand / "app_icon.svg").is_file():
+            self.setWindowIcon(QIcon(str(_brand / "app_icon.svg")))
         self.resize(1280, 840)
         self.setIconSize(QSize(24, 24))
         self.model = self.result = None
@@ -108,7 +114,7 @@ class MainWindow(QMainWindow):
         self.workflow.step_changed.connect(self._activate_step)
         self.guidance = QLabel()
         self.guidance.setObjectName("guidance")
-        self.guidance.setStyleSheet("color:#124d70;padding:0 8px;font-weight:bold;")
+        self.guidance.setStyleSheet("color:#8FC9C3;padding:0 8px;font-weight:bold;")
         # Clip instead of widening the window on small screens; the tooltip keeps the text.
         self.guidance.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         # Full-width row above the dock, so the project panel never squeezes the steps.
@@ -144,7 +150,7 @@ class MainWindow(QMainWindow):
         self.stage_tabs.currentChanged.connect(self._on_stage_tab_changed)
         right.addWidget(self.stage_tabs)
         self.legend = QLabel("")
-        self.legend.setStyleSheet("padding:8px;color:#526677")
+        self.legend.setStyleSheet("padding:8px;color:#C2CCD9")
         right.addWidget(self.legend)
         split.addWidget(view)
         self.result_page = QWidget()
@@ -198,7 +204,7 @@ class MainWindow(QMainWindow):
         self.stages.currentRowChanged.connect(self._on_stage_list_changed)
         self.summary = QLabel()
         self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("padding:12px;line-height:1.4;color:#526677")
+        self.summary.setStyleSheet("padding:12px;line-height:1.4;color:#C2CCD9")
         self.fields = QComboBox()
         self.fields.addItems(
             [
@@ -1137,8 +1143,8 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     if sys.platform == "win32" and QApplication.instance() is None:
-        # Native title bar/menus must not switch to the dark palette under our light theme.
-        os.environ.setdefault("QT_QPA_PLATFORM", "windows:darkmode=0")
+        # Native title bar/menus must follow the app's Nordic Dark theme.
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows:darkmode=1")
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("SlipSurfaceIQ-FEA")
     from .preferences import apply_theme

@@ -121,7 +121,9 @@ class CadCanvas(QGraphicsView):
     def redraw(self, entities, pending=(), selected=None):
         self.entities, self.pending = entities, list(pending)
         self.scene().clear()
-        region_palette = ("#65b4c8", "#e2b878", "#82c39b", "#b39ddb", "#e5989b", "#80cbc4")
+        from .theme import REGION_COLORS
+
+        region_palette = REGION_COLORS
         for e in entities:
             path = QPainterPath(QPointF(e.points[0][0], -e.points[0][1]))
             for x, y in e.points[1:]:
@@ -135,8 +137,10 @@ class CadCanvas(QGraphicsView):
             pen = QPen(QColor("#ed8c24" if e.name == selected else color))
             pen.setWidthF(3 if support or e.name == selected else 1)
             pen.setCosmetic(True)
+            from .theme import COLORS
+
             fill_hex = (
-                "#ffffff"
+                COLORS["input"]
                 if e.kind == "hole"
                 else region_palette[(max(int(e.region), 1) - 1) % len(region_palette)]
             )
@@ -550,7 +554,7 @@ class CadDialog(QDialog):
             "aşamalı kazı için bölge çizin."
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color:#526677; padding:4px;")
+        note.setStyleSheet("color:#C2CCD9; padding:4px;")
         root.addWidget(note)
         self.rebuild_notice = note
         if embedded:
@@ -1593,7 +1597,7 @@ class CadDialog(QDialog):
 
     def show_error(self, exc):
         self.status.setText(f"İşlem tamamlanamadı: {exc}")
-        self.status.setStyleSheet("color:#a32d26")
+        self.status.setStyleSheet("color:#E6949D")
 
     def reject(self):
         if self.worker:

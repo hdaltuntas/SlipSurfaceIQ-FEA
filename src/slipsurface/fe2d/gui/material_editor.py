@@ -87,7 +87,7 @@ class MaterialSpecDialog(EditorDialog):
         self.fields = {}
         self.hb_preview = QLabel()
         self.hb_preview.setWordWrap(True)
-        self.hb_preview.setStyleSheet("padding:6px;background:#eef4f8;color:#173b52")
+        self.hb_preview.setStyleSheet("padding:6px;background:#363E4D;color:#EDF1F7")
         self.root.addWidget(self.hb_preview)
         self.populate(self.original)
         self.kind.currentTextChanged.connect(lambda k: self.populate(default_material(k)))

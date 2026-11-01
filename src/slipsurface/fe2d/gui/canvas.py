@@ -62,7 +62,9 @@ class MeshCanvas(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._auto_fit = False
-        self.setBackgroundBrush(QColor("#f5f8fa"))
+        from .theme import CANVAS_BG
+
+        self.setBackgroundBrush(QColor(CANVAS_BG))
         self.model = self.stage = None
         self.stage_index = 0
         self.cell_count = 0

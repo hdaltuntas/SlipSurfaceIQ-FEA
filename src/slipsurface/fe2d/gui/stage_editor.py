@@ -243,7 +243,7 @@ class StageDialog(EditorDialog):
         right_layout = QVBoxLayout(right_pane)
         right_layout.setContentsMargins(6, 0, 0, 0)
         self.stage_header = QLabel("SEÇİLİ AŞAMA: —")
-        self.stage_header.setStyleSheet("font-weight:bold; color:#124d70;")
+        self.stage_header.setStyleSheet("font-weight:bold; color:#8FC9C3;")
         right_layout.addWidget(self.stage_header)
 
         right_layout.addWidget(QLabel("Bölgeler (Kazı / Malzeme durumu):"))

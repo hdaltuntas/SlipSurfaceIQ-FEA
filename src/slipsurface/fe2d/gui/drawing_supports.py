@@ -64,7 +64,7 @@ class DrawingSupportPanel(QWidget):
         root.addWidget(scroll, 1)
         self.section = QLabel()
         self.section.setWordWrap(True)
-        self.section.setStyleSheet("color:#173b52;background:#eef4f8;padding:4px")
+        self.section.setStyleSheet("color:#EDF1F7;background:#363E4D;padding:4px")
         root.addWidget(self.section)
         self.composite = QPushButton("Kompozit kaplama (püskürtme beton + hasır + iksa)…")
         self.composite.clicked.connect(self.design_lining)

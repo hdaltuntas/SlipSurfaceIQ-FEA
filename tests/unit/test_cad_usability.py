@@ -22,28 +22,28 @@ def click_world(canvas, x, y):
     )
 
 
-def test_light_theme_overrides_dark_system_menu_and_button_text(qt_app):
+def test_nordic_dark_theme_overrides_light_system_menu_and_button_text(qt_app):
     palette = QPalette()
     for role in (
         QPalette.ColorRole.WindowText,
         QPalette.ColorRole.ButtonText,
         QPalette.ColorRole.Text,
     ):
-        palette.setColor(role, QColor("white"))
+        palette.setColor(role, QColor("black"))
     qt_app.setPalette(palette)
-    qt_app.setProperty("slipsurface_light_theme", False)
+    qt_app.setProperty("slipsurface_nordic_dark", False)
     window = MainWindow()
     window.show()
     qt_app.processEvents()
     menu = window.menuBar()
-    assert menu.palette().color(QPalette.ColorRole.WindowText).lightness() < 100
-    assert menu.palette().color(QPalette.ColorRole.Window).lightness() > 220
+    assert menu.palette().color(QPalette.ColorRole.WindowText).lightness() > 200
+    assert menu.palette().color(QPalette.ColorRole.Window).lightness() < 100
     dialog = CadDialog()
     dialog.show()
     qt_app.processEvents()
     button = dialog.build_button
-    assert button.palette().color(QPalette.ColorRole.ButtonText).lightness() < 100
-    assert button.palette().color(QPalette.ColorRole.Button).lightness() > 220
+    assert button.palette().color(QPalette.ColorRole.ButtonText).lightness() > 200
+    assert button.palette().color(QPalette.ColorRole.Button).lightness() < 100
 
 
 def test_rectangle_pointer_selection_delete_and_undo(qt_app):

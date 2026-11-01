@@ -3,6 +3,7 @@
 import csv
 
 import numpy as np
+from .theme import PLOT_TEXT
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
@@ -41,8 +42,10 @@ class TracePlot(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), QColor("white"))
-        p.setPen(QColor("#213547"))
+        from .theme import PLOT_BG, PLOT_TEXT
+
+        p.fillRect(self.rect(), QColor(PLOT_BG))
+        p.setPen(QColor(PLOT_TEXT))
         p.drawText(16, 24, f"{self.title} · {self.unit}")
         box = QRectF(92, 48, max(1, self.width() - 116), max(1, self.height() - 110))
         p.drawRect(box)
@@ -63,7 +66,9 @@ class TracePlot(QWidget):
                 box.bottom() - (y - ymin) / (ymax - ymin) * box.height(),
             )
 
-        p.setPen(QPen(QColor("#cbd5e1"), 1, Qt.PenStyle.DashLine))
+        from .theme import PLOT_GRID
+
+        p.setPen(QPen(QColor(PLOT_GRID), 1, Qt.PenStyle.DashLine))
         p.drawLine(
             int(box.left()), int(screen(xmin, 0)[1]), int(box.right()), int(screen(xmin, 0)[1])
         )
@@ -75,9 +80,11 @@ class TracePlot(QWidget):
             xx, yy = screen(x, y)
             path.lineTo(xx, yy) if connected else path.moveTo(xx, yy)
             connected = True
-        p.setPen(QPen(QColor("#087f9b"), 2))
+        from .theme import PLOT_LINE
+
+        p.setPen(QPen(QColor(PLOT_LINE), 2))
         p.drawPath(path)
-        p.setPen(QColor("#213547"))
+        p.setPen(QColor(PLOT_TEXT))
         for i in range(5):
             value = ymin + (ymax - ymin) * i / 4
             p.drawText(3, int(screen(xmin, value)[1]) + 5, f"{value:.4g}")
@@ -416,9 +423,11 @@ class StructureDiagram(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), QColor("white"))
+        from .theme import PLOT_BG, PLOT_TEXT
+
+        p.fillRect(self.rect(), QColor(PLOT_BG))
         if not self.segments:
-            p.setPen(QColor("#526677"))
+            p.setPen(QColor(PLOT_TEXT))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Bu aşamada aktif eleman yok")
             return
         pts = np.array([pt for a, b, _, _ in self.segments for pt in (a, b)], float)
@@ -439,7 +448,7 @@ class StructureDiagram(QWidget):
                 self.width() / 2 + (xy[0] - cx) * scale, self.height() / 2 - (xy[1] - cy) * scale
             )
 
-        p.setPen(QPen(QColor("#213547"), 3))
+        p.setPen(QPen(QColor(PLOT_TEXT), 3))
         for a, b, _, _ in self.segments:
             p.drawLine(screen(a), screen(b))
         line = force_diagram_line(self.segments, self.component, amplitude)
@@ -451,7 +460,7 @@ class StructureDiagram(QWidget):
         p.setBrush(Qt.NoBrush)
         p.drawPath(path)
         ext = self.extremes()
-        p.setPen(QColor("#213547"))
+        p.setPen(QColor(PLOT_TEXT))
         for label, (value, where) in zip(("min", "maks"), ext):
             at = screen(where)
             p.drawEllipse(at, 3, 3)

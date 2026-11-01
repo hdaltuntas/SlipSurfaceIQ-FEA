@@ -34,17 +34,17 @@ def show_screen_sized(window) -> None:
 
 
 def apply_theme() -> None:
-    """Use explicit light colours, including native menus on dark desktops."""
-    from .theme import apply_light_theme
+    """Apply the single Nordic Dark theme (same design system as SlipSurfaceIQ-Suite)."""
+    from .theme import apply_theme as _apply
 
     app = QApplication.instance()
-    if app.property("slipsurface_light_theme"):
+    if app.property("slipsurface_nordic_dark"):
         return
     app.setStyle("Fusion")
     hints = app.styleHints()
-    if hasattr(hints, "setColorScheme"):  # Qt >= 6.8: keep Windows dark mode out of the app
+    if hasattr(hints, "setColorScheme"):  # Qt >= 6.8: keep OS dark mode out of the app
         from PySide6.QtCore import Qt
 
-        hints.setColorScheme(Qt.ColorScheme.Light)
-    apply_light_theme(app)
-    app.setProperty("slipsurface_light_theme", True)
+        hints.setColorScheme(Qt.ColorScheme.Dark)
+    _apply(app)
+    app.setProperty("slipsurface_nordic_dark", True)

@@ -43,7 +43,7 @@ def wait_mesh(window, app):
     app.processEvents()
 
 
-def test_light_theme_text_contrast_meets_wcag_aa(qt_app):
+def test_nordic_dark_theme_text_contrast_meets_wcag_aa(qt_app):
     apply_theme()
     palette = QApplication.instance().palette()
     role = QPalette.ColorRole
@@ -56,16 +56,16 @@ def test_light_theme_text_contrast_meets_wcag_aa(qt_app):
     ]:
         assert contrast(palette.color(fg), palette.color(bg)) >= 4.5, (fg, bg)
     for fg, bg in [
-        ("#243746", "#ffffff"),  # menus, buttons, inputs
-        ("#124d70", "#dcecf7"),  # selected menu item
-        ("#334b5d", "#e6edf3"),  # tabs and headers
-        ("#075780", "#d9edf9"),  # checked tool buttons
+        ("#EDF1F7", "#2B303B"),  # text on main surface
+        ("#EDF1F7", "#414B5D"),  # buttons
+        ("#D9FAF5", "#385960"),  # selected items
+        ("#EDF1F7", "#262D39"),  # inputs
     ]:
         assert fg in theme.STYLE and bg in theme.STYLE
         assert contrast(fg, bg) >= 4.5, (fg, bg)
-    assert contrast("#5b6b78", "#e7eef4") >= 4.5  # SNAP/GRID off
-    assert contrast("#ffffff", "#156798") >= 4.5  # SNAP/GRID on
-    assert "#5b6b78" in statusbar.TOGGLE_CSS
+    assert contrast("#B5C1CE", "#303744") >= 4.5  # SNAP/GRID off
+    assert contrast("#D9FAF5", "#385960") >= 4.5  # SNAP/GRID on
+    assert "#B5C1CE" in statusbar.TOGGLE_CSS
 
 
 def test_workflow_guides_from_empty_drawing_to_results(qt_app):
