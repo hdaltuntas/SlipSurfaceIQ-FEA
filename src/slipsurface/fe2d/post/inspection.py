@@ -18,6 +18,7 @@ class LineProfile:
     regions: np.ndarray
     field: str
     unit: str
+    display_xy: np.ndarray  # sample points on the deformed mesh (equals xy when deform=0)
 
 
 def field_unit(field):
@@ -48,12 +49,15 @@ def _local_point(element, coords, point):
     return None
 
 
-def line_profile(result, start, end, field="|u|", count=101, stage=None, region=None):
+def line_profile(
+    result, start, end, field="|u|", count=101, stage=None, region=None, deform=0.0
+):
     """Query active elements only; gaps are NaN. Boundary ties use the first element.
 
-    Displacements use the element shape functions. Stress/pore fields use element-local
-    GP extrapolation, preserving jumps between regions and opposite interface faces.
-    ``region`` optionally selects one side of a material boundary.
+    Coordinates are the undeformed model. Displacements use the element shape functions.
+    Stress/pore fields use element-local GP extrapolation, preserving jumps between
+    regions and opposite interface faces. ``region`` selects one side of a material
+    boundary. ``deform`` places ``display_xy`` on the deformed mesh (X + deform·u).
     """
     a, b = np.asarray(start, float), np.asarray(end, float)
     if (
@@ -83,6 +87,7 @@ def line_profile(result, start, end, field="|u|", count=101, stage=None, region=
     st = stage_result(result, stage)
     mesh = result.model.mesh
     xy = np.linspace(a, b, count)
+    display = xy.copy()
     values, regions = np.full(count, np.nan), np.full(count, -1, dtype=int)
     for block in mesh.continuum_blocks():
         active = st.active.get(block.tag, np.ones(block.ne, bool)).copy()
@@ -108,8 +113,10 @@ def line_profile(result, start, end, field="|u|", count=101, stage=None, region=
                 weights = _local_point(element, X, xy[i])
                 if weights is None:
                     continue
+                u = weights @ st.u[block.conn[e]]
+                if deform:
+                    display[i] = xy[i] + deform * np.nan_to_num(u)
                 if nodal is None:
-                    u = weights @ st.u[block.conn[e]]
                     v = np.linalg.norm(u) if field == "|u|" else u[0 if field == "ux" else 1]
                 else:
                     v = weights @ nodal[e]
@@ -121,7 +128,13 @@ def line_profile(result, start, end, field="|u|", count=101, stage=None, region=
                         v = principal_stresses(v)[field]
                 values[i], regions[i] = v, block.region[e]
     return LineProfile(
-        np.linspace(0, np.linalg.norm(b - a), count), xy, values, regions, field, field_unit(field)
+        np.linspace(0, np.linalg.norm(b - a), count),
+        xy,
+        values,
+        regions,
+        field,
+        field_unit(field),
+        display,
     )
 
 

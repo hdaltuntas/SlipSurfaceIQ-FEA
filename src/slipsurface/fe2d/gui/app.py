@@ -732,7 +732,9 @@ class MainWindow(QMainWindow):
         if self.result is not None:
             from .result_tools import QueryDialog
 
-            dialog = QueryDialog(self.result, self.selected_stage(), self)
+            dialog = QueryDialog(
+                self.result, self.selected_stage(), self, deform=self.deform.value()
+            )
             dialog.line_changed.connect(self.canvas.show_query_line)
             dialog.query()
             dialog.exec()

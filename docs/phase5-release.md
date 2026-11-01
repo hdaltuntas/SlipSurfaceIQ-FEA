@@ -47,11 +47,15 @@ Linux/Windows, Python 3.10–3.13, and two native GUI jobs: **10/10 passed**
 - Linear 2D DXF is supported; DWG and curve/block DXF are not included in this version.
 - CAD remeshing transfers existing FE definitions by name; those with no remaining target
   are listed in the solution log ([detail](integrated-modeler.md)).
-- Result contours are element averages. Query-line stresses are computed by Gauss-point
-  extrapolation inside the element; a region filter selects the side at a material boundary.
+- Result colours are the mean of the element-nodal values (displacement at the nodes;
+  stress and pore pressure extrapolated from the Gauss points). Nodes are not averaged
+  across materials, so a jump is kept. The tooltip shows the nodal range in the element.
+  Query-line stresses use the same in-element extrapolation; a region filter selects the
+  side at a material boundary. The query is entered in undeformed coordinates and drawn
+  on the deformed mesh.
 - Principal arrows show the two in-plane stresses; the 3D principal values ordered with
   szz are separate contour fields. If the number of plastic points/arrows is thinned on a
-  large model, that is shown on screen. The query line uses the undeformed coordinates.
+  large model, that is shown on screen.
 - Liner local x is along the path; local y is 90° counterclockwise. N is positive in tension.
   N/V/M is the negative local nodal action at the start and the positive local action at
   the end. On an element whose path reverses, the end order is reversed and the sign of M

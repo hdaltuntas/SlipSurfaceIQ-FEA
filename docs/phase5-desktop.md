@@ -29,12 +29,15 @@ slipsurface-fe2d model.ssproj
 - The same `api.run` engine on a separate Qt thread; stage progress, a convergence plot,
   a log, and controlled cancel. Cancel is checked between mechanical iterations and seepage
   Picard steps; an in-progress single factorisation/Numba call is not cut off instantly.
-- Stage selection, the deformed mesh of the active elements, and element-average colour fields
+- Stage selection, the deformed mesh of the active elements, and nodal colour fields
   (u, stress components, principal stresses, q, plastic Gauss-point ratio, pore pressures).
   Rounding differences of a constant field are not turned into a colour change.
 - Double-click queries the nearest active node and ux/uy; zoom/pan.
 - Nodal CSV, raw beam-end N/V/M CSV, active-cell VTU, and a standalone HTML summary report.
-  Nodal stresses are recovered with SPR; the colours on screen are **element averages**.
+  Nodal stresses in the CSV/VTU export are recovered with SPR. Colours on screen are the
+  mean of the element-nodal extrapolation (a material jump is kept; the tooltip shows the
+  nodal range). The query line is entered in undeformed coordinates and drawn on the
+  deformed mesh.
 
 When a model is edited, or a new solve is started, the previous result is cleared.
 A failed or cancelled run does not produce a result or a success label. The run input is

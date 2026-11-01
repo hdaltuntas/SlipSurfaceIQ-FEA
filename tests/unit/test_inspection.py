@@ -37,6 +37,10 @@ def test_query_constant_stress_and_linear_displacement_patch(etype):
     np.testing.assert_allclose(profile.values, np.linspace(0, expected, 11), atol=1e-12)
     stress = line_profile(result, (0, 0.5), (3, 0.5), "syy", 13)
     np.testing.assert_allclose(stress.values, -10, atol=1e-9)
+    shown = line_profile(result, (1.5, 0), (1.5, 1), "uy", 11, deform=2.0)
+    np.testing.assert_allclose(shown.values, profile.values, atol=1e-12)
+    np.testing.assert_allclose(shown.display_xy[:, 0], profile.xy[:, 0])
+    assert np.max(np.abs(shown.display_xy - profile.xy)) > 0
     block = mesh.blocks[0]
     centroids = mesh.coords[block.conn].mean(1)
     gap = (centroids[:, 0] > 1) & (centroids[:, 0] < 2)

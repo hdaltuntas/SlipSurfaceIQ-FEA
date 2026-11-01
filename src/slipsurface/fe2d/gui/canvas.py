@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
 
 from ..core.enums import ElemType
-from ..post.recovery import principal_stresses
+from ..post.recovery import element_nodal_values, principal_stresses
 from .editing import (
     region_label,
     stage_active_regions,
@@ -33,11 +33,39 @@ def field_color(t):
     return QColor.fromHsvF(0.62 * (1 - float(np.clip(t, 0, 1))), 0.65, 0.9)
 
 
+def _block_nodal(stage, block, field):
+    """(ne, nen) scalar at the element nodes. Jumps between elements are kept."""
+    if field in DISPLACEMENT_FIELDS:
+        u = stage.u[block.conn]
+        if field == "|u|":
+            return np.linalg.norm(u, axis=2)
+        return u[:, :, 0 if field == "ux" else 1]
+    if field == "plastic":
+        gp = stage.plastic.get(block.tag)
+        if gp is None:
+            return None
+        return element_nodal_values(block, gp.astype(float)[..., None])[..., 0]
+    if field in ("pore", "excess_pore"):
+        data = getattr(stage, field).get(block.tag)
+        if data is None:
+            return None
+        raw = data[..., None] if data.ndim == 2 else data
+        return element_nodal_values(block, raw)[..., 0]
+    sig = stage.sig.get(block.tag)
+    if sig is None:
+        return None
+    nodal = element_nodal_values(block, sig)
+    if field in ("sxx", "syy", "szz", "txy"):
+        return nodal[..., ("sxx", "syy", "szz", "txy").index(field)]
+    flat = principal_stresses(nodal.reshape(-1, nodal.shape[-1]))[field]
+    return np.asarray(flat).reshape(nodal.shape[:2])
+
+
 def field_unit(field):
     if field in DISPLACEMENT_FIELDS:
         return "m"
     if field == "plastic":
-        return "oran"
+        return "ratio"
     if field == "M":
         return "kNm/m"
     if field in SECTION_FIELDS:
@@ -104,7 +132,8 @@ class MeshCanvas(QGraphicsView):
         self.display_coords = coords
         active_regs = stage_active_regions(model, stage_index)
         active_structs = stage_active_structures(model, stage_index)
-        cells, values = [], []
+        cells = []
+        samples = []
         excavated_cells = []
         region_centers: dict[int, list[np.ndarray]] = {}
         for block in mesh.continuum_blocks():
@@ -112,6 +141,11 @@ class MeshCanvas(QGraphicsView):
                 active = np.isin(block.region, list(active_regs))
             else:
                 active = stage.active.get(block.tag, np.ones(block.ne, bool))
+            nodal = (
+                None
+                if stage is None or field in SECTION_FIELDS
+                else _block_nodal(stage, block, field)
+            )
             for e in range(block.ne):
                 conn = block.conn[e]
                 order = _ORDERS[block.etype]
@@ -125,30 +159,11 @@ class MeshCanvas(QGraphicsView):
                     continue
                 xy = coords[conn[order]]
                 region_centers.setdefault(reg_id, []).append(xy.mean(axis=0))
-                if stage is None or field in SECTION_FIELDS:
-                    value = float(reg_id)
-                elif field in DISPLACEMENT_FIELDS:
-                    v = stage.u[conn]
-                    value = (
-                        np.linalg.norm(v, axis=1).mean()
-                        if field == "|u|"
-                        else v[:, 0 if field == "ux" else 1].mean()
-                    )
-                elif field == "plastic":
-                    value = (stage.plastic[block.tag][e] > 0).mean()
-                elif field in ("pore", "excess_pore"):
-                    data = getattr(stage, field).get(block.tag)
-                    value = float(data[e].mean()) if data is not None else 0.0
-                else:
-                    sig = stage.sig[block.tag][e]
-                    value = (
-                        sig[:, ("sxx", "syy", "szz", "txy").index(field)].mean()
-                        if field in ("sxx", "syy", "szz", "txy")
-                        else principal_stresses(sig)[field].mean()
-                    )
-                cells.append((block, e, reg_id, xy))
-                values.append(float(value))
-        finite = np.asarray(values)[np.isfinite(values)]
+                outline = None if nodal is None else nodal[e][order]
+                if outline is not None:
+                    samples.extend(float(v) for v in outline if np.isfinite(v))
+                cells.append((block, e, reg_id, xy, outline))
+        finite = np.asarray(samples, float)
         lo, hi = (float(finite.min()), float(finite.max())) if finite.size else (0.0, 0.0)
         span = hi - lo
         constant = span <= 1e-10 * max(abs(lo), abs(hi), 1.0)
@@ -168,20 +183,24 @@ class MeshCanvas(QGraphicsView):
         if section:
             pen = QPen(Qt.PenStyle.NoPen)  # N-V-M view: mesh edges off, filled diagrams only
         region_colors = ("#c5dfe8", "#dfd4b8", "#cbdcc4", "#d7cce5", "#f2d0c4", "#bfe3dc")
-        for (block, e, reg_id, xy), value in zip(cells, values):
-            t = (value - lo) / (hi - lo) if not constant and np.isfinite(value) else 0.5
-            if stage is None or field in SECTION_FIELDS:
+        for block, e, reg_id, xy, outline in cells:
+            if outline is None:
+                value = float(reg_id)
                 color = QColor(region_colors[(reg_id - 1) % len(region_colors)])
+                tip_mat = stage_region_material(model, stage_index, reg_id) or "Excavated"
+                tip = f"{region_label(model, reg_id)} · Material: {tip_mat} · Element {e}"
             else:
+                finite_n = outline[np.isfinite(outline)]
+                value = float(np.mean(finite_n)) if finite_n.size else np.nan
+                t = (value - lo) / (hi - lo) if not constant and np.isfinite(value) else 0.5
                 color = field_color(t)
+                lo_e = float(np.min(finite_n)) if finite_n.size else np.nan
+                hi_e = float(np.max(finite_n)) if finite_n.size else np.nan
+                tip = f"{block.tag} · {e} · {field}: {lo_e:.6g} … {hi_e:.6g}"
             poly = QPolygonF([QPointF(float(x), float(-y)) for x, y in xy])
             item = self.scene().addPolygon(poly, pen, color)
             item.setData(0, ("region", reg_id))
-            if stage is None or field in SECTION_FIELDS:
-                mat = stage_region_material(model, stage_index, reg_id) or "Excavated"
-                item.setToolTip(f"{region_label(model, reg_id)} · Material: {mat} · Element {e}")
-            else:
-                item.setToolTip(f"{block.tag} · {e} · {field}: {value:.8g}")
+            item.setToolTip(tip)
             self.cell_count += 1
         if stage is None:
             for reg_id, pts in sorted(region_centers.items()):
@@ -271,7 +290,7 @@ class MeshCanvas(QGraphicsView):
             )
         else:
             self.legend = (
-                f"{field} · {unit} · element average · {lo:.5g} … {hi:.5g}"
+                f"{field} · {unit} · nodal · {lo:.5g} … {hi:.5g}"
                 f" · deformation ×{deform:g}"
             )
         if stage is not None and result is not None:
@@ -515,10 +534,23 @@ class MeshCanvas(QGraphicsView):
                 self.scene().removeItem(self.query_item)
             except RuntimeError:
                 pass
-        a, b = endpoints
+        pts = np.asarray(endpoints, float)
+        if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 2:
+            return
         pen = QPen(QColor("#111827"), 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
-        self.query_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], pen)
+        path = QPainterPath()
+        started = False
+        for point in pts:
+            if not np.isfinite(point).all():
+                started = False
+                continue
+            if started:
+                path.lineTo(float(point[0]), float(-point[1]))
+            else:
+                path.moveTo(float(point[0]), float(-point[1]))
+                started = True
+        self.query_item = self.scene().addPath(path, pen)
 
     def fit_model(self):
         # Stay fitted through layout changes (stale size of a hidden page, docks, panels)

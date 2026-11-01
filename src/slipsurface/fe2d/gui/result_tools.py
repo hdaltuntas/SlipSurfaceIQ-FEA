@@ -89,9 +89,10 @@ class TracePlot(QWidget):
 class QueryDialog(QDialog):
     line_changed = Signal(object)
 
-    def __init__(self, result, stage, parent=None):
+    def __init__(self, result, stage, parent=None, deform=0.0):
         super().__init__(parent)
         self.result, self.stage, self.profile = result, stage, None
+        self.deform = float(deform)
         self.setWindowTitle(f"Query line · {stage.name}")
         self.resize(850, 640)
         layout = QVBoxLayout(self)
@@ -134,7 +135,13 @@ class QueryDialog(QDialog):
             form.addRow(label, widget)
         layout.addLayout(form)
         note = QLabel(
-            "Undeformed coordinates. A void or inactive element has no data; "
+            (
+                "Entered in undeformed model coordinates. "
+                f"Drawn on the mesh at deformation ×{self.deform:g}. "
+                if self.deform
+                else "Undeformed coordinates. "
+            )
+            + "A void or inactive element has no data; "
             "the plot does not bridge gaps. Stresses are in-element GP extrapolation. "
             "On an exact boundary the first element is used; filter by region to pick a side."
         )
@@ -164,11 +171,12 @@ class QueryDialog(QDialog):
                 self.count.value(),
                 self.stage,
                 self.region.currentData(),
+                deform=self.deform,
             )
             p = self.profile
             self.plot.set_data(p.distance, p.values, p.field, p.unit)
             self.status.setText(f"{np.isfinite(p.values).sum()}/{len(p.values)} active samples")
-            self.line_changed.emit((a, b))
+            self.line_changed.emit(p.display_xy)
         except Exception as exc:
             self.profile = None
             self.plot.set_data([], [])
