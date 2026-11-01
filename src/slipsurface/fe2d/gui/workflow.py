@@ -49,7 +49,7 @@ class WorkflowBar(QWidget):
             self.update()
 
     def label(self, i: int) -> str:
-        return f"{'✓' if i in self.done else i + 1}  {self.steps[i]}"
+        return self.steps[i]  # LE style: plain step names
 
     def _layout(self) -> None:
         fm = QFontMetrics(self._font)
@@ -76,13 +76,11 @@ class WorkflowBar(QWidget):
                 path.lineTo(r.left() + ARROW, r.center().y())
             path.closeSubpath()
             if i == self.current:
-                fill, text, edge = QColor("#156798"), QColor("white"), QColor("#0f5680")
+                fill, text, edge = QColor("#5aa9f0"), QColor("white"), QColor("#2f80cf")
             elif i == self.hover:
-                fill, text, edge = QColor("#dcebfb"), QColor("#123f5b"), QColor("#6e9dbb")
-            elif i in self.done:
-                fill, text, edge = QColor("#e1f1e6"), QColor("#1d5b33"), QColor("#8fc19f")
+                fill, text, edge = QColor("#dcebfb"), QColor("#1b3a63"), QColor("#8fb4e3")
             else:
-                fill, text, edge = QColor("#e8edf1"), QColor("#243746"), QColor("#b7c6d2")
+                fill, text, edge = QColor("#e8eaee"), QColor("#333"), QColor("#b8bec7")
             p.setPen(QPen(edge, 1))
             p.setBrush(fill)
             p.drawPath(path)

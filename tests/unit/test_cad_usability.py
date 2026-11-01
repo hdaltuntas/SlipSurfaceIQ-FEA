@@ -31,7 +31,7 @@ def test_light_theme_overrides_dark_system_menu_and_button_text(qt_app):
     ):
         palette.setColor(role, QColor("white"))
     qt_app.setPalette(palette)
-    qt_app.setProperty("slipsurface_light_theme", False)
+    qt_app.setProperty("slipsurface_le_theme", False)
     window = MainWindow()
     window.show()
     qt_app.processEvents()

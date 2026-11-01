@@ -92,8 +92,10 @@ class MainWindow(QMainWindow):
         from .preferences import apply_theme
 
         apply_theme()
+        from .preferences import fit_to_screen
+
         self.setWindowTitle("SlipSurfaceIQ-FEA · Masaüstü")
-        self.resize(1280, 840)
+        fit_to_screen(self, 1500, 920)  # LE ModelerWindow sizing
         self.setIconSize(QSize(24, 24))
         self.model = self.result = None
         self.path = None
@@ -325,7 +327,14 @@ class MainWindow(QMainWindow):
         self.guidance.setToolTip(hint)
 
     def _view_menu(self):
+        from .preferences import settings
+
         menu = self.menuBar().addMenu("Görünüm")
+        dark = menu.addAction("Koyu tema / Dark mode")
+        dark.setCheckable(True)
+        dark.setChecked(settings().value("dark", False, type=bool))
+        dark.toggled.connect(lambda on: apply_theme(on))
+        menu.addSeparator()
         menu.addAction(self.fit_action)
         menu.addSeparator()
         # The dock is hidden by design while drawing; this is the results-view choice.

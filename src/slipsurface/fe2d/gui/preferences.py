@@ -20,6 +20,24 @@ def available_geometry(widget=None):
     return screen.availableGeometry()
 
 
+DESIGN_SIZE = (1920, 1080)  # logical resolution the window sizes were designed for (LE)
+
+
+def fit_to_screen(widget, width: int, height: int, center: bool = True) -> None:
+    """Size a window for the detected screen resolution (LE logic): designed sizes
+    scale with the screen (relative to 1920x1080) and never exceed 95% of the area."""
+    avail = available_geometry(widget)
+    scale = min(avail.width() / DESIGN_SIZE[0], avail.height() / DESIGN_SIZE[1])
+    scale = min(max(scale, 0.6), 1.6)
+    w = min(int(width * scale), int(avail.width() * 0.95))
+    h = min(int(height * scale), int(avail.height() * 0.95))
+    widget.resize(max(w, 200), max(h, 150))
+    if center:
+        frame = widget.frameGeometry()
+        frame.moveCenter(avail.center())
+        widget.move(frame.topLeft())
+
+
 def fit_to_screen(widget, width: int, height: int, center: bool = True) -> None:
     widget.resize(width, height)
     if center:
@@ -33,18 +51,25 @@ def show_screen_sized(window) -> None:
     window.showMaximized()
 
 
-def apply_theme() -> None:
-    """Use explicit light colours, including native menus on dark desktops."""
-    from .theme import apply_light_theme
+def apply_theme(dark: bool | None = None) -> None:
+    """Apply the LE-style palette (light default, optional dark) and app stylesheet.
 
+    Mirrors SlipSurfaceIQ-LE ``slipsurface/ui/preferences.py: apply_theme``:
+    the same two palettes, stylesheet and the persisted ``dark`` setting.
+    """
+    from .theme import apply_le_theme
+
+    if dark is None:
+        dark = settings().value("dark", False, type=bool)
+    settings().setValue("dark", dark)
     app = QApplication.instance()
-    if app.property("slipsurface_light_theme"):
+    if app.property("slipsurface_le_theme") == dark:
         return
     app.setStyle("Fusion")
     hints = app.styleHints()
-    if hasattr(hints, "setColorScheme"):  # Qt >= 6.8: keep Windows dark mode out of the app
+    if hasattr(hints, "setColorScheme"):  # keep the OS dark mode out of the light app
         from PySide6.QtCore import Qt
 
-        hints.setColorScheme(Qt.ColorScheme.Light)
-    apply_light_theme(app)
-    app.setProperty("slipsurface_light_theme", True)
+        hints.setColorScheme(Qt.ColorScheme.Dark if dark else Qt.ColorScheme.Light)
+    apply_le_theme(app, dark)
+    app.setProperty("slipsurface_le_theme", dark)
