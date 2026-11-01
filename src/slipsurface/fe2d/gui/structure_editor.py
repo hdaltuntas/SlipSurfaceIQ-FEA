@@ -19,27 +19,27 @@ from .form_helpers import EditorDialog, toolbar
 
 class StructureSpecDialog(EditorDialog):
     def __init__(self, model, tag=None, parent=None):
-        super().__init__("Yapı özellikleri", parent)
+        super().__init__("Structure properties", parent)
         self.model, self.tag = model, tag
         self.resize(620, 600)
         form = QFormLayout()
-        self.name = QLineEdit(tag or "Yeni yapı")
+        self.name = QLineEdit(tag or "New structure")
         self.name.setEnabled(tag is None)
         self.kind = QComboBox()
-        self.kind.addItems(["Liner / kiriş", "Tam bağlı bolt", "Uçtan ankrajlı bolt"])
+        self.kind.addItems(["Liner / beam", "Fully bonded bolt", "End-anchored bolt"])
         spec = model.liners.get(tag) or model.bolts.get(tag)
         self.original = spec
         if isinstance(spec, api.BoltSpec):
             self.kind.setCurrentIndex(1)
-            self.kind.setItemText(1, "Bolt (mevcut bağlantı)")
+            self.kind.setItemText(1, "Bolt (existing connection)")
         self.kind.setEnabled(tag is None)
-        form.addRow("Etiket", self.name)
-        form.addRow("Tür", self.kind)
+        form.addRow("Tag", self.name)
+        form.addRow("Type", self.kind)
         self.edge = QComboBox()
         self.edge.addItems(sorted(model.mesh.edge_sets))
-        form.addRow("Mevcut kenar kümesi", self.edge)
+        form.addRow("Existing edge set", self.edge)
         self.nodes = []
-        for label in ["İlk uç düğümü", "İkinci uç düğümü"]:
+        for label in ["First end node", "Second end node"]:
             node = QSpinBox()
             node.setRange(0, model.mesh.nn - 1)
             self.nodes.append(node)
@@ -53,11 +53,11 @@ class StructureSpecDialog(EditorDialog):
         self.kind.currentIndexChanged.connect(self.populate)
         self.populate()
         note = QLabel(
-            "Liner: kesit bir metre düzlem dışı genişlik içindir. "
-            "Bolt: EA ve akma kuvveti tek bolt içindir; aralık ile 2B eşdeğerlenir. "
-            "Akma üstü öngerme motor tarafından akma kuvvetine kesilir. "
-            "Yeni yapı başlangıçta ve aşamalarda pasiftir; Aşamalar'da etkinleştirin. "
-            "Özellik düzenlemesi mevcut bağlantıyı korur."
+            "Liner: the section is for one metre of out-of-plane width. "
+            "Bolt: EA and the yield force are for one bolt; spacing smears them to 2D. "
+            "Pretension above yield is clipped to the yield force by the solver. "
+            "A new structure is inactive in the initial state and in stages; activate it "
+            "under Stages. Editing properties keeps the existing connection."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
@@ -83,9 +83,9 @@ class StructureSpecDialog(EditorDialog):
             if liner
             else [
                 ("EA", "EA (kN)", 200000),
-                ("T_yield", "Akma kuvveti (kN)", 200),
-                ("pretension", "Öngerme (kN)", 0),
-                ("spacing_out_of_plane", "Düzlem dışı aralık (m)", 1),
+                ("T_yield", "Yield force (kN)", 200),
+                ("pretension", "Pretension (kN)", 0),
+                ("spacing_out_of_plane", "Out-of-plane spacing (m)", 1),
             ]
         )
         for key, label, value in defaults:
@@ -121,12 +121,13 @@ class StructureSpecDialog(EditorDialog):
 
 class StructureDialog(EditorDialog):
     def __init__(self, model, parent=None):
-        super().__init__("Yapı elemanları", parent)
+        super().__init__("Structural elements", parent)
         self.model = model
         self.resize(760, 440)
         note = QLabel(
-            "Liner, bolt ve ara yüzler. Kenar adları CAD çiziminden veya mevcut ağdan gelir. "
-            "Ara yüz silme eş düğümleri birleştirir; başlangıç auto ise yeni ara yüz aktiftir."
+            "Liners, bolts and interfaces. Edge names come from the CAD drawing or the "
+            "current mesh. Deleting an interface welds coincident nodes; if the initial "
+            "policy is auto, a new interface is active."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
@@ -135,10 +136,10 @@ class StructureDialog(EditorDialog):
         toolbar(
             self.root,
             [
-                ("Liner / bolt ekle", self.add_structure),
-                ("Ara yüz ekle", self.add_interface),
-                ("Özellikler", self.edit_structure),
-                ("Sil", self.delete_structure),
+                ("Add liner / bolt", self.add_structure),
+                ("Add interface", self.add_interface),
+                ("Properties", self.edit_structure),
+                ("Delete", self.delete_structure),
             ],
         )
         self.list.itemDoubleClicked.connect(self.edit_structure)
@@ -149,7 +150,7 @@ class StructureDialog(EditorDialog):
         self.tags = list(self.model.structure_tags())
         self.list.clear()
         for tag, kind in self.model.structure_tags().items():
-            self.list.addItem(f"{tag} · {kind} · {self.model.mesh.block(tag).ne} eleman")
+            self.list.addItem(f"{tag} · {kind} · {self.model.mesh.block(tag).ne} elements")
         if self.tags:
             self.list.setCurrentRow(0)
 
@@ -208,7 +209,7 @@ class StructureDialog(EditorDialog):
 
 class InterfaceDialog(EditorDialog):
     def __init__(self, model, tag=None, parent=None):
-        super().__init__("Ara yüz", parent)
+        super().__init__("Interface", parent)
         self.model, self.tag = model, tag
         self.resize(640, 530)
         form = QFormLayout()
@@ -219,9 +220,9 @@ class InterfaceDialog(EditorDialog):
         self.side.addItems(["left", "right"])
         self.edge.setEnabled(tag is None)
         self.side.setEnabled(tag is None)
-        form.addRow("Etiket", self.name)
-        form.addRow("Kenar kümesi", self.edge)
-        form.addRow("Düğümleri ayrılacak taraf", self.side)
+        form.addRow("Tag", self.name)
+        form.addRow("Edge set", self.edge)
+        form.addRow("Side whose nodes are duplicated", self.side)
         self.fields = {}
         spec = model.interfaces.get(tag)
         for key, title, default in [
@@ -230,16 +231,17 @@ class InterfaceDialog(EditorDialog):
             ("c", "c (kPa)", 0),
             ("phi", "φ (°)", 20),
             ("psi", "ψ (°)", 0),
-            ("sig_t", "Çekme sınırı (kPa)", 0),
+            ("sig_t", "Tensile cutoff (kPa)", 0),
         ]:
             edit = QLineEdit(str(getattr(spec, key, default)))
             self.fields[key] = edit
             form.addRow(title, edit)
         self.root.addLayout(form)
         note = QLabel(
-            "Sol/sağ, CAD çizgisinin giriş yönüne göredir. Ara yüz eklemek düğüm "
-            "topolojisini değiştirir. Önce liner, ardından ara yüzleri, en son boltları "
-            "kurun. Pasif ara yüzün iki yüzü mekanik olarak bağlanır. Sonuçlar silinir."
+            "Left/right is relative to the direction the CAD line was entered. Adding an "
+            "interface changes the node topology. Install the liner first, then the "
+            "interfaces, and the bolts last. The two faces of an inactive interface are "
+            "tied. Results are cleared."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)

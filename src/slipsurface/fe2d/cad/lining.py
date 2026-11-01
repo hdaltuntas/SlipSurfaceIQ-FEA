@@ -13,7 +13,7 @@ import numpy as np
 
 # Steel sets: A [cm2], I [cm4] about the bending axis of the ring (approximate catalogue values).
 STEEL_RIBS = {
-    "Yok": (0.0, 0.0),
+    "None": (0.0, 0.0),
     "IPN 160": (22.8, 935.0),
     "IPN 180": (27.9, 1450.0),
     "IPN 200": (33.4, 2140.0),
@@ -28,7 +28,7 @@ STEEL_RIBS = {
 }
 # Welded wire mesh: steel area per metre [cm2/m] in the main direction.
 WIRE_MESH = {
-    "Yok": 0.0,
+    "None": 0.0,
     "Q131": 1.31,
     "Q188": 1.88,
     "Q221": 2.21,
@@ -50,7 +50,7 @@ class LiningSystem:
     ``I = EI / Ec``.
     """
 
-    name: str = "Püskürtme beton 25 cm"
+    name: str = "Shotcrete 25 cm"
     thickness: float = 0.25  # m
     E_shotcrete: float = 1.5e7  # kPa (young shotcrete ~ 5-15 GPa, hardened ~ 25-30 GPa)
     nu: float = 0.2
@@ -58,24 +58,36 @@ class LiningSystem:
     mesh: str = "Q257"
     mesh_layers: int = 1
     cover: float = 0.03
-    rib: str = "Yok"
-    rib_area: float = 0.0  # cm2 (custom when rib == "Özel")
+    rib: str = "None"
+    rib_area: float = 0.0  # cm2 (custom when rib == "Custom")
     rib_inertia: float = 0.0  # cm4
     rib_spacing: float = 1.0  # m along the tunnel axis
     E_steel: float = 2.1e8  # kPa
 
     def __post_init__(self):
+        # Legacy catalogue tokens from files saved before the English rename.
+        legacy_rib = {"Yok": "None", "Özel": "Custom"}
+        rib = legacy_rib.get(self.rib, self.rib)
+        mesh = "None" if self.mesh == "Yok" else self.mesh
+        if self.__dataclass_params__.frozen:
+            if rib != self.rib:
+                object.__setattr__(self, "rib", rib)
+            if mesh != self.mesh:
+                object.__setattr__(self, "mesh", mesh)
+        elif rib != self.rib or mesh != self.mesh:
+            self.rib = rib
+            self.mesh = mesh
         values = [self.thickness, self.E_shotcrete, self.unit_weight, self.rib_spacing]
         if not (np.isfinite(values).all() and min(values[:2]) > 0 and self.rib_spacing > 0):
-            raise ValueError("Kalınlık, E ve iksa aralığı pozitif olmalıdır.")
+            raise ValueError("Thickness, E and rib spacing must be positive.")
         if self.mesh not in WIRE_MESH or self.mesh_layers not in (1, 2):
-            raise ValueError("Hasır çelik tipi veya katman sayısı geçersiz.")
-        if self.rib != "Özel" and self.rib not in STEEL_RIBS:
-            raise ValueError("Çelik iksa profili geçersiz.")
+            raise ValueError("Wire mesh type or layer count is invalid.")
+        if self.rib != "Custom" and self.rib not in STEEL_RIBS:
+            raise ValueError("Steel rib section is invalid.")
 
     def rib_section(self):
         """Steel set area [m2] and inertia [m4]."""
-        if self.rib == "Özel":
+        if self.rib == "Custom":
             return self.rib_area * 1e-4, self.rib_inertia * 1e-8
         area, inertia = STEEL_RIBS[self.rib]
         return area * 1e-4, inertia * 1e-8
@@ -118,25 +130,29 @@ class SteelSet:
 
     rib: str = "HEB 140"
     spacing: float = 1.0  # m along the tunnel axis
-    rib_area: float = 0.0  # cm2 (custom when rib == "Özel")
+    rib_area: float = 0.0  # cm2 (custom when rib == "Custom")
     rib_inertia: float = 0.0  # cm4
     E_steel: float = 2.1e8  # kPa
     nu: float = 0.3
     unit_weight: float = 78.5  # kN/m3
 
     def __post_init__(self):
+        legacy = {"Yok": "None", "Özel": "Custom"}
+        rib = legacy.get(self.rib, self.rib)
+        if rib != self.rib:
+            object.__setattr__(self, "rib", rib)
         if not np.isfinite([self.spacing, self.E_steel, self.unit_weight]).all():
-            raise ValueError("Çelik iksa aralığı, E ve birim ağırlık sonlu olmalıdır.")
+            raise ValueError("Steel-set spacing, E and unit weight must be finite.")
         if self.spacing <= 0 or self.E_steel <= 0 or self.unit_weight < 0:
-            raise ValueError("Çelik iksa aralığı ve E pozitif, birim ağırlık ≥ 0 olmalıdır.")
-        if self.rib != "Özel" and (self.rib not in STEEL_RIBS or self.rib == "Yok"):
-            raise ValueError("Çelik iksa profili seçilmelidir.")
+            raise ValueError("Steel-set spacing and E must be positive; unit weight ≥ 0.")
+        if self.rib != "Custom" and (self.rib not in STEEL_RIBS or self.rib == "None"):
+            raise ValueError("A steel-set section must be selected.")
         if not -1.0 < self.nu < 0.5:
-            raise ValueError("Çelik iksa ν (-1, 0.5) aralığında olmalıdır.")
+            raise ValueError("Steel-set ν must be in (-1, 0.5).")
 
     def rib_section(self):
         """Steel set area [m2] and inertia [m4] of one rib."""
-        if self.rib == "Özel":
+        if self.rib == "Custom":
             return self.rib_area * 1e-4, self.rib_inertia * 1e-8
         area, inertia = STEEL_RIBS[self.rib]
         return area * 1e-4, inertia * 1e-8

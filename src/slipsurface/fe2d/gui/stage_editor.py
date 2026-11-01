@@ -36,13 +36,14 @@ from .timeline import StageTimeline
 
 class StageDetailDialog(EditorDialog):
     def __init__(self, model, index, parent=None):
-        super().__init__(f"Aşama: {model.stages[index].name}", parent)
+        super().__init__(f"Stage: {model.stages[index].name}", parent)
         self.model, self.index = model, index
         self.resize(800, 620)
         stage = model.stages[index]
         note = QLabel(
-            "Yükler, su ve malzeme değişimleri bu aşamanın toplam tanımıdır; "
-            "önceki aşamadan örtük devralınmaz. Mevcut yer değiştirme sınırları korunur."
+            "Loads, water and material changes are the total definition of this stage; "
+            "they are not inherited implicitly from the previous stage. Existing "
+            "displacement boundaries are kept."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
@@ -50,7 +51,7 @@ class StageDetailDialog(EditorDialog):
         self.loads = LoadEditor(model.mesh, stage.loads)
         self.water = WaterEditor(model.mesh, stage.water)
         self.displacements = DisplacementEditor(model.mesh, stage.displacements)
-        self.overrides = table(["Bölge", "Bu aşamada malzeme"])
+        self.overrides = table(["Region", "Material in this stage"])
         self.regions = sorted(model.mesh.regions())
         self.overrides.setRowCount(len(self.regions))
         for i, r in enumerate(self.regions):
@@ -58,15 +59,15 @@ class StageDetailDialog(EditorDialog):
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self.overrides.setItem(i, 0, item)
             box = QComboBox()
-            box.addItem(f"Temel atama ({model.region_material[r]})", None)
+            box.addItem(f"Base assignment ({model.region_material[r]})", None)
             for name in model.materials:
                 box.addItem(name, name)
             box.setCurrentIndex(box.findData(stage.material_override.get(r)))
             self.overrides.setCellWidget(i, 1, box)
-        tabs.addTab(self.loads, "Yükler")
-        tabs.addTab(self.water, "Su")
-        tabs.addTab(self.overrides, "Malzeme değişimi")
-        tabs.addTab(self.displacements, "Yer değiştirme")
+        tabs.addTab(self.loads, "Loads")
+        tabs.addTab(self.water, "Water")
+        tabs.addTab(self.overrides, "Material change")
+        tabs.addTab(self.displacements, "Displacement")
         self.root.addWidget(tabs)
         self.finish_layout(self.apply)
 
@@ -95,7 +96,7 @@ class StageDetailDialog(EditorDialog):
 
 class InitialDialog(EditorDialog):
     def __init__(self, model, parent=None):
-        super().__init__("Başlangıç durumu", parent)
+        super().__init__("Initial state", parent)
         self.model = model
         init = model.initial
         self.resize(760, 710)
@@ -105,43 +106,43 @@ class InitialDialog(EditorDialog):
         form = QFormLayout()
         self.mode = QComboBox()
         for label, mode in [
-            ("Gerilmesiz / ağırlıksız", "none"),
-            ("Ağırlık çözümü", "gravity"),
-            ("K₀ alanı", "k0_field"),
-            ("Sabit gerilme alanı", "field"),
+            ("Stress-free / weightless", "none"),
+            ("Gravity solution", "gravity"),
+            ("K₀ field", "k0_field"),
+            ("Uniform stress field", "field"),
         ]:
             self.mode.addItem(label, mode)
         self.mode.setCurrentIndex(self.mode.findData(init.mode))
-        form.addRow("Yöntem", self.mode)
+        form.addRow("Method", self.mode)
         self.k0 = QLineEdit("" if init.k0 is None else str(init.k0))
         self.surface = QLineEdit("" if init.surface_y is None else str(init.surface_y))
-        form.addRow("K₀ (boş=malzemeden)", self.k0)
-        form.addRow("Yüzey y (m; boş=ağın üstü)", self.surface)
+        form.addRow("K₀ (blank=from material)", self.k0)
+        form.addRow("Surface y (m; blank=top of mesh)", self.surface)
         self.stress = []
         for label, value in zip(["σxx", "σyy", "σzz", "τxy"], init.field or (0, 0, 0, 0)):
             edit = QLineEdit(str(value))
             self.stress.append(edit)
-            form.addRow(f"{label} (kPa; basınç negatif)", edit)
-        self.gravity = QCheckBox("Sabit alan ile öz ağırlık")
+            form.addRow(f"{label} (kPa; compression negative)", edit)
+        self.gravity = QCheckBox("Self-weight with the uniform field")
         self.gravity.setChecked(init.gravity)
         form.addRow(self.gravity)
         self.regions = QLineEdit(regions_text(init.active_regions))
         self.structures = QLineEdit(
             "auto" if init.active_structures is None else ",".join(sorted(init.active_structures))
         )
-        form.addRow("Aktif bölgeler (boş=tümü; -=hiçbiri)", self.regions)
-        form.addRow("Aktif yapılar (boş=hiçbiri; auto=ara yüzler)", self.structures)
+        form.addRow("Active regions (blank=all; -=none)", self.regions)
+        form.addRow("Active structures (blank=none; auto=interfaces)", self.structures)
         layout.addLayout(form)
         note = QLabel(
-            "K₀ alanı yatay tabakalanma içindir. Sabit alan dengeli bir sınır "
-            "tanımı gerektirir. Yapı adları: " + (", ".join(model.structure_tags()) or "—")
+            "The K₀ field is for horizontal layering. A uniform field needs a balanced "
+            "boundary definition. Structure names: " + (", ".join(model.structure_tags()) or "—")
         )
         note.setWordWrap(True)
         layout.addWidget(note)
         layout.addStretch()
         self.water = WaterEditor(model.mesh, init.water)
-        tabs.addTab(pane, "Gerilme ve aktivasyon")
-        tabs.addTab(self.water, "Başlangıç suyu")
+        tabs.addTab(pane, "Stress and activation")
+        tabs.addTab(self.water, "Initial water")
         self.root.addWidget(tabs)
         self.mode.currentIndexChanged.connect(self.update_enabled)
         self.update_enabled()
@@ -180,7 +181,7 @@ class InitialDialog(EditorDialog):
 
 class StageDialog(EditorDialog):
     def __init__(self, model, parent=None):
-        super().__init__("Aşama yöneticisi (RS2 tarzı kazı ve destek ataması)", parent)
+        super().__init__("Stage manager (RS2-style excavation and support assignment)", parent)
         self.model = model
         self.items = list(model.stages)
         self.all_regions = sorted(model.mesh.regions())
@@ -188,31 +189,33 @@ class StageDialog(EditorDialog):
         self._panel_updating = False
         self.resize(1180, 660)
         note = QLabel(
-            "Sol tablodan aşamayı seçin; sağdaki RS2 panelinden her bölge için "
-            "'Kazıldı (Boş)' veya malzeme seçin, destekleri (kazık/kaplama/ankraj) işaretleyin.\n"
-            "λ, kalan değişimin serbest bırakılan payıdır (0.4 ardından 0.5 → toplam %70)."
+            "Select a stage in the left table; in the RS2 panel on the right choose "
+            "'Excavated (void)' or a material for each region, and check the supports "
+            "(pile/lining/anchor).\n"
+            "λ is the fraction of the remaining change that is released "
+            "(0.4 then 0.5 → 70% in total)."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
 
         init_bar = QHBoxLayout()
-        init_bar.addWidget(QLabel("Başlangıç durumu:"))
+        init_bar.addWidget(QLabel("Initial state:"))
         self.initial_mode = QComboBox()
         for label, mode in [
-            ("Gerilmesiz / ağırlıksız", "none"),
-            ("Ağırlık çözümü (Gravity)", "gravity"),
-            ("K₀ alanı (In-Situ)", "k0_field"),
-            ("Sabit gerilme alanı", "field"),
+            ("Stress-free / weightless", "none"),
+            ("Gravity solution", "gravity"),
+            ("K₀ field (in situ)", "k0_field"),
+            ("Uniform stress field", "field"),
         ]:
             self.initial_mode.addItem(label, mode)
         self.initial_mode.setCurrentIndex(self.initial_mode.findData(model.initial.mode))
         self.initial_mode.currentIndexChanged.connect(self._on_initial_mode_changed)
         init_bar.addWidget(self.initial_mode)
-        init_btn = QPushButton("Başlangıç ayrıntıları…")
+        init_btn = QPushButton("Initial details…")
         init_btn.clicked.connect(self.edit_initial)
         init_bar.addWidget(init_btn)
         init_bar.addStretch(1)
-        self.propagate_check = QCheckBox("Değişiklikleri sonraki aşamalara da yay (RS2 tarzı)")
+        self.propagate_check = QCheckBox("Also apply changes to later stages (RS2 style)")
         self.propagate_check.setChecked(True)
         init_bar.addWidget(self.propagate_check)
         self.root.addLayout(init_bar)
@@ -222,19 +225,19 @@ class StageDialog(EditorDialog):
         left_layout = QVBoxLayout(left_pane)
         left_layout.setContentsMargins(0, 0, 0, 0)
         self.table = table(
-            ["Ad", "Kalanın λ payı", "Drenajlı", "Aktif bölgeler", "Aktif yapılar", "u sıfırla"]
+            ["Name", "λ of remainder", "Drained", "Active regions", "Active structures", "Reset u"]
         )
         left_layout.addWidget(self.table, 1)
         toolbar(
             left_layout,
             [
-                ("Ekle", self.add_stage),
-                ("Kopyala", self.copy_stage),
-                ("Sil", self.delete_stage),
-                ("↑ Yukarı", lambda: self.move_stage(-1)),
-                ("↓ Aşağı", lambda: self.move_stage(1)),
-                ("Yük / su / malzeme", self.edit_detail),
-                ("Başlangıç", self.edit_initial),
+                ("Add", self.add_stage),
+                ("Copy", self.copy_stage),
+                ("Delete", self.delete_stage),
+                ("↑ Up", lambda: self.move_stage(-1)),
+                ("↓ Down", lambda: self.move_stage(1)),
+                ("Load / water / material", self.edit_detail),
+                ("Initial", self.edit_initial),
             ],
         )
         split.addWidget(left_pane)
@@ -242,12 +245,12 @@ class StageDialog(EditorDialog):
         right_pane = QWidget()
         right_layout = QVBoxLayout(right_pane)
         right_layout.setContentsMargins(6, 0, 0, 0)
-        self.stage_header = QLabel("SEÇİLİ AŞAMA: —")
+        self.stage_header = QLabel("SELECTED STAGE: —")
         self.stage_header.setStyleSheet("font-weight:bold; color:#124d70;")
         right_layout.addWidget(self.stage_header)
 
-        right_layout.addWidget(QLabel("Bölgeler (Kazı / Malzeme durumu):"))
-        self.region_table = table(["Bölge", "Durum / Malzeme"])
+        right_layout.addWidget(QLabel("Regions (excavation / material):"))
+        self.region_table = table(["Region", "State / material"])
         self.region_table.setRowCount(len(self.all_regions))
         for idx, r in enumerate(self.all_regions):
             r_item = QTableWidgetItem(region_label(model, r))
@@ -255,11 +258,11 @@ class StageDialog(EditorDialog):
             self.region_table.setItem(idx, 0, r_item)
             combo = QComboBox()
             base_mat = model.region_material[r]
-            combo.addItem(f"🧱 Aktif — Temel ({base_mat})", "__base__")
+            combo.addItem(f"🧱 Active — base ({base_mat})", "__base__")
             for m_name in model.materials:
                 if m_name != base_mat:
-                    combo.addItem(f"🧱 Aktif — {m_name}", m_name)
-            combo.addItem("⛏️ Kazıldı (Boşaltıldı)", "__excavated__")
+                    combo.addItem(f"🧱 Active — {m_name}", m_name)
+            combo.addItem("⛏️ Excavated (removed)", "__excavated__")
             combo.currentIndexChanged.connect(
                 lambda _=0, reg=r, cb=combo: self._on_region_combo_changed(reg, cb.currentData())
             )
@@ -267,18 +270,18 @@ class StageDialog(EditorDialog):
         right_layout.addWidget(self.region_table, 1)
 
         reg_btns = QHBoxLayout()
-        exc_btn = QPushButton("⛏️ Seçili bölgeyi kaz")
+        exc_btn = QPushButton("⛏️ Excavate selected region")
         exc_btn.clicked.connect(self.excavate_selected_region)
-        restore_btn = QPushButton("↩️ Tüm bölgeleri aktif yap")
+        restore_btn = QPushButton("↩️ Make all regions active")
         restore_btn.clicked.connect(self.restore_all_regions)
         reg_btns.addWidget(exc_btn)
         reg_btns.addWidget(restore_btn)
         right_layout.addLayout(reg_btns)
 
         right_layout.addWidget(
-            QLabel("Destekler / Yapılar (" + (", ".join(self.all_structures) or "yok") + "):")
+            QLabel("Supports / structures (" + (", ".join(self.all_structures) or "none") + "):")
         )
-        self.structure_table = table(["Destek / Yapı", "Bu aşamada etkin"])
+        self.structure_table = table(["Support / structure", "Active in this stage"])
         self.structure_table.setRowCount(len(self.all_structures))
         for idx, tag in enumerate(self.all_structures):
             s_item = QTableWidgetItem(f"{structure_label(model, tag)} [{tag}]")
@@ -328,10 +331,10 @@ class StageDialog(EditorDialog):
             except Exception:
                 stages = self.items
             if not (0 <= row < len(stages)):
-                self.stage_header.setText("SEÇİLİ AŞAMA: —")
+                self.stage_header.setText("SELECTED STAGE: —")
                 return
             st = stages[row]
-            self.stage_header.setText(f"SEÇİLİ AŞAMA ({row + 1}/{len(stages)}): {st.name}")
+            self.stage_header.setText(f"SELECTED STAGE ({row + 1}/{len(stages)}): {st.name}")
             active_regs = (
                 set(self.all_regions) if st.active_regions is None else set(st.active_regions)
             )
@@ -495,12 +498,12 @@ class StageDialog(EditorDialog):
                 prev = self.items[-1]
                 new_st = replace(
                     prev,
-                    name=self.unique_name("Yeni aşama"),
+                    name=self.unique_name("New stage"),
                     load_split=1.0,
                     reset_displacements=False,
                 )
             else:
-                new_st = api.Stage(self.unique_name("Yeni aşama"))
+                new_st = api.Stage(self.unique_name("New stage"))
             self.items.append(new_st)
             self.refresh(len(self.items) - 1)
 

@@ -1,79 +1,79 @@
-# Faz 5.1 — çalışan masaüstü başlangıcı
+# Phase 5.1 — a running desktop start
 
-Faz 4 sonrasındaki ilk Faz 5 teslimidir. Native **PySide6 / Qt Widgets** uygulamasıdır;
-web sunucusu veya tarayıcı arayüzü kullanmaz. **Kapı 5 ve v1.0 tamamlanmış değildir.**
+This is the first Phase 5 delivery after Phase 4. It is a native **PySide6 / Qt Widgets**
+application; it does not use a web server or a browser interface. **Gate 5 and v1.0 are not complete.**
 
-Devam teslimleri: [Faz 5.2 CAD, DXF ve çizimden ağ](phase5-cad.md),
-[Faz 5.3 malzeme/yapı/yük/su ve aşama kurucuları](phase5-model-editors.md).
+Follow-on deliveries: [Phase 5.2 CAD, DXF, and mesh-from-drawing](phase5-cad.md),
+[Phase 5.3 material/structure/load/water and stage builders](phase5-model-editors.md).
 
-## Kurulum ve çalıştırma
+## Install and run
 
 ```bash
 python -m pip install -e ".[dev,gui]"
 python -m slipsurface.fe2d.gui
-# veya
+# or
 slipsurface-fe2d model.ssproj
 ```
 
-![Native masaüstü arayüzü](images/phase5-desktop.png)
+![Native desktop interface](images/phase5-desktop.png)
 
-## Bu teslimde çalışanlar
+## What works in this delivery
 
-- Native pencere, proje açma/kaydetme, `.ssproj` ve model JSON okuma.
-- Kodsuz dikdörtgen T6 zemin modeli: boyutlar, ağ bölümleri, E/ν ve üst basınç.
-  Bu kurucu ağırlıksız, başlangıç gerilmesiz, düzlem şekil değiştirme modelidir.
-- Yüklü modelin mevcut malzemelerindeki sayısal bünye parametreleri, birim ağırlıklar
-  ve drenaj tipi; değişiklikler doğrulandıktan sonra uygulanır.
-- Mevcut aşamaların adı, yük serbest bırakma oranı, drenaj seçimi, aktif bölgeleri ve
-  yapıları. Yükler, su sınırları ve zorlanmış yer değiştirmeler korunur.
-- Ayrı Qt iş parçacığında aynı `api.run` motoru; aşama ilerlemesi, yakınsama grafiği,
-  günlük, kontrollü iptal. İptal mekanik iterasyonlar ve sızma Picard adımları arasında
-  kontrol edilir; devam eden tek bir faktorizasyon/Numba çağrısı anında kesilmez.
-- Aşama seçimi, aktif elemanların deforme ağı, eleman ortalaması renk alanları
-  (u, gerilme bileşenleri, asal gerilmeler, q, plastik GP oranı, su basınçları).
-  Sabit alanın yuvarlama farkları renk değişimine dönüştürülmez.
-- Çift tıkla en yakın aktif düğüm ve ux/uy sorgusu; yakınlaştırma/kaydırma.
-- Nodal CSV, ham kiriş uç N/V/M CSV, aktif hücre VTU ve bağımsız HTML özet raporu.
-  Nodal gerilmeler SPR ile toparlanır; ekrandaki renkler **eleman ortalamasıdır**.
+- A native window, project open/save, and reading `.ssproj` and model JSON.
+- A code-free rectangular T6 soil model: dimensions, mesh divisions, E/ν, and the top pressure.
+  This builder is weightless, has no initial stress, and is a plane-strain model.
+- Numerical constitutive parameters, unit weights, and the drainage type of the materials
+  already in a loaded model; changes are applied after they are validated.
+- Name, load-release ratio, drainage choice, active regions, and structures of the existing
+  stages. Loads, water boundaries, and prescribed displacements are preserved.
+- The same `api.run` engine on a separate Qt thread; stage progress, a convergence plot,
+  a log, and controlled cancel. Cancel is checked between mechanical iterations and seepage
+  Picard steps; an in-progress single factorisation/Numba call is not cut off instantly.
+- Stage selection, the deformed mesh of the active elements, and element-average colour fields
+  (u, stress components, principal stresses, q, plastic Gauss-point ratio, pore pressures).
+  Rounding differences of a constant field are not turned into a colour change.
+- Double-click queries the nearest active node and ux/uy; zoom/pan.
+- Nodal CSV, raw beam-end N/V/M CSV, active-cell VTU, and a standalone HTML summary report.
+  Nodal stresses are recovered with SPR; the colours on screen are **element averages**.
 
-Bir model düzenlendiğinde veya yeni çözüm başlatıldığında önceki sonuç temizlenir.
-Başarısız/iptal edilmiş çalışma sonuç veya başarı etiketi üretmez. Çalışma girdisi
-başlatılmadan önce kopyalanır; çözüm sırasında düzenleme ve dosya işlemleri kapalıdır.
-Pencere, çalışan iş parçacığını zorla yok etmez; önce kontrollü iptal ister.
+When a model is edited, or a new solve is started, the previous result is cleared.
+A failed or cancelled run does not produce a result or a success label. The run input is
+copied before the start; editing and file operations are closed during the solve.
+The window does not forcibly destroy a running thread; it asks for a controlled cancel first.
 
-## Kayıt uyumluluğu
+## Record compatibility
 
-Ana dal ve PR #1 farklı HDF5/.ssproj şemaları geliştirmişti. İkisi de korunmuştur:
+The main branch and PR #1 had developed different HDF5/.ssproj schemas. Both are kept:
 
-- Önerilen API: `save_project(model, path, results)`; `load_project(path)` formatı tanır.
-- Önceki `save_project(path, model, results)` çağrısı ve `io.ssproj` desteklenir.
-- `save_results` / `ResultsReader` kendine yeterli model içeren snapshot şemasıdır.
-- `write_results` / `ResultsFile` / `read_results(path, model)` eski şemadır.
-- İki şemada da sızma yükü/debisi, aşırı boşluk suyu basıncı ve adım tanıları korunur.
-- Dosyalar post-processing snapshot'ıdır; nonlinear restart dosyası değildir.
+- Preferred API: `save_project(model, path, results)`; `load_project(path)` recognises the format.
+- The previous `save_project(path, model, results)` call and `io.ssproj` are supported.
+- `save_results` / `ResultsReader` is the self-contained snapshot schema that includes the model.
+- `write_results` / `ResultsFile` / `read_results(path, model)` is the older schema.
+- In both schemas the seepage load/discharge, excess pore pressure, and step diagnostics are kept.
+- The files are post-processing snapshots; they are not a nonlinear restart file.
 
-`open_project_results` eski manifestli `.ssproj` formatına aittir. Yeni formatta
-`load_project` kullanılır. Sonuçsuz dosyalar da açılır.
+`open_project_results` belongs to the older `.ssproj` format that has a manifest. The new
+format uses `load_project`. Files without results also open.
 
-## Faz 5 geliştirme durumu — yayın durduruldu
+## Phase 5 development status — publication stopped
 
-22 Ekim 2026 kullanıcı değerlendirmesinde arayüz kullanılabilirliği kabul
-edilmedi. Faz 5 açıktır; aşağıdaki teknik özellikler tamamlanmış kullanıcı
-deneyimi anlamına gelmez. [Açık işler](next-steps.md).
+The 22 October 2026 user review did not accept interface usability. Phase 5 is open; the
+technical features below do not mean a finished user experience. [Open work](next-steps.md).
 
-[Faz 5 sürüm kaydı](phase5-release.md): zaman çizelgesi, mekanik sınır ve yer değiştirme
-formları, ara yüz oluşturma/özellik/silme, asal oklar ve plastik GP, sorgu çizgileri,
-liner N–V–M grafikleri ve dört aşamalı tünelin boş GUI'den API eşitlik kabulü eklendi.
-Portable (PyInstaller) paket çıkarıldı: uygulama artık yalnızca `python main.py` ile çalışıyor.
-Wheel/sdist iş akışı ve gerçek CI sonucu sürüm kaydında tutulur.
+[Phase 5 version record](phase5-release.md): the timeline, mechanical-boundary and
+displacement forms, interface create/property/delete, principal arrows and plastic Gauss
+points, query lines, liner N–V–M plots, and GUI/API equality acceptance of the four-stage
+tunnel built from an empty GUI were added. The portable (PyInstaller) package was removed:
+the application now runs only with `python main.py`. The wheel/sdist workflow and the real
+CI result are kept in the version record.
 
-İleri CAD (DWG, eğri/blok DXF, katman sınırını kesen boşluk, yeniden ağda mevcut FE
-atamalarını taşıma) v1'in desteklenen çizgisel CAD kapsamının dışındadır.
+Further CAD (DWG, curve/block DXF, a void that cuts a layer boundary, carrying existing FE
+assignments across a remesh) is outside the supported linear CAD scope of v1.
 
-`tests/unit/test_desktop.py` gerçek Qt event loop ve worker ile motor eşitliğini,
-proje açma/kaydetmeyi, iptali, hata sonrasında kontrolleri ve aşama düzenlemesini test eder.
-`tests/unit/test_progress_exports.py` aktif hücre/sınır düğümü toparlamasını, CSV/VTU
-NaN davranışını, kayıt tanılarını ve progress API'sini kontrol eder.
+`tests/unit/test_desktop.py` tests engine equality, project open/save, cancel, controls
+after an error, and stage editing with a real Qt event loop and worker.
+`tests/unit/test_progress_exports.py` checks active-cell/boundary-node recovery, CSV/VTU
+NaN behaviour, record diagnostics, and the progress API.
 
-Qt iş parçacığı sözleşmesi:
+Qt thread contract:
 https://doc.qt.io/qtforpython-6.10/PySide6/QtCore/QThread.html

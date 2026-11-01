@@ -1,86 +1,86 @@
-# Faz 5.3 — malzeme, yapı ve aşama kurucuları
+# Phase 5.3 — material, structure, and stage builders
 
-Native Qt uygulamasında CAD ile üretilen veya projeden okunan ağ üzerinde yeni
-malzeme, liner/bolt, yük, su ve sıralı yapım aşamaları oluşturulabilir. Bu teslim
-Faz 5.2'nin devamıdır; **Kapı 5/v1.0 tamamlanmış değildir**.
+On a mesh produced by CAD or read from a project, the native Qt application can create
+new materials, liners/bolts, loads, water, and ordered construction stages. This delivery
+continues Phase 5.2; **Gate 5/v1.0 is not complete**.
 
-![Aşama yöneticisi — gerçek Qt ekranı](images/phase5-editors.png)
+![Stage manager — a real Qt screen](images/phase5-editors.png)
 
-## Kullanım
+## Use
 
-1. **Malzemeler:** Yeni / Düzenle / Kopyala / Sil; sağ tabloda her ağ bölgesine
-   malzeme atayın. Elastic, Mohr–Coulomb, Hoek–Brown, MCC, Drucker–Prager ve von Mises
-   formları bünye parametrelerini, γ/γsat, drenaj A/B/C, kx/ky ve van Genuchten
-   özelliklerini destekler. Gösterilen yeni malzeme değerleri yalnız örnek başlangıç
-   değerleridir. DP eşleştirmesi ve MC Rankine-apex seçeneği açık alanlardır.
-   Malzeme adı değişince bölge ve aşama referansları birlikte güncellenir; kullanılan
-   malzeme silinemez.
-2. **Yapılar:** İsimli ağ kenarlarında liner veya tam bağlı bolt; iki mevcut ağ
-   düğümü arasında uçtan ankrajlı bolt ekleyin. CAD bölgesi/çizgisi adları kenar
-   kümesi olarak kullanılabilir. Liner kesiti metre düzlem dışı genişlik başınadır;
-   bolt EA ve akma kuvveti tek bolt içindir, düzlem dışı aralıkla eşdeğerlenir.
-   Akmayı aşan öngerme, mevcut motor davranışına uygun olarak kurulumda akma
-   kuvvetine kesilir. Yeni yapılar pasiftir; aşamada ayrıca etkinleştirilmelidir.
-   Özellik düzenlemesi bağlantıyı korur. Silme, başlangıç/aşama aktivasyon
-   referanslarını da temizler.
-3. **Aşamalar → Başlangıç:** Gerilmesiz, ağırlık çözümü, K₀ veya sabit gerilme alanı;
-   aktif bölge/yapı ve başlangıç suyu. K₀ yatay tabakalanma içindir. Sabit alan
-   `(σxx, σyy, σzz, τxy)` kPa cinsinden, basınç negatiftir. Yapılar alanında `auto`,
-   mevcut ara yüzleri etkinleştirip liner/boltları pasif bırakır; boş değer açıkça
-   hiçbir yapıyı etkinleştirmez.
-4. **Aşamalar:** Ekle, Kopyala, Sil, Yukarı/Aşağı. Bölge alanında boş=tümü,
-   `-`=hiçbiri; diğer değerler virgülle bölge numaralarıdır. Yapı alanı virgülle
-   etiketlerdir, boş=hiçbiri. Drenajlı çözüm ve yer değiştirme sıfırlama ayrı
-   seçeneklerdir. Her aşama benzersiz ve boş olmayan bir ad gerektirir.
-5. **Yük / su / malzeme:** Kenar basıncı/teğetsel yük, global nokta kuvvetleri;
-   susuz/piyezometrik çizgi/durağan sızma; aşamaya özel bölge malzemesi.
-   Sızma için toplam hidrolik yük `h` (m), içeri pozitif akı (m/s), olası sızma
-   yüzleri girilir. Piyezometrik çizgi her satırda `x h` ister; tek nokta yatay
-   seviye, aynı x'te iki nokta geçersizdir. Başlangıç suyu ayrı düzenlenir.
+1. **Materials:** New / Edit / Copy / Delete; in the table on the right, assign a
+   material to every mesh region. The elastic, Mohr–Coulomb, Hoek–Brown, MCC, Drucker–Prager,
+   and von Mises forms support the constitutive parameters, γ/γsat, drainage A/B/C, kx/ky,
+   and van Genuchten properties. The new material values that are shown are only sample
+   starting values. The DP match and the MC Rankine-apex option are explicit fields.
+   When a material is renamed, region and stage references are updated together; a material
+   that is in use cannot be deleted.
+2. **Structures:** a liner or a fully bonded bolt on a named mesh edge; add an end-anchored
+   bolt between two existing mesh nodes. CAD region/line names can be used as edge sets.
+   The liner section is per metre of out-of-plane width; bolt EA and the yield force are
+   for a single bolt and are smeared by the out-of-plane spacing. A pretension above yield
+   is cut to the yield force at installation, matching the current engine behaviour. New
+   structures are passive; they must also be activated in a stage. Editing properties keeps
+   the connectivity. Deletion also clears the initial/stage activation references.
+3. **Stages → Initial:** stress-free, a gravity solve, K₀, or a constant stress field;
+   active regions/structures and the initial water. K₀ is for horizontal layering. The
+   constant field is `(σxx, σyy, σzz, τxy)` in kPa, with compression negative. In the
+   structures field, `auto` activates the existing interfaces and leaves liners/bolts
+   passive; an empty value explicitly activates no structure.
+4. **Stages:** Add, Copy, Delete, Up/Down. In the region field, empty = all,
+   `-` = none; other values are region numbers separated by commas. The structure field
+   is comma-separated labels, empty = none. A drained solve and displacement reset are
+   separate options. Every stage needs a unique, non-empty name.
+5. **Load / water / material:** edge pressure/tangential load, global point forces;
+   dry / piezometric line / steady seepage; a stage-specific region material.
+   For seepage, enter the total hydraulic head `h` (m), the inward-positive flux (m/s),
+   and the possible seepage faces. The piezometric line wants `x h` on each row; a single
+   point is a horizontal level, and two points at the same x are invalid. Initial water
+   is edited separately.
 
-**λ, kalan değişimin payıdır:** 0.4 ardından 0.5, toplam %70 serbest bırakır;
-sonraki 1.0 kalanı tamamlar. Yük, su, aktif yapılar ve malzeme değişimi her aşamanın
-kendi toplam tanımıdır; boş alanlar önceki aşamadan örtük devralınmaz. Devam eden
-koşulları taşımak için **Kopyala** kullanın. Mevcut zorlanmış yer değiştirmeler
-korunur; bu teslimde onlar için yeni bir düzenleyici eklenmedi.
+**λ is the fraction of the remaining change:** 0.4 followed by 0.5 releases 70% in total;
+a following 1.0 completes the remainder. Load, water, active structures, and a material
+change are each stage’s own total definition; empty fields are not inherited implicitly
+from the previous stage. Use **Copy** to carry conditions forward. Existing prescribed
+displacements are kept; this delivery did not add a new editor for them.
 
-Alt formda Uygula, ana düzenleyicinin taslağını günceller. Ana düzenleyicide
-**Uygula** modele aktarır; **İptal** kaynak modeli değiştirmez. Uygulanan değişiklik
-eski çözüm sonuçlarını temizler. Çözüm sırasında düzenleyiciler kapalıdır.
+Apply on a sub-form updates the draft of the main editor. **Apply** on the main editor
+writes it to the model; **Cancel** does not change the source model. An applied change
+clears the old solution results. Editors are closed during a solve.
 
-## Düzeltilen doğrulama eksikleri
+## Validation gaps that were fixed
 
-- NaN/sonsuz yük, hidrolik yük, akı, başlangıç gerilmesi ve zorlanmış yer değiştirme
-  bileşenleri çözümden önce reddedilir.
-- Aynı x'te yinelenen piyezometrik noktalar belirsiz interpolasyona bırakılmaz.
-- Başlangıç sızmasının küme referansları ve aktif bölgeleri kontrol edilir.
-  Hidrolik yük sınırı gerçekten düğüm kümesi ister; yalnız kenar adı yeterli değildir.
-- Olmayan bölgeye aşama malzemesi atama reddedilir.
-- Birim ağırlık, liner kesiti/rijitliği, bolt rijitliği/akması/aralığı için sonlu
-  ve fiziksel aralık kontrolleri eklenmiştir. S2'nin akma üstü öngerme davranışı korunur.
-- Eski aşama formunda boş aktif bölge kümesi “tüm bölgeler”e dönüşebiliyordu;
-  artık açık `-` gösterimiyle doğru biçimde saklanır.
+- NaN/infinite load, hydraulic head, flux, initial stress, and prescribed-displacement
+  components are rejected before the solve.
+- Repeated piezometric points at the same x are not left to an ambiguous interpolation.
+- The set references and active regions of the initial seepage are checked.
+  A hydraulic-head boundary really requires a node set; an edge name alone is not enough.
+- Assigning a stage material to a region that does not exist is rejected.
+- Finite and physical range checks were added for unit weight, liner section/stiffness,
+  and bolt stiffness/yield/spacing. The S2 pretension-above-yield behaviour is kept.
+- In the old stage form an empty active-region set could become “all regions”;
+  it is now stored correctly with an explicit `-`.
 
-## Kabul ve sınırlar
+## Acceptance and limits
 
-Tam yerel regresyon: **463 geçti, 1 strict xfail, 2 benchmark hariç** (105.40 s).
-Ruff kontrolü başarılı.
+Full local regression: **463 passed, 1 strict xfail, 2 benchmarks excluded** (105.40 s).
+The Ruff check passed.
 
-`test_model_editors.py` gerçek Qt kontrolleriyle altı malzeme formunu, yeniden
-adlandırma/atama/iptali, yük satırı silindikten sonraki tür değişimini, su
-koşullarını, başlangıcı ve aşama kopyalama/sıralamayı doğrular. Liner ve iki bolt
-türü oluşturma, bağlantı koruma ve silmenin aktivasyonları temizlemesi testlidir.
+`test_model_editors.py` checks the six material forms, rename/assign/cancel, the type
+change after a load row is deleted, water conditions, the initial state, and stage
+copy/reorder with real Qt controls. Creating a liner and both bolt types, preserving
+connectivity, and deletion clearing activations are tested.
 
-Uçtan uca kabul: formlarla kurulan dikdörtgen zemin modeli → %40 yük → liner ve
-kalan yükün %50'si → bolt ve tam yük. Gerçek Qt çözüm işçisinin her aşamadaki
-u/gerilme ve liner/bolt kuvvetleri bağımsız API tanımıyla eşleşir; proje
-kaydetme/açma da kontrol edilir. **Bu test özgün dört aşamalı tünel kabulünün
-yerini almaz.** Çekirdek girdi hataları ayrıca Qt gerektirmeyen
-`test_authoring_validation.py` içinde kapsanır.
+End-to-end acceptance: a rectangular soil model built from the forms → 40% of the load
+→ the liner and 50% of the remaining load → the bolt and the full load. The u/stress
+and liner/bolt forces of the real Qt solve worker at every stage match an independent
+API definition; project save/open is also checked. **This test does not replace
+acceptance of the original four-stage tunnel.** Core input errors are also covered in
+`test_authoring_validation.py`, which does not need Qt.
 
-Kalanlar: ara yüz ekleme/silme formu, mevcut ağın mekanik sınır/yer değiştirme
-koşulu düzenleyicisi, yeniden ağlamada FE atamalarını koruma, grafik zaman çizelgesi,
-özgün tünelin sıfırdan kodsuz kabulü, asal gerilme/plastik nokta/sorgu çizgisi ve
-liner N–V–M grafikleri, Windows portable ve yayın. CAD yeniden ağlaması hâlâ yeni
-tek malzemeli elastik model oluşturur. S4 dış karşılaştırması ertelenmiştir;
-eski kesmesiz P4 strict xfail olarak korunur.
+Still remaining: an interface add/delete form, an editor for the mechanical boundary /
+displacement condition of the existing mesh, preserving FE assignments on remesh, a
+graphical timeline, code-free acceptance of the original tunnel from scratch, principal-stress /
+plastic-point / query-line and liner N–V–M plots, the Windows portable build, and publication.
+CAD remeshing still creates a new single-material elastic model. The S4 external comparison
+was deferred; the legacy P4 without a tension cut-off is kept as a strict xfail.

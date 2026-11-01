@@ -72,7 +72,7 @@ class InitialStress:
 class SolverSettings:
     linear_solver: str = "auto"  # "auto" | "splu" | "pardiso"
     gauss_order: str = "default"  # "default" | "high" (T6: 6-point rule)
-    # nonlinear stage solution (Faz 2)
+    # nonlinear stage solution (Phase 2)
     method: str = "NR"  # "NR" | "mNR" | "hybrid" | "initial"
     max_iter: int = 30
     tol_force: float = 1e-3  # ||R|| / ||delta f_ext||

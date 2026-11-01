@@ -1,4 +1,4 @@
-"""P3 — circular tunnel in a hydrostatic stress field, Mohr-Coulomb (Salençon 1969).
+"""P3 — circular tunnel in a hydrostatic stress field, Mohr-Coulomb (Salencon 1969).
 
 Plane strain quarter model, initial stress -p0 everywhere; the support pressure on the
 hole is reduced from p0 to p_i (the unbalanced force is applied gradually by the stage

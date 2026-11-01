@@ -22,16 +22,16 @@ LABELS = {
     "I": "I (m⁴/m)",
     "As": "As (m²/m)",
     "unit_weight": "γ (kN/m³)",
-    "EA": "EA (kN / tek çivi)",
-    "T_yield": "Akma kuvveti (kN)",
-    "pretension": "Öngerme (kN)",
-    "spacing_out_of_plane": "Düzlem dışı aralık (m)",
-    "D": "Kazık çapı D (m)",
-    "spacing": "Kazık aralığı s (m)",
-    "interface": "Yapısal ara yüz (iki yüz)",
-    "T_skin": "Çevre sürtünmesi T (kN/m, tek kazık)",
-    "kn": "Ara yüz kn (kPa/m)",
-    "ks": "Ara yüz ks (kPa/m)",
+    "EA": "EA (kN / single nail)",
+    "T_yield": "Yield force (kN)",
+    "pretension": "Pretension (kN)",
+    "spacing_out_of_plane": "Out-of-plane spacing (m)",
+    "D": "Pile diameter D (m)",
+    "spacing": "Pile spacing s (m)",
+    "interface": "Structural interface (both faces)",
+    "T_skin": "Skin friction T (kN/m, single pile)",
+    "kn": "Interface kn (kPa/m)",
+    "ks": "Interface ks (kPa/m)",
 }
 
 
@@ -41,19 +41,19 @@ class DrawingSupportPanel(QWidget):
     def __init__(self):
         super().__init__()
         root = QVBoxLayout(self)
-        self.selection = QLabel("Çizimden bir nesne seçin.")
+        self.selection = QLabel("Select an object from the drawing.")
         self.selection.setWordWrap(True)
         root.addWidget(self.selection)
         self.kind = QComboBox()
         for title, value in [
-            ("Destek yok", ""),
-            ("Kazık / kiriş", "pile"),
-            ("Kaplama / liner", "liner"),
-            ("Ankraj / zemin çivisi", "bolt"),
+            ("No support", ""),
+            ("Pile / beam", "pile"),
+            ("Lining / liner", "liner"),
+            ("Anchor / soil nail", "bolt"),
         ]:
             self.kind.addItem(title, value)
         root.addWidget(self.kind)
-        self.active = QCheckBox("CAD yükleme aşamasında etkin")
+        self.active = QCheckBox("Active in the CAD loading stage")
         self.active.setChecked(True)
         root.addWidget(self.active)
         scroll = QScrollArea()
@@ -66,20 +66,20 @@ class DrawingSupportPanel(QWidget):
         self.section.setWordWrap(True)
         self.section.setStyleSheet("color:#173b52;background:#eef4f8;padding:4px")
         root.addWidget(self.section)
-        self.composite = QPushButton("Kompozit kaplama (püskürtme beton + hasır + iksa)…")
+        self.composite = QPushButton("Composite lining (shotcrete + wire mesh + steel set)…")
         self.composite.clicked.connect(self.design_lining)
         root.addWidget(self.composite)
         self.fields = {}
         self.kind.currentIndexChanged.connect(self.populate)
         self.note = QLabel(
-            "Kazık/kiriş kesitleri düzlem dışı metre başınadır. Kazık varsayılanı: "
-            "D=0,8 m, aralık=2 m. Kaplama varsayılanı: t=0,3 m. "
-            "Ankraj/çivi çizgi boyunca tam bağlı BAR2 olarak modellenir. "
-            "Zemin ile ortak düğüm kullanılır; kayma ara yüzü ayrıca tanımlanır."
+            "Pile/beam sections are per metre out of plane. Pile default: "
+            "D=0.8 m, spacing=2 m. Lining default: t=0.3 m. "
+            "An anchor/nail is a fully bonded BAR2 along the line. "
+            "Nodes are shared with the soil; a slip interface is defined separately."
         )
         self.note.setWordWrap(True)
         root.addWidget(self.note)
-        button = QPushButton("Desteği seçili nesneye uygula")
+        button = QPushButton("Apply support to the selected object")
         button.clicked.connect(self.apply_requested)
         root.addWidget(button)
         self.populate()
@@ -92,7 +92,7 @@ class DrawingSupportPanel(QWidget):
         if kind:
             for key, value in (properties or default_properties(kind)).items():
                 if key == "interface":
-                    field = QCheckBox("Kazık–zemin ara yüzü")
+                    field = QCheckBox("Pile–soil interface")
                     field.setChecked(bool(value))
                     field.toggled.connect(self.update_section)
                 else:
@@ -119,12 +119,12 @@ class DrawingSupportPanel(QWidget):
             v = self.values()
             area, inertia = pile_section(v["D"], v["spacing"])
             text = (
-                f"Eşdeğer kesit (1 m): A = πD²/4/s = {area:.4f} m²/m · "
+                f"Equivalent section (1 m): A = πD²/4/s = {area:.4f} m²/m · "
                 f"I = πD⁴/64/s = {inertia:.3e} m⁴/m · EI = {v['E'] * inertia:,.0f} kNm²/m"
             )
             if v.get("interface"):
                 c = v["T_skin"] / (2 * v["spacing"])
-                text += f"\nAra yüz kayma dayanımı c = T/(2s) = {c:.1f} kPa"
+                text += f"\nInterface shear strength c = T/(2s) = {c:.1f} kPa"
             self.section.setText(text)
         except (ValueError, KeyError) as exc:
             self.section.setText(str(exc))
@@ -139,7 +139,9 @@ class DrawingSupportPanel(QWidget):
                     self.fields[key].setText(f"{value:.12g}")
 
     def load(self, entity, assignment):
-        self.selection.setText(f"Seçili: {entity.name}" if entity else "Çizimden bir nesne seçin.")
+        self.selection.setText(
+            f"Selected: {entity.name}" if entity else "Select an object from the drawing."
+        )
         kind = assignment.kind if assignment else ""
         self.kind.blockSignals(True)
         self.kind.setCurrentIndex(self.kind.findData(kind))

@@ -3,50 +3,50 @@
 Plane strain / axisymmetric geotechnical finite element core — staged construction,
 excavation & support, seepage coupling and elasto-plasticity — as a GUI-independent,
 MIT-licensed Python package. The roadmap and architecture are described in
-*SlipSurface 2D — Teknik Mimari ve Yol Haritası* (Oct 2026).
+*SlipSurface 2D — Technical Architecture and Roadmap* (Oct 2026).
 
-**Durum: 0.9.0. Faz 5 açık; arayüz kullanıma hazır değil. v1.0.0 yayını geri çekildi.**
+**Status: 0.9.0. Phase 5 is open; the interface is not ready for use. The v1.0.0 release was withdrawn.**
 
-22 Ekim 2026 kullanıcı değerlendirmesiyle v1.0.0 yayını geri çekildi. Paket sürümü
-bilerek 0.9.0'dır. Otomatik testlerin geçmesi kullanıcı kabulü değildir. Arayüz
-kullanılabilirliği düzeltilip kullanıcı tarafından kabul edilmeden yeni release
-yayımlanmayacak.
+The 22 October 2026 user review withdrew the v1.0.0 release. The package version is
+deliberately 0.9.0. Passing automated tests is not user acceptance. No new release
+will be published until interface usability is corrected and accepted by the user.
 
-[İnceleme ve test kaydı](docs/phase4-review.md) ·
-[Masaüstü arayüzü / çalıştırma](docs/phase5-desktop.md) ·
-[Ana pencerede CAD, kazık, tünel ve destekler](docs/integrated-modeler.md) ·
-[CAD, DXF, mesnet/yük ve çizimden ağ](docs/phase5-cad.md) ·
-[Malzeme, yapı, yük/su ve aşama kurucuları](docs/phase5-model-editors.md) ·
-[Faz 5 sürüm ve doğrulama kaydı](docs/phase5-release.md).
-Kapı 5 ve v1.0 tamamlanmadı.
+[Review and test record](docs/phase4-review.md) ·
+[Desktop interface / how to run](docs/phase5-desktop.md) ·
+[CAD, piles, tunnels, and supports in the main window](docs/integrated-modeler.md) ·
+[CAD, DXF, supports/loads, and mesh-from-drawing](docs/phase5-cad.md) ·
+[Material, structure, load/water, and stage builders](docs/phase5-model-editors.md) ·
+[Phase 5 version and verification record](docs/phase5-release.md).
+Gate 5 and v1.0 are not complete.
 
-S4 iş kaydı kapatıldı. Bu, dış doğrulamanın geçtiği anlamına gelmez ve artık
-"sonraya ertelendi" diye de yazılmaz: RS2/PLAXIS karşılaştırması yoktur.
-[Dosya biçimi](docs/s4-external.md) · [Son durum](docs/phase3-status.md) ·
-[İleride yapılacaklar](docs/next-steps.md).
+The S4 work record is closed. That does not mean the external verification passed, and it
+is no longer written as “deferred”: there is no RS2/PLAXIS comparison.
+[File format](docs/s4-external.md) · [Current status](docs/phase3-status.md) ·
+[What remains to be done](docs/next-steps.md).
 
-Mohr–Coulomb yerel dönüş hatasının elastik deneme gerilmesiyle gizlenmesi düzeltildi.
-P4'te bu hata SRF göçme sınırı olarak kullanılamıyor. Açık Rankine-apex modeli
-Bishop karşılaştırmasını geçti; eski kesmesiz model ayrı strict xfail olarak korunuyor.
-[Bulgular, düzeltme ve tanı komutları](docs/nonlinear-diagnostics.md).
-[Açık sıfır çekme kesmesi ve apex kontrolleri](docs/coincident-tension-cutoff.md).
-[Geometri, matris koşullanması ve Newton yöntemleri tanısı](docs/convergence-audit.md).
+Hiding a Mohr–Coulomb local return failure behind the elastic trial stress was fixed.
+In P4 that error cannot be used as an SRF collapse bound. The explicit Rankine-apex model
+passed the Bishop comparison; the legacy model without a tension cut-off is kept as a
+separate strict xfail.
+[Findings, the fix, and diagnostic commands](docs/nonlinear-diagnostics.md).
+[Explicit zero tension cut-off and apex checks](docs/coincident-tension-cutoff.md).
+[Diagnostics for geometry, matrix conditioning, and Newton methods](docs/convergence-audit.md).
 
-Aktif küme/kazı, yapısal elemanlar ve aşama bazlı su uygulaması mevcut. HDF5 sonuç
-kaydı, aşama bazlı okuma ve `.ssproj` konteyneri eklendi. S1 (no-slip) ve ara yüz
-doğrulamaları tamamlandı; S4 yapısal ön kontrolleri geçti, tam zeminli S4 dış karşılaştırması yoktur.
-[Durum ve kalan kapı testleri](docs/phase3-status.md) ·
-[Proje/sonuç dosyası API](docs/project-files.md).
+Active-set/excavation, structural elements, and stage-wise water are implemented. HDF5 result
+storage, per-stage reads, and the `.ssproj` container were added. The S1 (no-slip) and interface
+verifications are complete; the S4 structural preliminary checks passed. There is no full-soil S4 external comparison.
+[Status and remaining gate tests](docs/phase3-status.md) ·
+[Project/result file API](docs/project-files.md).
 
-T3+Q4 ve T6+Q8 uyumlu karma ağ üretimi deneysel olarak eklendi:
-[API, doğrulama kapsamı ve palplanş karşılaştırması](docs/mixed-mesh.md).
+Experimental generation of conforming mixed T3+Q4 and T6+Q8 meshes was added:
+[API, verification scope, and sheet-pile comparison](docs/mixed-mesh.md).
 
 ## Install (development)
 
 ```bash
 pip install -e ".[dev]"
 pytest                    # unit + verification tests
-pytest -m benchmark       # Kapı 1 performance criterion
+pytest -m benchmark       # Gate 1 performance criterion
 
 # Native desktop (PySide6)
 pip install -e ".[gui]"
@@ -190,7 +190,7 @@ points become one-node sets; `boundary` and `all` are always present. See
 | L1 | `model/` — immutable model definition | L0 |
 | L0 | `core/` — units, enums, errors, logging | NumPy |
 
-## Verification (Kapı 1–4)
+## Verification (Gates 1–4)
 
 See [`docs/verification.md`](docs/verification.md).
 

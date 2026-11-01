@@ -1,23 +1,24 @@
-# S4 dış karşılaştırma — yapılmadı
+# S4 external comparison — not done
 
-Bu bir ertelenmiş iş maddesi değil. Ürün sınırıdır.
+This is not a deferred work item. It is a product boundary.
 
-İç kiriş-yay (Winkler) ve Blum limiti `tests/verification/test_s4_winkler_comparison.py`
-içinde durur. O uyum RS2 veya PLAXIS karşılaştırması değildir ve öyle yazılmaz.
+The internal beam–spring (Winkler) and Blum limit checks live in
+`tests/verification/test_s4_winkler_comparison.py`. That agreement is not an RS2 or
+PLAXIS comparison, and it must not be written as one.
 
-Karşılaştırma ancak `docs/data/s4/external.csv` repoya konursa başlar. Dosya yokken
-`tests/verification/test_s4_external.py` **atlanır**; atlamak geçmek değildir.
+A comparison starts only if `docs/data/s4/external.csv` is committed. While the file
+is absent, `tests/verification/test_s4_external.py` is **skipped**; skipping is not passing.
 
-Sütunlar:
+Columns:
 
 ```text
 depth_m,M_kNm_per_m,u_top_mm,source
 ```
 
-* `depth_m`: duvar tepesinden aşağı, metre.
-* `M_kNm_per_m`: eğilme momenti, kNm/m. İşaret protokollü [S4 kaydı](s4-comparison.md) ile aynı olsun.
-* `u_top_mm`: sadece tepe satırında dolu olabilir; duvar başı yatay deplasman, mm.
-* `source`: `PLAXIS` veya `RS2`. İç Winkler sayıları bu dosyaya yazılmaz.
+* `depth_m`: downward from the top of the wall, metres.
+* `M_kNm_per_m`: bending moment, kNm/m. The sign must match the [S4 record](s4-comparison.md).
+* `u_top_mm`: may be filled only on the top row; horizontal displacement of the wall head, mm.
+* `source`: `PLAXIS` or `RS2`. Internal Winkler numbers are not written to this file.
 
-Girdi `docs/data/s4/case.json` ve `examples/sheet_pile_staged.py` ile kilitlidir.
-Aynı ağ, aynı R = 0.67, aynı iki kademe kazı. Farklı palplanş ayrı bir iştir.
+The input is locked by `docs/data/s4/case.json` and `examples/sheet_pile_staged.py`.
+Same mesh, same R = 0.67, same two-stage excavation. A different sheet pile is a separate task.

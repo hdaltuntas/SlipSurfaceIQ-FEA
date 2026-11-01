@@ -31,7 +31,7 @@ def sample_model(width=12.0, height=6.0, nx=12, ny=6, E=20000.0, nu=0.3, load=50
             api.Fixity("right", True, False),
         ),
         initial=api.InitialStress("none"),
-        stages=[api.Stage("Yükleme", loads=(api.EdgeLoad("top", qn=load),))],
+        stages=[api.Stage("Loading", loads=(api.EdgeLoad("top", qn=load),))],
     )
 
 
@@ -47,24 +47,24 @@ def buttons(dialog, layout, accept):
 class NewModelDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Yeni dikdörtgen zemin modeli")
+        self.setWindowTitle("New rectangular soil model")
         layout = QVBoxLayout(self)
         layout.addWidget(
             QLabel(
-                "Düzlem şekil değiştirme · T6 · taban sabit · yanlar yatay sabit\n"
-                "Üst kenara basınç; başlangıç gerilmesi ve ağırlık sıfır."
+                "Plane strain · T6 · base fixed · sides fixed horizontally\n"
+                "Pressure on the top edge; initial stress and self-weight are zero."
             )
         )
         form = QFormLayout()
         self.fields = {}
         specs = [
-            ("width", "Genişlik (m)", 12.0, 0.1, 10000.0),
-            ("height", "Yükseklik (m)", 6.0, 0.1, 10000.0),
-            ("nx", "Yatay ağ bölümü", 12, 1, 100),
-            ("ny", "Düşey ağ bölümü", 6, 1, 100),
+            ("width", "Width (m)", 12.0, 0.1, 10000.0),
+            ("height", "Height (m)", 6.0, 0.1, 10000.0),
+            ("nx", "Horizontal mesh divisions", 12, 1, 100),
+            ("ny", "Vertical mesh divisions", 6, 1, 100),
             ("E", "E (kPa)", 20000.0, 1.0, 1e10),
-            ("nu", "Poisson oranı", 0.3, 0.0, 0.499),
-            ("load", "Üst basınç (kPa)", 50.0, -1e6, 1e6),
+            ("nu", "Poisson's ratio", 0.3, 0.0, 0.499),
+            ("load", "Top pressure (kPa)", 50.0, -1e6, 1e6),
         ]
         for key, title, value, low, high in specs:
             widget = QSpinBox() if isinstance(value, int) else QDoubleSpinBox()

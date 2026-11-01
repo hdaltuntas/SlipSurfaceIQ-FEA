@@ -22,7 +22,7 @@ TOGGLE_CSS = (
 class CadStatusBar(QStatusBar):
     def __init__(self, parent=None, with_toggles: bool = True, shortcuts: bool = True) -> None:
         super().__init__(parent)
-        self.showMessage("Hazır · Birimler kN, m, kPa · Gerilmede çekme pozitif")
+        self.showMessage("Ready · Units kN, m, kPa · Tension positive in stress")
         self.coords = QLabel("x: —   y: —")
         self.coords.setMinimumWidth(190)
         self.addPermanentWidget(self.coords)
@@ -30,10 +30,10 @@ class CadStatusBar(QStatusBar):
         self._canvas = None
         if with_toggles:
             for name, key, tip in (
-                ("SNAP", "F9", "Izgara noktalarına yakala"),
-                ("GRID", "F7", "Izgarayı göster"),
-                ("ORTHO", "F8", "Yatay/düşey kısıtla"),
-                ("OSNAP", "F3", "Nesne uç/orta noktalarını yakala"),
+                ("SNAP", "F9", "Snap to grid points"),
+                ("GRID", "F7", "Show the grid"),
+                ("ORTHO", "F8", "Constrain to horizontal/vertical"),
+                ("OSNAP", "F3", "Snap to object end and mid points"),
             ):
                 b = QToolButton()
                 b.setText(name)

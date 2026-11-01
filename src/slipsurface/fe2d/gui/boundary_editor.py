@@ -24,15 +24,15 @@ class DisplacementEditor(QWidget):
         self.mesh = mesh
         layout = QVBoxLayout(self)
         note = QLabel(
-            "Toplam ux/uy (m). Boş bileşen bu satırda tanımlanmaz. "
-            "Yer değiştirme mesnet sıfırını, aşama değeri genel değeri geçersiz kılar. "
-            "Kesişen kümelerde son satır önceliklidir."
+            "Total ux/uy (m). A blank component is not defined on this row. "
+            "A stage displacement overrides a fixity of zero. "
+            "On overlapping sets the last row wins."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
-        self.table = table(["Düğüm kümesi", "ux (m; boş=tanımsız)", "uy (m; boş=tanımsız)"])
+        self.table = table(["Node set", "ux (m; blank=undefined)", "uy (m; blank=undefined)"])
         layout.addWidget(self.table)
-        toolbar(layout, [("Ekle", self.add), ("Sil", lambda: remove_row(self.table))])
+        toolbar(layout, [("Add", self.add), ("Delete", lambda: remove_row(self.table))])
         for value in values:
             self.add(value)
 
@@ -57,7 +57,7 @@ class DisplacementEditor(QWidget):
             ]
             if values == [None, None]:
                 raise ValueError(
-                    "Yer değiştirme satırında en az bir bileşen girin veya satırı silin."
+                    "Enter at least one component on the displacement row, or delete the row."
                 )
             result.append(Displacement(self.table.cellWidget(i, 0).currentText(), *values))
         return tuple(result)
@@ -65,23 +65,23 @@ class DisplacementEditor(QWidget):
 
 class BoundaryDialog(EditorDialog):
     def __init__(self, model, parent=None):
-        super().__init__("Mekanik sınır koşulları", parent)
+        super().__init__("Mechanical boundary conditions", parent)
         self.model = model
         self.resize(850, 550)
         tabs = QTabWidget()
         pane = QWidget()
         layout = QVBoxLayout(pane)
         layout.addWidget(
-            QLabel("İşaretli serbestlik sabit. rz yalnız liner/kiriş düğümlerinde etkili.")
+            QLabel("A checked degree of freedom is fixed. rz applies only to liner/beam nodes.")
         )
-        self.table = table(["Düğüm kümesi", "ux=0", "uy=0", "rz=0"])
+        self.table = table(["Node set", "ux=0", "uy=0", "rz=0"])
         layout.addWidget(self.table)
-        toolbar(layout, [("Ekle", self.add), ("Sil", lambda: remove_row(self.table))])
+        toolbar(layout, [("Add", self.add), ("Delete", lambda: remove_row(self.table))])
         for fixity in model.fixities:
             self.add(fixity)
         self.displacements = DisplacementEditor(model.mesh, model.displacements)
-        tabs.addTab(pane, "Mesnetler")
-        tabs.addTab(self.displacements, "Genel yer değiştirme")
+        tabs.addTab(pane, "Fixities")
+        tabs.addTab(self.displacements, "Prescribed displacement")
         self.root.addWidget(tabs)
         self.finish_layout(self.apply)
 

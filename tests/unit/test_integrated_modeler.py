@@ -67,13 +67,13 @@ def test_embedded_tools_build_real_supports_and_solve(qt_app, tmp_path):
     model = window.model
     assert not cad.mesh_outdated
     assert window.workspace.currentWidget() is window.result_page
-    assert model.mesh.block("cad_Kazik1").etype == ElemType.BEAM2
-    assert model.mesh.block("cad_Tunel1").etype == ElemType.BEAM2
-    assert model.mesh.block("cad_Ankraj1").etype == ElemType.BAR2
-    assert model.mesh.block("cad_Tunel1").ne >= 32
-    pile_skin = {"cad_Kazik1_ifL", "cad_Kazik1_ifR"}
+    assert model.mesh.block("cad_Pile1").etype == ElemType.BEAM2
+    assert model.mesh.block("cad_Tunnel1").etype == ElemType.BEAM2
+    assert model.mesh.block("cad_Anchor1").etype == ElemType.BAR2
+    assert model.mesh.block("cad_Tunnel1").ne >= 32
+    pile_skin = {"cad_Pile1_ifL", "cad_Pile1_ifR"}
     assert model.stages[0].active_structures == {
-        "cad_Kazik1", "cad_Tunel1", "cad_Ankraj1", *pile_skin
+        "cad_Pile1", "cad_Tunnel1", "cad_Anchor1", *pile_skin
     }  # fmt: skip
     continuum_nodes = set(model.mesh.blocks[0].conn.ravel())
     skin_nodes = {n for tag in pile_skin for n in model.mesh.block(tag).conn.ravel()}
@@ -81,7 +81,7 @@ def test_embedded_tools_build_real_supports_and_solve(qt_app, tmp_path):
         # The pile is a structural interface: its own nodes reach the soil via both skins
         # (an anchor crossing the pile is tied to the pile there).
         assert set(model.mesh.block(tag).conn.ravel()) <= continuum_nodes | skin_nodes
-    assert set(model.mesh.block("cad_Kazik1").conn.ravel()) <= skin_nodes | continuum_nodes
+    assert set(model.mesh.block("cad_Pile1").conn.ravel()) <= skin_nodes | continuum_nodes
     result = api.run(model)
     assert np.isfinite(result.last.u).all()
     assert np.max(np.abs(result.last.u)) > 0
@@ -108,16 +108,16 @@ def test_support_properties_rename_delete_undo_and_draft_roundtrip(qt_app, tmp_p
     cad.support_panel.fields["E"].setText("40000000")
     cad.apply_support()
     assert (
-        next(s for s in cad.document.supports if s.entity == "Kazik1").properties["E"] == 40000000
+        next(s for s in cad.document.supports if s.entity == "Pile1").properties["E"] == 40000000
     )
-    cad.name.setText("Kazik_A")
+    cad.name.setText("Pile_A")
     cad.update_entity()
-    assert any(s.entity == "Kazik_A" for s in cad.document.supports)
+    assert any(s.entity == "Pile_A" for s in cad.document.supports)
     cad.entities.setCurrentRow(1)
     cad.delete_entity()
-    assert all(s.entity != "Kazik_A" for s in cad.document.supports)
+    assert all(s.entity != "Pile_A" for s in cad.document.supports)
     cad.undo()
-    assert any(s.entity == "Kazik_A" for s in cad.document.supports)
+    assert any(s.entity == "Pile_A" for s in cad.document.supports)
     file = tmp_path / "draft.sscad.json"
     file.write_text(json.dumps(cad.current_drawing().to_dict()))
     other = MainWindow()
@@ -137,8 +137,8 @@ def test_outdated_mesh_blocks_solve_and_project_save(qt_app, tmp_path):
     window.cad.add_point((2, 5))
     window.start_solve()
     assert window.worker is None
-    assert "Çizim değişti" in window.status.currentMessage()
-    with pytest.raises(ValueError, match="Çizim değişti"):
+    assert "Drawing changed" in window.status.currentMessage()
+    with pytest.raises(ValueError, match="Drawing changed"):
         window.save_path(tmp_path / "stale.ssproj")
     assert not (tmp_path / "stale.ssproj").exists()
 
@@ -166,7 +166,7 @@ def test_invalid_support_assignment_and_old_drawing_compatibility():
     with pytest.raises(ValueError):
         replace(drawing, supports=(SupportAssignment("missing", "pile"),)).validate()
     with pytest.raises(ValueError):
-        replace(drawing, supports=(SupportAssignment("Zemin", "bolt"),)).validate()
+        replace(drawing, supports=(SupportAssignment("Soil", "bolt"),)).validate()
     with pytest.raises(ModelError):
         SupportAssignment("line", "pile", {"E": -1})
 

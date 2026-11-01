@@ -1,7 +1,7 @@
 """Explicit stress integration with automatic substepping and error control.
 
 Sloan (1987); Sloan, Abbo & Sheng (2001). Used as the fall-back integrator for models
-without a closed-form return (generalised Hoek-Brown in Faz 4) and to cross-check the
+without a closed-form return (generalised Hoek-Brown in Phase 4) and to cross-check the
 implicit returns. A model provides, for single Gauss points (4-vectors, tension +):
 
 * ``f(sig, q)``           yield function

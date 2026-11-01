@@ -1,4 +1,4 @@
-"""Read-only PyVista result viewer (debugging aid before the full GUI of Faz 5).
+"""Read-only PyVista result viewer (debugging aid before the full Phase 5 GUI).
 
 Requires the optional dependency ``pyvista`` (``pip install slipsurface-fe2d[gui]``).
 

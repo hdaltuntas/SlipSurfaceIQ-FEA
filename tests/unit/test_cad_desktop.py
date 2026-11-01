@@ -58,7 +58,7 @@ def test_mouse_polygon_undo_redo_and_invalid_edit(app):
     w.coordinates.setPlainText("0 0\n8 4\n0 4\n8 0")
     w.update_entity()
     assert w.document.entities[0].points == tuple(points)
-    assert "tamamlanamadı" in w.status.text()
+    assert "Operation failed" in w.status.text()
     w.close()
 
 

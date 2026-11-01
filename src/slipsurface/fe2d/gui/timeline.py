@@ -19,9 +19,12 @@ class StageTimeline(QGraphicsView):
     def set_stages(self, stages, initial=None):
         self.scene().clear()
         self.cards = []
-        labels = [("Başlangıç", initial.mode if initial else "initial")]
+        labels = [("Initial", initial.mode if initial else "initial")]
         labels += [
-            (s.name, f"λ={s.load_split:g} · {', '.join(sorted(s.active_structures)) or 'yapı yok'}")
+            (
+                s.name,
+                f"λ={s.load_split:g} · {', '.join(sorted(s.active_structures)) or 'no structure'}",
+            )
             for s in stages
         ]
         for i, (name, detail) in enumerate(labels):

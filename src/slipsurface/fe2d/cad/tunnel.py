@@ -25,8 +25,13 @@ from .geometry import ConstructionStep, Drawing, Entity
 from .lining import STEEL_RIBS, WIRE_MESH, LiningSystem, SteelSet  # noqa: F401  re-exported
 from .supports import SupportAssignment
 
-PART_LABELS = {"heading": "Üst yarı", "bench": "Alt yarı", "invert": "İnvert", "full": "Tam kesit"}
-PART_KEYS = {"heading": "Ust", "bench": "Alt", "invert": "Inv", "full": "Tam"}
+PART_LABELS = {
+    "heading": "Top heading",
+    "bench": "Bench",
+    "invert": "Invert",
+    "full": "Full face",
+}
+PART_KEYS = {"heading": "Head", "bench": "Bench", "invert": "Inv", "full": "Full"}
 
 
 @dataclass(frozen=True)
@@ -44,22 +49,24 @@ class TunnelSection:
 
     def __post_init__(self):
         if self.shape not in {"natm", "circle"}:
-            raise ValueError("Kesit türü natm veya circle olmalıdır.")
+            raise ValueError("Section type must be natm or circle.")
         values = [self.radius, self.wall_radius, self.wall_height, self.invert_depth]
         if not np.isfinite([*values, self.heading_level, self.invert_level]).all():
-            raise ValueError("Kesit ölçüleri sonlu olmalıdır.")
+            raise ValueError("Section dimensions must be finite.")
         if self.radius <= 0 or self.parts not in (1, 2, 3) or not 12 <= self.segments <= 400:
-            raise ValueError("Yarıçap pozitif, bölüm sayısı 1-3, segment 12-400 olmalıdır.")
+            raise ValueError("Radius must be positive, part count 1-3 and segments 12-400.")
         if self.shape == "natm":
             if self.wall_radius < self.radius or not 0 <= self.wall_height < self.wall_radius:
-                raise ValueError("Yan duvar yarıçapı ≥ tepe yarıçapı ve > duvar yüksekliği olmalı.")
+                raise ValueError(
+                    "Wall radius must be ≥ crown radius and greater than the wall height."
+                )
             if self.invert_depth < 0:
-                raise ValueError("İnvert derinliği negatif olamaz.")
+                raise ValueError("Invert depth cannot be negative.")
         bottom, top = self.bounds_y()
         if self.parts >= 2 and not bottom < self.heading_level < top:
-            raise ValueError("Üst yarı seviyesi kesit içinde olmalıdır.")
+            raise ValueError("Top-heading level must lie inside the section.")
         if self.parts == 3 and not bottom < self.invert_level < self.heading_level:
-            raise ValueError("İnvert seviyesi tabanla üst yarı seviyesi arasında olmalıdır.")
+            raise ValueError("Invert level must lie between the bottom and the top-heading level.")
 
     def bounds_y(self):
         if self.shape == "circle":
@@ -156,9 +163,11 @@ class BoltPattern:
 
     def __post_init__(self):
         if self.count < 0 or self.length <= 0 or self.EA <= 0 or self.T_yield <= 0:
-            raise ValueError("Bulon sayısı ≥ 0; boy, EA ve akma kuvveti pozitif olmalıdır.")
+            raise ValueError(
+                "Bolt count must be ≥ 0; length, EA and yield force must be positive."
+            )
         if self.spacing_out_of_plane <= 0 or self.spacing <= 0 or self.pretension < 0:
-            raise ValueError("Bulon aralığı pozitif, öngerme negatif olamaz.")
+            raise ValueError("Bolt spacing must be positive and pretension cannot be negative.")
 
     def angles(self):
         if self.count == 0:
@@ -192,9 +201,9 @@ class BlastDisturbance:
 
     def __post_init__(self):
         if not 0.0 <= self.D <= 1.0:
-            raise ValueError("Örselenme faktörü D [0, 1] aralığında olmalıdır.")
+            raise ValueError("Disturbance factor D must be in [0, 1].")
         if not np.isfinite(self.thickness) or self.thickness <= 0:
-            raise ValueError("Örselenme zonu kalınlığı pozitif olmalıdır.")
+            raise ValueError("Disturbance-zone thickness must be positive.")
 
     def to_dict(self):
         return asdict(self)
@@ -436,19 +445,21 @@ def _halo_polygon(ring, thickness, ground):
         outer = outer.intersection(ground)
     if outer.is_empty:
         raise ValueError(
-            "Örselenme zonu zemin içinde oluşmadı; kalınlığı küçültün veya tüneli içeri alın."
+            "The disturbance zone did not form inside the ground; reduce the thickness "
+            "or move the tunnel inward."
         )
     if outer.geom_type == "MultiPolygon":
         covering = [g for g in outer.geoms if g.covers(tunnel) or g.intersects(tunnel)]
         outer = max(covering or outer.geoms, key=lambda g: g.area)
     if outer.area <= tunnel.area + 1e-9:
         raise ValueError(
-            "Örselenme zonu tünel kesitinden taşmıyor; kalınlığı artırın veya tüneli içeri alın."
+            "The disturbance zone does not extend past the tunnel section; increase the "
+            "thickness or move the tunnel inward."
         )
     return _clean(_rounded(np.asarray(outer.exterior.coords[:-1])))
 
 
-def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -> Drawing:
+def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunnel") -> Drawing:
     """Add the tunnel parts, liners, bolts and the NATM construction sequence to ``drawing``."""
     section = design.section
     center = (float(center[0]), float(center[1]))
@@ -462,11 +473,11 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -
     entities, supports, steps = [], [], []
     ring = _rounded(section.outline() + np.asarray(center))
     liner_props = design.liner_properties()
-    liner_kind = "PB" if design.lining is not None else "Iksa"
+    liner_kind = "SC" if design.lining is not None else "Rib"
     halo_name = None
     if design.disturbance is not None:
         ground = drawing.validate()
-        halo_name = f"{name}_Orselenme"
+        halo_name = f"{name}_Disturbance"
         entities.append(
             Entity(
                 halo_name,
@@ -494,7 +505,7 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -
             chains = _lining_chains(pts, cut_levels)
             if section.parts > 1 and len(chains) == 2:  # bench walls: left, then right
                 chains.sort(key=lambda c: float(np.mean([p[0] for p in c])))
-                suffixes = ["_Sol", "_Sag"]
+                suffixes = ["_Left", "_Right"]
             else:
                 suffixes = [""] if len(chains) == 1 else [f"_{i + 1}" for i in range(len(chains))]
             for chain, suffix in zip(chains, suffixes):
@@ -509,18 +520,22 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -
             claimed.add(head_t)
             bolt_index += 1
             tail = _rounded(head + direction * pattern.length)
-            bolt = f"{name}_Bulon{bolt_index}"
+            bolt = f"{name}_Bolt{bolt_index}"
             entities.append(Entity(bolt, "line", (tuple(head), tuple(tail))))
             supports.append(SupportAssignment(bolt, "bolt", pattern.properties(), False))
             installed.append(bolt)
         label = PART_LABELS[key]
         if design.separate_support_stage and installed:
             steps.append(
-                ConstructionStep(f"{name} {label} kazı", (region_name,), (), design.load_split)
+                ConstructionStep(
+                    f"{name} {label} excavation", (region_name,), (), design.load_split
+                )
             )
-            steps.append(ConstructionStep(f"{name} {label} destek", (), tuple(installed)))
+            steps.append(ConstructionStep(f"{name} {label} support", (), tuple(installed)))
         else:
-            steps.append(ConstructionStep(f"{name} {label} kazı", (region_name,), tuple(installed)))
+            steps.append(
+                ConstructionStep(f"{name} {label} excavation", (region_name,), tuple(installed))
+            )
     if halo_name is not None:
         # Blast in an excavation stage; the following stage uses the disturbed halo.
         for i, step in enumerate(steps):
@@ -545,7 +560,7 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunel") -
 
 
 def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angle=90.0,
-                       pattern=None, prefix="Bulon", margin=0.0, spacing=None):  # fmt: skip
+                       pattern=None, prefix="Bolt", margin=0.0, spacing=None):  # fmt: skip
     """Bolts along a line/edge chain, turned ``angle`` degrees (counter-clockwise) from its
     direction. ``spacing`` (or ``pattern.spacing``) sets the count when ``count`` is 0;
     ``margin`` keeps them off the ends."""
@@ -560,11 +575,11 @@ def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angl
     space = spacing if spacing is not None else pattern.spacing
     if length <= 0 or not 0 <= margin < total / 2:
         raise ValueError(
-            "Bulon boyu pozitif ve kenar payı yarı uzunluktan küçük olmalıdır."
+            "Bolt length must be positive and the end margin less than half the length."
         )
     n = count if count > 0 else max(1, int(round((total - 2 * margin) / space)))
     if n < 1:
-        raise ValueError("Bulon sayısı ≥ 1 olmalıdır.")
+        raise ValueError("Bolt count must be at least 1.")
     s_values = _stations(total, space, n, margin)
     names = {e.name for e in drawing.entities}
     entities, supports = [], []

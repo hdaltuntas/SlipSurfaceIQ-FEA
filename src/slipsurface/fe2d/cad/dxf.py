@@ -22,7 +22,7 @@ def read_dxf(path: str | Path, *, metres_per_unit: float) -> Drawing:
     Native exports retain entity name/type/region through XDATA.
     """
     if not np.isfinite(metres_per_unit) or metres_per_unit <= 0:
-        raise ValueError("DXF ölçeği pozitif ve sonlu olmalıdır (metre / DXF birimi).")
+        raise ValueError("DXF scale must be positive and finite (metres per DXF unit).")
     doc = ezdxf.readfile(path)
     entities = []
     modelspace: Any = doc.modelspace()
@@ -33,22 +33,24 @@ def read_dxf(path: str | Path, *, metres_per_unit: float) -> Drawing:
             closed = False
         elif kind == "LWPOLYLINE":
             if item.has_arc:
-                raise ValueError(f"DXF #{i}: yay/bulge desteklenmiyor; düz parçalara dönüştürün.")
+                raise ValueError(
+                    f"DXF #{i}: arc/bulge is not supported; convert to straight segments."
+                )
             points, closed = list(item.vertices_in_wcs()), item.closed
         elif kind == "POLYLINE" and item.is_2d_polyline:
             if any(v.dxf.get("bulge", 0) for v in item.vertices):
-                raise ValueError(f"DXF #{i}: yay/bulge desteklenmiyor.")
+                raise ValueError(f"DXF #{i}: arc/bulge is not supported.")
             points, closed = list(item.points_in_wcs()), item.is_closed
         else:
             raise ValueError(
-                f"DXF #{i}: {kind} desteklenmiyor. Yalnız düz LINE ve "
-                "2D POLYLINE/LWPOLYLINE içeren dosya kullanın."
+                f"DXF #{i}: {kind} is not supported. Use a file with only straight LINE and "
+                "2D POLYLINE/LWPOLYLINE entities."
             )
         xyz = np.asarray([tuple(p) for p in points], dtype=float)
         if xyz.ndim != 2 or xyz.shape[0] < 2 or not np.isfinite(xyz).all():
-            raise ValueError(f"DXF #{i}: geçersiz koordinatlar.")
+            raise ValueError(f"DXF #{i}: invalid coordinates.")
         if not np.allclose(xyz[:, 2], 0, rtol=0, atol=1e-9 / metres_per_unit):
-            raise ValueError(f"DXF #{i}: XY düzlemi dışında koordinat var (Z ≠ 0).")
+            raise ValueError(f"DXF #{i}: coordinates lie outside the XY plane (Z ≠ 0).")
         name = f"DXF_{i}"
         role = "hole" if item.dxf.layer.upper().startswith("HOLE") else "region"
         role = role if closed else "line"
@@ -58,13 +60,13 @@ def read_dxf(path: str | Path, *, metres_per_unit: float) -> Drawing:
             if len(tags) == 3 and [t.code for t in tags] == [1000, 1000, 1071]:
                 role, name, region = (t.value for t in tags)
                 if (role == "line") == bool(closed):
-                    raise ValueError(f"DXF #{i}: kapanış ve kayıt türü uyuşmuyor.")
+                    raise ValueError(f"DXF #{i}: closure does not match the stored entity kind.")
         entities.append(Entity(name, role, tuple(map(tuple, xyz[:, :2] * metres_per_unit)), region))
     if not entities:
-        raise ValueError("DXF modelspace içinde çizim bulunamadı.")
+        raise ValueError("No drawing was found in the DXF modelspace.")
     names = [e.name for e in entities]
     if len(set(names)) != len(names):
-        raise ValueError("DXF içinde yinelenen geometri adları var.")
+        raise ValueError("The DXF contains duplicate geometry names.")
     return Drawing(tuple(entities))
 
 

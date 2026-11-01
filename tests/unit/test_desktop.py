@@ -78,7 +78,7 @@ def test_cancel_never_becomes_success_or_retains_previous_result(application, mo
     window.cancel_solve()
     finish(window, application)
     assert window.result is None
-    assert "iptal" in window.log.toPlainText().lower()
+    assert "cancelled" in window.log.toPlainText().lower()
     assert not any(a.isEnabled() for a in window.export_actions)
     window.close()
 
@@ -109,7 +109,7 @@ def test_stage_editor_preserves_loads_and_water(application):
     assert dialog.updated.stages[0].load_split == 0.4
     assert dialog.updated.stages[0].loads == model.stages[0].loads
     assert dialog.updated.stages[0].water == model.stages[0].water
-    assert model.stages[0].name == "Yükleme"
+    assert model.stages[0].name == "Loading"
     dialog.close()
 
 
@@ -117,16 +117,16 @@ def test_le_shell_layout_workflow_dock_and_statusbar(application):
     """The LE modeler shell: workflow bar, left dock and CAD status bar."""
     window = MainWindow()
     assert window.workflow.steps == [
-        "Geometri",
-        "Destekler",
-        "Mesnet / yük",
-        "Ağ",
-        "Malzemeler",
-        "Aşamalar",
-        "Çöz",
-        "Sonuçlar",
+        "Geometry",
+        "Supports",
+        "Fixity / load",
+        "Mesh",
+        "Materials",
+        "Stages",
+        "Solve",
+        "Results",
     ]
-    assert window.guidance.text().startswith("Sıradaki: Geometri")
+    assert window.guidance.text().startswith("Next: draw a soil region")
     assert window.status.toggles and set(window.status.toggles) == {
         "snap",
         "grid",
@@ -188,7 +188,7 @@ def test_startup_is_empty_project_and_actions_need_a_model(application):
     assert window.model is None
     assert window.result is None
     assert window.stages.count() == 0
-    assert "Boş proje" in window.windowTitle()
+    assert "Empty project" in window.windowTitle()
     window.start_solve()  # guarded: no solve, no crash, no worker
     assert window.busy is False
     window.edit_materials()  # guarded, stays empty
@@ -213,13 +213,13 @@ def test_main_entry_does_not_open_main_py_as_json_and_examples_under_file_menu(
 
     window = MainWindow()
     top_menus = [a.text() for a in window.menuBar().actions()]
-    assert "Örnekler" not in top_menus
-    file_menu = next(a.menu() for a in window.menuBar().actions() if a.text() == "Dosya")
+    assert "Examples" not in top_menus
+    file_menu = next(a.menu() for a in window.menuBar().actions() if a.text() == "File")
     submenus = [a.text() for a in file_menu.actions() if a.menu() is not None]
-    assert "Örnekler" in submenus
+    assert "Examples" in submenus
     example_titles = [a.text() for a in window.examples_menu.actions()]
-    assert any("tünel" in t.lower() for t in example_titles)
-    assert any("kazı" in t.lower() for t in example_titles)
+    assert any("tunnel" in t.lower() for t in example_titles)
+    assert any("excavation" in t.lower() for t in example_titles)
     window.close()
 
 
@@ -230,10 +230,10 @@ def test_rs2_staged_excavation_workflow_split_and_interactive_assign(application
     # 1. Split soil region with pile + horizontal excavation line (RS2 style)
     drawing = Drawing(
         entities=(
-            Entity("Zemin", "region", ((0.0, 0.0), (12.0, 0.0), (12.0, 6.0), (0.0, 6.0)), 1),
-            Entity("Kazik", "line", ((5.0, 6.0), (5.0, 1.5)), 1),
+            Entity("Soil", "region", ((0.0, 0.0), (12.0, 0.0), (12.0, 6.0), (0.0, 6.0)), 1),
+            Entity("Pile", "line", ((5.0, 6.0), (5.0, 1.5)), 1),
         ),
-        supports=(SupportAssignment("Kazik", "pile"),),
+        supports=(SupportAssignment("Pile", "pile"),),
     )
     split_drawing = drawing.split_with_line([(0.0, 4.0), (5.0, 4.0)])
     regions = [e for e in split_drawing.entities if e.kind == "region"]
@@ -244,7 +244,7 @@ def test_rs2_staged_excavation_workflow_split_and_interactive_assign(application
     window = MainWindow()
     window.open_excavation_example()
     assert window.model is not None
-    assert window.stage_tabs.count() == 4  # 0. Başlangıç + 3 stages
+    assert window.stage_tabs.count() == 4  # 0. Initial + 3 stages
     # Select Stage 1 (index 1: all regions active)
     window.stage_tabs.setCurrentIndex(1)
     assert window.stages.currentRow() == 1

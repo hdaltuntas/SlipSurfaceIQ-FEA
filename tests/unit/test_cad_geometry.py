@@ -71,24 +71,24 @@ def test_invalid_topology_is_rejected_before_meshing(entity):
 
 def test_support_and_internal_pressure_checks():
     d = replace(Drawing.example(), h=3)
-    with pytest.raises(ValueError, match="rijit"):
+    with pytest.raises(ValueError, match="rigid-body"):
         replace(d, rules=()).build_model()
     interior = square("inner", 3, 2, 5, 4, region=2)
-    with pytest.raises(ValueError, match="basınç yalnız"):
+    with pytest.raises(ValueError, match="pressure only"):
         replace(
             d,
             entities=(*d.entities, interior),
             rules=(*d.rules, BoundaryRule("inner:1", pressure=1)),
         ).build_model()
     isolated = square("island", 16, 0, 20, 4)
-    with pytest.raises(ValueError, match="rijit"):
+    with pytest.raises(ValueError, match="rigid-body"):
         replace(d, entities=(*d.entities, isolated)).build_model()
 
 
 def test_duplicate_boundary_pressure_is_not_summed_silently():
     d = replace(Drawing.example(), h=2)
     line = Entity("duplicate", "line", ((0, 6), (12, 6)))
-    with pytest.raises(ValueError, match="iki basınç"):
+    with pytest.raises(ValueError, match="two pressures"):
         replace(
             d,
             entities=(*d.entities, line),
@@ -116,7 +116,7 @@ def test_analytic_patch_and_both_project_formats(tmp_path):
     result = api.run(m)
     assert np.allclose(result.last.sig["soil"][:, :, 1], -50, atol=1e-9)
     constrained_modulus = d.E * (1 - d.nu) / ((1 + d.nu) * (1 - 2 * d.nu))
-    top = m.mesh.node_sets["Zemin:3"]
+    top = m.mesh.node_sets["Soil:3"]
     assert np.allclose(result.last.u[top, 1], -50 * 6 / constrained_modulus, atol=1e-12)
     for old in (False, True):
         path = tmp_path / f"project_{old}.ssproj"
@@ -126,7 +126,7 @@ def test_analytic_patch_and_both_project_formats(tmp_path):
         assert np.array_equal(loaded.results.last.u, result.last.u)
     clone = model_from_dict(model_to_dict(m))
     clone.geometry["entities"][0]["name"] = "changed"
-    assert m.geometry["entities"][0]["name"] == "Zemin"
+    assert m.geometry["entities"][0]["name"] == "Soil"
 
 
 def test_snap_endpoint_midpoint_grid_and_free():
@@ -139,7 +139,7 @@ def test_snap_endpoint_midpoint_grid_and_free():
 
 def test_dxf_roundtrip_scaling_and_void_role(tmp_path):
     d = Drawing.example()
-    d = replace(d, entities=(*d.entities, square("Boşluk", 2, 2, 4, 4, "hole")))
+    d = replace(d, entities=(*d.entities, square("Void", 2, 2, 4, 4, "hole")))
     path = tmp_path / "drawing.dxf"
     write_dxf(d, path)
     loaded = read_dxf(path, metres_per_unit=1)

@@ -1,4 +1,4 @@
-"""HDF5 results and the .ssproj container (Faz 3)."""
+"""HDF5 results and the .ssproj container (Phase 3)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from slipsurface.fe2d.mesh.structures import add_bar, add_beams, insert_interfac
 
 @pytest.fixture(scope="module")
 def staged():
-    """Small model with every Faz 3 feature: wall + joints + anchor + water + split."""
+    """Small model with every Phase 3 feature: wall + joints + anchor + water + split."""
     d = Domain()
     d.add_polygon([(-8, -10), (8, -10), (8, 0), (-8, 0)], 1,
                   edge_names=["bottom", "right", "top", "left"])  # fmt: skip

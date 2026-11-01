@@ -2,7 +2,7 @@
   "version": 1,
   "entities": [
     {
-      "name": "Zemin",
+      "name": "Soil",
       "kind": "region",
       "points": [
         [
@@ -25,7 +25,7 @@
       "region": 1
     },
     {
-      "name": "Bosluk",
+      "name": "Void",
       "kind": "hole",
       "points": [
         [
@@ -50,25 +50,25 @@
   ],
   "rules": [
     {
-      "edge": "Zemin:1",
+      "edge": "Soil:1",
       "ux": true,
       "uy": true,
       "pressure": 0.0
     },
     {
-      "edge": "Zemin:2",
+      "edge": "Soil:2",
       "ux": true,
       "uy": false,
       "pressure": 0.0
     },
     {
-      "edge": "Zemin:3",
+      "edge": "Soil:3",
       "ux": false,
       "uy": false,
       "pressure": 50
     },
     {
-      "edge": "Zemin:4",
+      "edge": "Soil:4",
       "ux": true,
       "uy": false,
       "pressure": 0.0

@@ -1,76 +1,80 @@
-# Faz 5 — yayın geri çekildi, paket sürümü 0.9.0
+# Phase 5 — release withdrawn, package version 0.9.0
 
-**22 Ekim 2026: Kullanıcı arayüzü kullanışlı bulmadı; v1.0.0 hazır kabul edilmiyor.**
-GitHub release listesi boş; v1.0.0 yayını kaldırılmış durumda. Paket bilinçli olarak
-**0.9.0**'dır. Otomatik paket yayını ve PyPI yükleme adımı durduruldu. Aşağıdaki
-sonuçlar tarihsel teknik test kanıtıdır; kullanıcı kabulü veya Faz 5 kapanışı
-anlamına gelmez.
+**22 October 2026: the user found the interface not usable; v1.0.0 is not accepted as ready.**
+The GitHub release list is empty; the v1.0.0 publication has been removed. The package is
+deliberately **0.9.0**. Automatic package publication and the PyPI upload step were stopped.
+The results below are historical technical test evidence; they do not mean user acceptance
+or that Phase 5 is closed.
 
-Öncelik: Windows tema/kontrast sorunları, görünmeyen araç yazıları, panel
-yerleşimi ve anlaşılır modelleme akışı. Kullanıcı kabulünden sonra yeni yayın
-ayrıca değerlendirilecek. [Açık işler](next-steps.md).
+Priority: Windows theme/contrast problems, invisible tool labels, panel layout, and a
+clear modelling workflow. A new publication will be considered separately after user
+acceptance. [Open work](next-steps.md).
 
-Native PySide6 masaüstü: CAD/DXF → T6 ağ; malzeme/bölge, liner/bolt/ara yüz,
-mekanik sınır ve aşama su/yük/yer değiştirme düzenleyicileri; aşama zaman çizelgesi;
-arka plan çözüm/iptal; kontur, deforme ağ, plastik GP ve düzlem içi asal oklar;
-sorgu çizgileri ve yönü tanımlı liner N–V–M grafikleri; proje/CSV/VTU/HTML kaydı.
+Native PySide6 desktop: CAD/DXF → T6 mesh; material/region, liner/bolt/interface,
+mechanical boundary, and stage water/load/displacement editors; a stage timeline;
+background solve/cancel; contours, the deformed mesh, plastic Gauss points, and in-plane
+principal arrows; query lines and oriented liner N–V–M plots; project/CSV/VTU/HTML save.
 
-![Dört aşamalı tünel](images/phase5-tunnel.png)
+![Four-stage tunnel](images/phase5-tunnel.png)
 
-![Liner moment grafiği](images/phase5-liner.png)
+![Liner moment plot](images/phase5-liner.png)
 
-## Otomatik GUI/API eşitlik testi — kullanıcı kabulü değil
+## Automated GUI/API equality test — not user acceptance
 
-`test_phase5_acceptance.py` boş CAD formundan 16 kenarlı dairesel tünel yaklaşımı,
-çevre kaya bölgesi ve taç bolt çizgisini oluşturur. Gerilme başlangıcı → %40
-gevşeme → shotcrete ile toplam %70 → bolt ve kalan kazının tamamlanması.
-GUI işçisi ve bağımsız Domain/API modelinin bütün aşamalarında u, gerilme,
-liner/bolt kuvveti, plastik bayrak, su ve aktivasyon dizileri birebir eşleşir.
-Kazı boşluğundaki sorgular NaN kalır; kaydedilen proje yeniden açılır.
+`test_phase5_acceptance.py` builds a 16-sided circular tunnel approximation, the
+surrounding rock region, and the crown bolt line from an empty CAD form. Initial stress
+→ 40% relaxation → shotcrete to a total of 70% → completion of the bolt and the
+remaining excavation. Across every stage, u, stress, liner/bolt forces, the plastic
+flag, water, and the activation sequences of the GUI worker and of the independent
+Domain/API model match exactly. Queries inside the excavation void stay NaN; the saved
+project opens again.
 
-Bu bir GUI/API eşitlik kabulüdür; bağımsız tünel doğrulamasının yerine geçmez.
-S1–S3 ve diğer mevcut analitik doğrulamalar ayrı CI testleridir.
+This is a GUI/API equality acceptance; it does not replace an independent tunnel
+verification. S1–S3 and the other existing analytical verifications are separate CI tests.
 
-Yerel tam regresyon: **472 geçti, 1 strict xfail, 2 benchmark hariç** (108.27 s).
-Kaynak smoke kontrolü dört durum, kayıt, DXF, dışa aktarım ve Numba ile başarılı.
-[JUnit'ten üretilen doğrulama dökümü](phase5-verification.md) xfail'i başarı saymaz.
-Linux/Windows, Python 3.10–3.13 ve iki native GUI işi: **10/10 başarılı**
-([CI kanıtı](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/actions/runs/39674914899)).
+Local full regression: **472 passed, 1 strict xfail, 2 benchmarks excluded** (108.27 s).
+The source smoke check succeeded for four states, save, DXF, export, and Numba.
+The [verification dump generated from JUnit](phase5-verification.md) does not count the xfail as a pass.
+Linux/Windows, Python 3.10–3.13, and two native GUI jobs: **10/10 passed**
+([CI evidence](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/actions/runs/39674914899)).
 
-## Sayısal ve kullanım sınırları
+## Numerical and usage limits
 
-- S4'ün RS2/PLAXIS karşılaştırması yoktur. İç Winkler uyumu bu boşluğu kapatmaz.
-- Eski kesmesiz P4 strict xfail olarak korunur. Yerel bünye dönüş hatası fiziksel
-  göçme kanıtı veya SRF üst sınırı sayılmaz. Açık Rankine-apex akışı ayrı seçenektir.
-- Çizgisel 2B DXF desteği vardır; DWG ve eğri/blok DXF bu sürüme dahil değildir.
-- CAD yeniden ağlaması mevcut FE tanımlarını adla eşleyerek aktarır; hedefi kalmayanlar
-  çözüm günlüğünde listelenir ([ayrıntı](integrated-modeler.md)).
-- Sonuç konturları eleman ortalamasıdır. Sorgu çizgisi gerilmeleri eleman içinde GP
-  ekstrapolasyonuyla hesaplanır; malzeme sınırında taraf için bölge filtresi vardır.
-- Asal oklar düzlem içi iki gerilmeyi gösterir; szz ile sıralanmış 3B asal değerler
-  kontur alanlarında ayrıdır. Plastik nokta/ok sayısı büyük modelde seyreltilirse
-  ekranda gösterilir. Sorgu çizgisi deforme olmamış koordinatları kullanır.
-- Liner yerel x yol yönündedir, yerel y 90° saat yönü tersidir. N çekme pozitiftir.
-  N/V/M başlangıçta eksi yerel düğüm etkisi, bitişte artı yerel etkidir. Yol tersine
-  dönen elemanda uç sırası ters çevrilir ve M işareti değişir. Ortak uçlar ortalanmaz.
-- Ara yüz silme çakışan eş düğümleri birleştirir; başka bir ara yüzü tamamen
-  kapatacak silme reddedilir. Kullanılmayan düğüm kimlikleri korunur.
-- Liner plastisitesi, dinamik analiz ve tam konsolidasyon v1 kapsamı dışındadır.
+- There is no RS2/PLAXIS comparison for S4. Internal Winkler agreement does not close that gap.
+- The legacy P4 without a tension cut-off is kept as a strict xfail. A local constitutive
+  return error is not counted as proof of physical collapse or as an SRF upper bound.
+  Explicit Rankine-apex flow is a separate option.
+- Linear 2D DXF is supported; DWG and curve/block DXF are not included in this version.
+- CAD remeshing transfers existing FE definitions by name; those with no remaining target
+  are listed in the solution log ([detail](integrated-modeler.md)).
+- Result contours are element averages. Query-line stresses are computed by Gauss-point
+  extrapolation inside the element; a region filter selects the side at a material boundary.
+- Principal arrows show the two in-plane stresses; the 3D principal values ordered with
+  szz are separate contour fields. If the number of plastic points/arrows is thinned on a
+  large model, that is shown on screen. The query line uses the undeformed coordinates.
+- Liner local x is along the path; local y is 90° counterclockwise. N is positive in tension.
+  N/V/M is the negative local nodal action at the start and the positive local action at
+  the end. On an element whose path reverses, the end order is reversed and the sign of M
+  changes. Shared ends are not averaged.
+- Deleting an interface merges coincident paired nodes; a deletion that would completely
+  close another interface is rejected. Unused node ids are kept.
+- Liner plasticity, dynamic analysis, and full consolidation are outside the v1 scope.
 
-## Paket ve yayın
+## Package and publication
 
-Portable (PyInstaller onedir) paket kaldırıldı: `packaging/` ve `.github/workflows/portable.yml`
-silindi. Uygulama yalnızca `python main.py` ile çalışır. Wheel/sdist yine de üretilir ve
-`scripts/check_distributions.py` ile denetlenir.
+The portable (PyInstaller onedir) package was removed: `packaging/` and
+`.github/workflows/portable.yml` were deleted. The application runs only with
+`python main.py`. A wheel and an sdist are still built and checked with
+`scripts/check_distributions.py`.
 
-İlk bağımsız Windows paket testi **başarılı**:
+The first independent Windows package test **passed**:
 [`39674915048`](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/actions/runs/39674915048),
-`5c4dcb8`; `frozen=true`, `numba_enabled=true`, 2141 düğüm, dört durum,
-maksimum yer değiştirme 0.02792259577890792 m. Paket içindeki NumPy kullanıldı.
-Yayın öncesi incelemede sdist'e derleme ortamının eklenmesi giderildi; kaynak paket
-beyaz listeyle sınırlandı. Her derleme dosya içeriğini ve 20 MB boyut sınırını denetler.
+`5c4dcb8`; `frozen=true`, `numba_enabled=true`, 2141 nodes, four states,
+maximum displacement 0.02792259577890792 m. The NumPy inside the package was used.
+A pre-release review removed the build environment from the sdist; the source package
+was limited to an allow-list. Every build checks file contents and the 20 MB size limit.
 
-PyPI denemesi `invalid-publisher` ile başarısız oldu; başarılı bir PyPI yayını yok.
-`publish.yml` artık yalnızca elle çağrılan paket kontrolüdür: PyPI yükleme işi,
-OIDC yetkisi ve release tetikleyicisi kaldırıldı; `portable.yml` de kaldırıldı.
-GitHub release oluşturulmaz veya dosya yüklenmez.
+The PyPI attempt failed with `invalid-publisher`; there is no successful PyPI publication.
+`publish.yml` is now only a manually invoked package check: the PyPI upload job, the
+OIDC permission, and the release trigger were removed, and `portable.yml` was removed too.
+No GitHub release is created and no files are uploaded.

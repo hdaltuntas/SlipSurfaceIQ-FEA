@@ -1,7 +1,7 @@
 """Carry user model definitions from a previous mesh onto a freshly meshed drawing.
 
 The drawing stays authoritative for what it defines (regions, CAD supports, CAD
-mesnet/pressure rules). Everything else is matched by name: materials and region
+fixity/pressure rules). Everything else is matched by name: materials and region
 assignments, initial stress, solver settings, stages (loads, water, activation,
 material overrides), extra fixities and the structures/interfaces added to the old
 mesh by the advanced editors (replayed from ``geometry["mesh_edits"]``). Point loads
@@ -60,7 +60,7 @@ def transfer_model(previous, fresh):
         new = nearest_node(mesh, *xy)
         distance = float(np.linalg.norm(mesh.coords[new] - xy))
         if distance > 1e-9:
-            report.append(f"{what}: en yakın düğüme taşındı ({distance:.3g} m).")
+            report.append(f"{what}: moved to the nearest node ({distance:.3g} m).")
         return new
 
     # Advanced-editor structures/interfaces, replayed in their original order.
@@ -74,16 +74,16 @@ def transfer_model(previous, fresh):
         try:
             model = _replay(model, edit, spec, report)
         except Exception as exc:  # noqa: BLE001 - every failure is reported, not fatal
-            report.append(f"{tag}: yeni ağa aktarılamadı ({exc}).")
+            report.append(f"{tag}: could not be transferred to the new mesh ({exc}).")
         else:
             edits.append(edit)
     mesh = model.mesh
     for tag in previous.structure_tags():
         if not tag.startswith("cad_") and tag not in model.structure_tags():
             if not any(e["tag"] == tag for e in (previous.geometry or {}).get("mesh_edits", [])):
-                report.append(f"{tag}: ağ kenarına bağlı kaydı yok; yeniden tanımlayın.")
+                report.append(f"{tag}: no record tied to a mesh edge; define it again.")
     for tag in old_assign.keys() - new_assign.keys():
-        report.append(f"{tag}: çizimden kaldırılan destek modelden de çıkarıldı.")
+        report.append(f"{tag}: support removed from the drawing was also removed from the model.")
 
     regions = mesh.regions()
     old_regions = old_mesh.regions()
@@ -92,7 +92,7 @@ def transfer_model(previous, fresh):
     def keep_set(name, sets, what):
         if name in sets:
             return True
-        report.append(f"{what} '{name}': küme yeni ağda yok, çıkarıldı.")
+        report.append(f"{what} '{name}': set is absent on the new mesh and was removed.")
         return False
 
     # Materials: the library survives; a region keeps its old material where it exists.
@@ -104,17 +104,17 @@ def transfer_model(previous, fresh):
         **previous.materials,
     }
     for r in sorted(old_regions - regions):
-        report.append(f"Bölge {r}: yeni çizimde yok; malzeme ataması çıkarıldı.")
+        report.append(f"Region {r}: absent from the new drawing; material assignment removed.")
 
     # Fixities: drawing rules decide their own edges, other named sets are kept.
     ruled = {e for e, r in {**old_rules, **new_rules}.items() if r.ux or r.uy}
     fixities = list(fresh.fixities) + [
         f
         for f in previous.fixities
-        if f.node_set not in ruled and keep_set(f.node_set, mesh.node_sets, "Mesnet")
+        if f.node_set not in ruled and keep_set(f.node_set, mesh.node_sets, "Fixity")
     ]
     displacements = tuple(
-        d for d in previous.displacements if keep_set(d.node_set, mesh.node_sets, "Yer değiştirme")
+        d for d in previous.displacements if keep_set(d.node_set, mesh.node_sets, "Displacement")
     )
 
     def stage_structures(old_active):
@@ -166,12 +166,12 @@ def transfer_model(previous, fresh):
         loads = []
         for load in stage.loads:
             if isinstance(load, api.PointLoad):
-                loads.append(replace(load, node=moved_node(load.node, f"{stage.name} nokta yükü")))
+                loads.append(replace(load, node=moved_node(load.node, f"{stage.name} point load")))
             elif is_cad_load(load):
                 if load.edge_set in cad_loads:
                     loads.append(replace(load, qn=cad_loads[load.edge_set]))
                     placed.add(load.edge_set)
-            elif keep_set(load.edge_set, mesh.edge_sets, f"{stage.name} kenar yükü"):
+            elif keep_set(load.edge_set, mesh.edge_sets, f"{stage.name} edge load"):
                 loads.append(load)
         stages.append(
             replace(
@@ -182,11 +182,11 @@ def transfer_model(previous, fresh):
                     r: m for r, m in stage.material_override.items() if r in regions
                 },
                 loads=tuple(loads),
-                water=water(stage.water, f"{stage.name} su sınırı"),
+                water=water(stage.water, f"{stage.name} water boundary"),
                 displacements=tuple(
                     d
                     for d in stage.displacements
-                    if keep_set(d.node_set, mesh.node_sets, f"{stage.name} yer değiştirme")
+                    if keep_set(d.node_set, mesh.node_sets, f"{stage.name} displacement")
                 ),
             )
         )
@@ -218,7 +218,7 @@ def transfer_model(previous, fresh):
         active_structures=None
         if initial.active_structures is None
         else frozenset(initial.active_structures & structures),
-        water=water(initial.water, "Başlangıç su sınırı"),
+        water=water(initial.water, "Initial water boundary"),
     )
     geometry = dict(fresh.geometry or {})
     if edits:
@@ -242,7 +242,7 @@ def transfer_model(previous, fresh):
 def _replay(model, edit, spec, report):
     tag = edit["tag"]
     if tag in model.structure_tags():
-        raise ValueError("ad yeni çizimde kullanılıyor")
+        raise ValueError("name is already used in the new drawing")
     if edit["kind"] == "interface":
         mesh = insert_interface(model.mesh, edit["edge_set"], tag, edit.get("side", "left"))
         model = replace(model, mesh=mesh, interfaces={**model.interfaces, tag: spec})
@@ -251,17 +251,17 @@ def _replay(model, edit, spec, report):
         for xy, n in zip(edit["points"], (a, b)):
             d = float(np.linalg.norm(model.mesh.coords[n] - xy))
             if d > 1e-9:
-                report.append(f"{tag}: uç en yakın düğüme taşındı ({d:.3g} m).")
+                report.append(f"{tag}: end moved to the nearest node ({d:.3g} m).")
         mesh = add_bar(model.mesh, a, b, tag)
         model = replace(model, mesh=mesh, bolts={**model.bolts, tag: spec})
     elif edit["kind"] == "liner":
         if model.analysis is not api.Analysis.PLANE_STRAIN:
-            raise ValueError("liner/kiriş yalnız düzlem şekil değiştirmede kullanılabilir")
+            raise ValueError("a liner/beam can only be used in plane strain")
         mesh = add_beams(model.mesh, edit["edge_set"], tag)
         model = replace(model, mesh=mesh, liners={**model.liners, tag: spec})
     else:
         mesh = add_bars_along(model.mesh, edit["edge_set"], tag)
         model = replace(model, mesh=mesh, bolts={**model.bolts, tag: spec})
     if not model.mesh.block(tag).ne:
-        raise ValueError("kenar kümesi boş")
+        raise ValueError("edge set is empty")
     return model

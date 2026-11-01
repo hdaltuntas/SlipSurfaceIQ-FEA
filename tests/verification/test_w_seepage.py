@@ -1,4 +1,4 @@
-"""W1–W3 — steady seepage (Faz 4).
+"""W1–W3 — steady seepage (Phase 4).
 
 * W1: confined flow under a sheet pile in a layer of thickness T (penetration S),
   Harr (1962) conformal mapping: q / (k H) = K(m') / (2 K(m)), m = sin(pi S / 2T),

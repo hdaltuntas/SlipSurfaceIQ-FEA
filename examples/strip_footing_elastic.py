@@ -1,4 +1,4 @@
-"""Elastic strip footing on two horizontal layers (Faz 1 example).
+"""Elastic strip footing on two horizontal layers (Phase 1 example).
 
 Run:  python examples/strip_footing_elastic.py   ->  writes strip_footing.vtu
 """
@@ -31,8 +31,8 @@ model = api.Model(
     ),
     initial=api.InitialStress("k0_field"),
     stages=[
-        api.Stage("1. Öz ağırlık", reset_displacements=True),
-        api.Stage("2. Şerit temel (150 kPa)", loads=(api.EdgeLoad("footing", qn=150.0),)),
+        api.Stage("1. Self-weight", reset_displacements=True),
+        api.Stage("2. Strip footing (150 kPa)", loads=(api.EdgeLoad("footing", qn=150.0),)),
     ],
 )
 

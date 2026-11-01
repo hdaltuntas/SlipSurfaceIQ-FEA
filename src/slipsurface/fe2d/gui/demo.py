@@ -42,15 +42,17 @@ def tunnel_model():
             "field", field=(-300.0, -600.0, -225.0, 0.0), active_structures=frozenset()
         ),
         stages=[
-            api.Stage("%40 gevşeme", active_regions={1}, load_split=0.4),
+            api.Stage("40% relaxation", active_regions={1}, load_split=0.4),
             api.Stage(
-                "Shotcrete · %70",
+                "Shotcrete · 70%",
                 active_regions={1},
                 active_structures={"shotcrete"},
                 load_split=0.5,
             ),
             api.Stage(
-                "Bolt · tam kazı", active_regions={1}, active_structures={"shotcrete", "bolt"}
+                "Bolt · full excavation",
+                active_regions={1},
+                active_structures={"shotcrete", "bolt"},
             ),
         ],
         liners={
@@ -65,50 +67,50 @@ def excavation_model():
     drawing = Drawing(
         entities=(
             Entity(
-                "Zemin", "region", ((-15.0, -14.0), (15.0, -14.0), (15.0, 0.0), (-15.0, 0.0)), 1
+                "Soil", "region", ((-15.0, -14.0), (15.0, -14.0), (15.0, 0.0), (-15.0, 0.0)), 1
             ),
-            Entity("Kazi1", "region", ((-15.0, -2.0), (0.0, -2.0), (0.0, 0.0), (-15.0, 0.0)), 2),
-            Entity("Kazi2", "region", ((-15.0, -4.0), (0.0, -4.0), (0.0, -2.0), (-15.0, -2.0)), 3),
-            Entity("Kazik", "line", ((0.0, 0.0), (0.0, -9.0)), 1),
-            Entity("Ankraj1", "line", ((0.0, -1.5), (7.0, -4.5)), 1),
+            Entity("Cut1", "region", ((-15.0, -2.0), (0.0, -2.0), (0.0, 0.0), (-15.0, 0.0)), 2),
+            Entity("Cut2", "region", ((-15.0, -4.0), (0.0, -4.0), (0.0, -2.0), (-15.0, -2.0)), 3),
+            Entity("Pile", "line", ((0.0, 0.0), (0.0, -9.0)), 1),
+            Entity("Anchor1", "line", ((0.0, -1.5), (7.0, -4.5)), 1),
         ),
         rules=(
-            BoundaryRule("Zemin:1", True, True),
-            BoundaryRule("Zemin:2", True, False),
-            BoundaryRule("Zemin:4", True, False),
+            BoundaryRule("Soil:1", True, True),
+            BoundaryRule("Soil:2", True, False),
+            BoundaryRule("Soil:4", True, False),
         ),
         h=1.8,
         E=30000.0,
         nu=0.3,
         supports=(
-            SupportAssignment("Kazik", "pile"),
-            SupportAssignment("Ankraj1", "bolt"),
+            SupportAssignment("Pile", "pile"),
+            SupportAssignment("Anchor1", "bolt"),
         ),
     )
     base = drawing.build_model()
-    pile = frozenset({"cad_Kazik", "cad_Kazik_ifL", "cad_Kazik_ifR"})  # pile + skin interfaces
-    sand = api.MaterialSpec.elastic("Kum", 30000.0, 0.3, gamma=18.0)
+    pile = frozenset({"cad_Pile", "cad_Pile_ifL", "cad_Pile_ifR"})  # pile + skin interfaces
+    sand = api.MaterialSpec.elastic("sand", 30000.0, 0.3, gamma=18.0)
     return replace(
         base,
-        materials={"Kum": sand},
-        region_material={1: "Kum", 2: "Kum", 3: "Kum"},
+        materials={"sand": sand},
+        region_material={1: "sand", 2: "sand", 3: "sand"},
         initial=api.InitialStress("k0_field", k0=0.5, active_structures=frozenset()),
         stages=[
             api.Stage(
-                "1. Kazık imalatı",
+                "1. Pile installation",
                 active_regions=None,
                 active_structures=pile,
                 reset_displacements=True,
             ),
             api.Stage(
-                "2. 1. Kademe kazı (-2 m)",
+                "2. Excavation lift 1 (-2 m)",
                 active_regions=frozenset({1, 3}),
                 active_structures=pile,
             ),
             api.Stage(
-                "3. Ankraj + 2. Kademe kazı (-4 m)",
+                "3. Anchor + excavation lift 2 (-4 m)",
                 active_regions=frozenset({1}),
-                active_structures=pile | {"cad_Ankraj1"},
+                active_structures=pile | {"cad_Anchor1"},
             ),
         ],
     )
@@ -130,10 +132,10 @@ def footing_model():
         analysis=api.Analysis.PLANE_STRAIN,
         mesh=mesh,
         materials={
-            "kum": api.MaterialSpec.elastic("kum", E=40000.0, nu=0.30, gamma=19.0),
-            "kil": api.MaterialSpec.elastic("kil", E=15000.0, nu=0.35, gamma=18.0),
+            "sand": api.MaterialSpec.elastic("sand", E=40000.0, nu=0.30, gamma=19.0),
+            "clay": api.MaterialSpec.elastic("clay", E=15000.0, nu=0.35, gamma=18.0),
         },
-        region_material={1: "kum", 2: "kil"},
+        region_material={1: "sand", 2: "clay"},
         fixities=(
             api.Fixity("bottom", True, True),
             api.Fixity("left", True, False),
@@ -141,9 +143,9 @@ def footing_model():
         ),
         initial=api.InitialStress("k0_field"),
         stages=[
-            api.Stage("1. Öz ağırlık", reset_displacements=True),
+            api.Stage("1. Self-weight", reset_displacements=True),
             api.Stage(
-                "2. Şerit temel (150 kPa)", loads=(api.EdgeLoad("footing", qn=150.0),)
+                "2. Strip footing (150 kPa)", loads=(api.EdgeLoad("footing", qn=150.0),)
             ),
         ],
     )

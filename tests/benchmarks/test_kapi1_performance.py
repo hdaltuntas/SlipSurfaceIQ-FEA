@@ -1,4 +1,4 @@
-"""Kapı 1 performance criterion: 50k-node T6 linear elastic model solved in < 5 s.
+"""Gate 1 performance criterion: 50k-node T6 linear elastic model solved in < 5 s.
 
 Measured: element precompute + DOF map + CSR pattern + stiffness assembly + gravity
 initial stage + one load stage (two factorisations). Run with ``pytest -m benchmark``.

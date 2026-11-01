@@ -1,70 +1,73 @@
-# Güncel durum ve sıradaki işler
+# Current status and remaining work
 
-Son kullanıcı talimatı (22 Ekim 2026): **Arayüz kullanışlı değil; release hazır
-değil, yayını kaldır.** Faz 5 yeniden açık; yeni release ve PyPI yayını durduruldu.
-Bu depo Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** projesidir.
+Latest user instruction (22 October 2026): **The interface is not usable; the release
+is not ready, withdraw the publication.** Phase 5 is open again; a new release and the
+PyPI publication were stopped.
+This repository is the Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** project.
 
-## Mevcut teslim
+## What is already delivered
 
-- Faz 4 (W1–W3, C1–C3, drenajsız A/B/C) ile PR #1'deki Faz 3 düzeltmeleri ve
-  Faz 5.1, PR #3 üzerinden `main` dalına birleştirildi: `de1f12a`.
-- MC kabul edilebilir dönüş koruması, açık Rankine-apex seçeneği, ara yüz gömülü uç
-  düzeltmeleri, karma ağ ve tanı kayıtları taşındı. Ana daldaki tam kaymalı liner ve
-  Winkler palplanş testleri ayrıca korunur.
-- Faz 4'ün sızma kabulü, HB akış-koni kontrolü, MCC hata türü ve girdi kontrolleri
-  düzeltildi. [İnceleme kaydı](phase4-review.md).
-- **Faz 5.1 başladı ve çalışıyor:** native PySide6 uygulaması, arka plan çözüm,
-  proje/malzeme/aşama işlemleri, aktif sonuç görüntüsü ve dışa aktarım.
-  [Çalıştırma ve kapsam](phase5-desktop.md).
-- **Faz 5.2 CAD teslimi:** native bölge/boşluk/çizgi, snap, koordinat düzenleme,
-  geometri undo/redo, sınırlı ve kayıpsız DXF, kenar mesnet/basınç tablosu, iptal
-  edilebilir T6 ağ işçisi, çizim/proje kaydı. [Kapsam ve testler](phase5-cad.md).
+- Phase 4 (W1–W3, C1–C3, undrained A/B/C), the Phase 3 fixes from PR #1, and
+  Phase 5.1 were merged to `main` through PR #3: `de1f12a`.
+- The admissible Mohr–Coulomb return guard, the explicit Rankine-apex option, the
+  embedded-tip interface fixes, the mixed mesh, and the diagnostic records were carried
+  over. The full-slip liner and Winkler sheet-pile tests on the main branch are kept as well.
+- Phase 4 seepage acceptance, the Hoek–Brown flow-cone check, the MCC error type, and
+  the input checks were fixed. [Review record](phase4-review.md).
+- **Phase 5.1 has started and runs:** native PySide6 application, background solve,
+  project/material/stage operations, the active result view, and export.
+  [How to run, and scope](phase5-desktop.md).
+- **Phase 5.2 CAD delivery:** native region/void/line, snap, coordinate editing,
+  geometry undo/redo, limited lossless DXF, an edge fixity/pressure table, a cancellable
+  T6 mesh worker, and drawing/project save. [Scope and tests](phase5-cad.md).
 
-- **Faz 5.3 teslimi:** altı bünye formu ve bölge atamaları, liner/bolt kurucuları,
-  başlangıç durumu, yük/su ve aşama malzemesi, aşama ekleme/kopyalama/silme/sıralama.
-  [Kullanım ve kabul kapsamı](phase5-model-editors.md).
+- **Phase 5.3 delivery:** six constitutive forms and region assignments, liner/bolt
+  builders, the initial state, load/water and stage material, and stage
+  add/copy/delete/reorder.
+  [Use and acceptance scope](phase5-model-editors.md).
 
-## Korunan sınırlar
+## Preserved limits
 
-- S4'ün RS2/PLAXIS karşılaştırması **yoktur**. Bu bir ürün sınırıdır, ertelenmiş
-  bir geçiş değildir. İç Winkler/LE testleri dış doğrulama sayılmaz.
-  [Nasıl konacağı](s4-external.md).
-- Eski kesmesiz P4, yerel dönüş hatası nedeniyle strict xfail olarak tutulur.
-  Yerel malzeme reddi SRF göçme üst sınırı olamaz.
-- Sayısal yakınsamama tek başına fiziksel göçme kanıtı değildir. Açık Rankine-apex
-  akışı farklı bir bünye seçeneğidir; varsayılana gizlice eklenmez.
-- Faz 5 işlevsel GUI/API kabulü geçti. Paket ve PyPI yayın durumu
-  [sürüm kaydında](phase5-release.md) ayrı tutulur. S4/P4 istisnaları gizlenmez.
+- There is **no** RS2/PLAXIS comparison for S4. This is a product boundary, not a
+  deferred pass. Internal Winkler/LE tests are not external verification.
+  [How it would be added](s4-external.md).
+- The legacy P4 without a tension cut-off is kept as a strict xfail because of the
+  local return error. A local material rejection cannot be an SRF collapse upper bound.
+- Numerical non-convergence by itself is not proof of physical collapse. Explicit
+  Rankine-apex flow is a different constitutive option; it is not added silently to the default.
+- Phase 5 functional GUI/API acceptance passed. Package and PyPI publication status
+  is kept separately in the [version record](phase5-release.md). The S4/P4 exceptions are not hidden.
 
-## Faz 5 — kullanıcı kabulü bekleniyor
+## Phase 5 — waiting for user acceptance
 
-Mekanik sınırlar, aşama yer değiştirmeleri, ara yüz kütüphanesi, zaman çizelgesi,
-plastik GP/asal oklar, sorgu çizgisi ve liner N–V–M eklendi. Boş GUI'den dört aşamalı
-tünel kabulü API ile birebir eşleşti. Portable paket kaldırıldı; wheel/sdist ve PyPI
-Trusted Publisher iş akışı hazır. Linux/Windows CI 10/10 ve
-bağımsız Windows portable testi geçti. Test kanıtı, yayın durumu ve korunan
-istisnalar [phase5-release.md](phase5-release.md) içindedir.
+Mechanical boundary conditions, stage displacements, the interface library, the timeline,
+plastic Gauss points / principal arrows, the query line, and liner N–V–M were added. The
+four-stage tunnel acceptance built from an empty GUI matched the API exactly. The portable
+package was removed; the wheel/sdist and PyPI Trusted Publisher workflow are in place.
+Linux/Windows CI was 10/10 and the independent Windows portable test passed. Test evidence,
+publication status, and the preserved exceptions are in
+[phase5-release.md](phase5-release.md).
 
-Bu otomatik kontroller kullanıcı kabulünün yerine geçmez. Kullanıcının Windows
-ekran görüntüsünde açık zeminde kaybolan menü/araç yazıları, zayıf kontrol
-kontrastı ve model alanını daraltan panel yerleşimi görülüyor. Sıradaki işler:
+These automated checks do not replace user acceptance. The user’s Windows screenshot
+shows menu/tool text that disappears on a light background, weak control contrast, and
+a panel layout that squeezes the model area. Remaining work:
 
-1. ~~Windows açık/koyu tema ve ekran ölçeklerinde okunabilir menü/araç/sekme renkleri.~~
-   Uygulandı (27 Ekim 2026): açık renk şeması sabit, Windows koyu modu kapalı,
-   spin kutusu okları ve SNAP/GRID kontrastı düzeltildi, WCAG AA kontrast testi.
-2. ~~Geometri, malzeme, sınır/yük, aşama ve sonuç adımlarının anlaşılır düzenlenmesi.~~
-   Uygulandı: numaralı sekiz adımlı iş akışı, ✓ tamamlanma ve “sıradaki adım” ipucu.
-3. ~~Model alanı, aşama listesi ve çözüm günlüğünün dengeli, ayarlanabilir yerleşimi.~~
-   Uygulandı: tam genişlikte iş akışı satırı, Görünüm menüsü, kalıcı yerleşim.
-4. Gerçek Windows ekranında görsel kontrol ve kullanıcı kullanılabilirlik kabulü.
-   **Hâlâ açık**: Linux offscreen görüntüleri kabul yerine geçmez. Sayı üretmek için
-   `scripts/phase5_cases.py` (dört durumlu tünel ve, `--sheet-pile` ile, S4 duvarı)
-   log ve N–V–M yazar; bu betik Faz 5'i kapatmaz.
-5. ~~Yeniden ağda malzeme, aşama, ara yüz ve yapı tanımlarının korunması.~~
-   Uygulandı: [ayrıntı](integrated-modeler.md#kayıt-geri-alma-ve-yeniden-ağ).
+1. ~~Readable menu/tool/tab colours on Windows light/dark themes and display scales.~~
+   Done (27 October 2026): light colour scheme fixed, Windows dark mode off,
+   spin-box arrows and SNAP/GRID contrast corrected, WCAG AA contrast test.
+2. ~~A clear arrangement of the geometry, material, boundary/load, stage, and result steps.~~
+   Done: a numbered eight-step workflow, a ✓ for completion, and a “next step” hint.
+3. ~~A balanced, adjustable layout of the model area, the stage list, and the solution log.~~
+   Done: a full-width workflow row, a View menu, and a persistent layout.
+4. Visual check on a real Windows display, and user usability acceptance.
+   **Still open**: Linux offscreen images do not replace acceptance. To produce numbers,
+   `scripts/phase5_cases.py` (the four-stage tunnel and, with `--sheet-pile`, the S4 wall)
+   writes the log and N–V–M; this script does not close Phase 5.
+5. ~~Preserving material, stage, interface, and structural definitions on remesh.~~
+   Done: [detail](integrated-modeler.md#save-undo-and-remeshing).
 
-Bu kabul alınmadan Faz 5 kapatılmayacak veya yeni release yayımlanmayacak.
+Phase 5 will not be closed, and no new release will be published, until this acceptance is obtained.
 
-Önceki Faz 3 ölçümleri `phase3-status.md`, `s4-comparison.md` ve `docs/data/s4/`
-altında tarihsel kanıt olarak korunur; yeni tümleşik dalın test sonucu inceleme
-kaydında ayrı verilir.
+Earlier Phase 3 measurements are kept as historical evidence under `phase3-status.md`,
+`s4-comparison.md`, and `docs/data/s4/`; the test result of the new integrated branch
+is reported separately in the review record.

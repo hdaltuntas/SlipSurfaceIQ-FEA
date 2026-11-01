@@ -25,9 +25,9 @@ class NamedValues(QWidget):
         super().__init__(parent)
         self.names = sorted(names)
         layout = QVBoxLayout(self)
-        self.table = table(["Küme", heading])
+        self.table = table(["Set", heading])
         layout.addWidget(self.table)
-        toolbar(layout, [("Ekle", self.add), ("Sil", lambda: remove_row(self.table))])
+        toolbar(layout, [("Add", self.add), ("Delete", lambda: remove_row(self.table))])
         for name, value in values:
             self.add(name, value)
 
@@ -47,7 +47,9 @@ class NamedValues(QWidget):
         for i in range(self.table.rowCount()):
             name = self.table.cellWidget(i, 0).currentText()
             if not name or name in seen:
-                raise ValueError("Sınır kümesi seçilmeli ve aynı tabloda tek kez kullanılmalı.")
+                raise ValueError(
+                    "A boundary set must be selected and used only once in this table."
+                )
             seen.add(name)
             values.append((name, float(self.table.cellWidget(i, 1).text())))
         return values
@@ -60,15 +62,15 @@ class WaterEditor(QWidget):
         form = QFormLayout()
         self.mode = QComboBox()
         for label, mode in [
-            ("Su yok", "none"),
-            ("Piyezometrik çizgi", "piezo_line"),
-            ("Durağan sızma", "seepage"),
+            ("No water", "none"),
+            ("Piezometric line", "piezo_line"),
+            ("Steady seepage", "seepage"),
         ]:
             self.mode.addItem(label, mode)
-        form.addRow("Su modeli", self.mode)
+        form.addRow("Water model", self.mode)
         layout.addLayout(form)
         self.piezo = QPlainTextEdit()
-        self.piezo.setPlaceholderText("Her satır: x  hidrolik yük h (m)\n0 5\n20 4")
+        self.piezo.setPlaceholderText("Each line: x  hydraulic head h (m)\n0 5\n20 4")
         self.piezo.setMaximumHeight(110)
         if water.piezo_polyline is not None:
             self.piezo.setPlainText(
@@ -77,10 +79,10 @@ class WaterEditor(QWidget):
         layout.addWidget(self.piezo)
         self.tabs = QTabWidget()
         self.heads = NamedValues(
-            mesh.node_sets, "Hidrolik yük h (m)", [(h.node_set, h.head) for h in water.head_bcs]
+            mesh.node_sets, "Hydraulic head h (m)", [(h.node_set, h.head) for h in water.head_bcs]
         )
         self.fluxes = NamedValues(
-            mesh.edge_sets, "İçeri akı q (m/s)", [(f.edge_set, f.q) for f in water.flux_bcs]
+            mesh.edge_sets, "Inward flux q (m/s)", [(f.edge_set, f.q) for f in water.flux_bcs]
         )
         self.faces = QListWidget()
         for name in sorted(set(mesh.node_sets) | set(mesh.edge_sets)):
@@ -90,13 +92,14 @@ class WaterEditor(QWidget):
                 Qt.CheckState.Checked if name in water.seepage_faces else Qt.CheckState.Unchecked
             )
             self.faces.addItem(item)
-        self.tabs.addTab(self.heads, "Yük sınırları")
-        self.tabs.addTab(self.fluxes, "Akı sınırları")
-        self.tabs.addTab(self.faces, "Olası sızma yüzleri")
+        self.tabs.addTab(self.heads, "Head boundaries")
+        self.tabs.addTab(self.fluxes, "Flux boundaries")
+        self.tabs.addTab(self.faces, "Potential seepage faces")
         layout.addWidget(self.tabs)
         note = QLabel(
-            "h toplam hidrolik yük kotudur; basınç yüksekliği değildir. Akı pozitif içeri. "
-            "Diğer sızma sınırları geçirimsiz; her bağlantılı bölge referans ister."
+            "h is the total hydraulic head elevation, not the pressure head. Flux is positive "
+            "inward. Other seepage boundaries are impermeable; each connected region needs "
+            "a reference."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -136,14 +139,14 @@ class LoadEditor(QWidget):
         self.mesh = mesh
         layout = QVBoxLayout(self)
         note = QLabel(
-            "Bu aşamanın toplam yükleri. Kenar: qn basınç (+ içeri), qt teğetsel (kPa). "
-            "Nokta: fx/fy global kuvvet (düzlemde kN/m, eksenel simetride kN/rad)."
+            "Total loads of this stage. Edge: qn pressure (+ inward), qt tangential (kPa). "
+            "Point: fx/fy global force (kN/m in plane, kN/rad in axisymmetry)."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
-        self.table = table(["Tür", "Kenar kümesi / düğüm", "qn / fx", "qt / fy"])
+        self.table = table(["Type", "Edge set / node", "qn / fx", "qt / fy"])
         layout.addWidget(self.table)
-        toolbar(layout, [("Ekle", self.add), ("Sil", lambda: remove_row(self.table))])
+        toolbar(layout, [("Add", self.add), ("Delete", lambda: remove_row(self.table))])
         for load in loads:
             self.add(load)
 
@@ -153,7 +156,7 @@ class LoadEditor(QWidget):
         i = self.table.rowCount()
         self.table.insertRow(i)
         kind = QComboBox()
-        kind.addItems(["Kenar", "Nokta"])
+        kind.addItems(["Edge", "Point"])
         kind.setCurrentIndex(isinstance(load, api.PointLoad))
         self.table.setCellWidget(i, 0, kind)
         self.set_target(kind)

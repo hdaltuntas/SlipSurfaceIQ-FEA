@@ -19,7 +19,7 @@ def validate_edit(model):
         build(spec)
     names = [s.name.strip() for s in model.stages]
     if any(not name for name in names) or len(set(names)) != len(names):
-        raise ValueError("Aşama adları boş olamaz ve benzersiz olmalıdır.")
+        raise ValueError("Stage names must be non-empty and unique.")
     if model.geometry and model.geometry.get("supports"):
         # Keep CAD-linked definitions in step with advanced mesh property edits/deletions.
         assignments = []
@@ -41,7 +41,7 @@ def put_material(model, spec, old_name=None):
     """Rename references together; fail before touching the input model."""
     build(spec)
     if spec.name != old_name and spec.name in model.materials:
-        raise ValueError("Bu malzeme adı zaten kullanılıyor.")
+        raise ValueError("This material name is already in use.")
     mats = dict(model.materials)
     if old_name is not None:
         del mats[old_name]
@@ -127,7 +127,7 @@ def remove_material(model, name):
     used.update(n for s in model.stages for n in s.material_override.values())
     if name in used:
         raise ValueError(
-            "Malzeme bölge/aşama tarafından kullanılıyor; önce atamalarını değiştirin."
+            "Material is used by a region or stage; change those assignments first."
         )
     return validate_edit(
         replace(model, materials={k: v for k, v in model.materials.items() if k != name})
@@ -136,12 +136,14 @@ def remove_material(model, name):
 
 def put_structure(model, spec, *, edge_set=None, nodes=None):
     if spec.name in model.structure_tags() or any(b.tag == spec.name for b in model.mesh.blocks):
-        raise ValueError("Bu yapı/blok adı zaten kullanılıyor.")
+        raise ValueError("This structure/block name is already in use.")
     if not spec.name.strip() or "," in spec.name or spec.name == "auto":
-        raise ValueError("Yapı adı boş, virgül içeren veya ayrılmış auto adı olamaz.")
+        raise ValueError(
+            "Structure name cannot be empty, contain a comma, or be the reserved name auto."
+        )
     if isinstance(spec, api.LinerSpec):
         if model.analysis is not api.Analysis.PLANE_STRAIN:
-            raise ValueError("Liner/kiriş yalnız düzlem şekil değiştirmede kullanılabilir.")
+            raise ValueError("A liner/beam can only be used in plane strain.")
         mesh = add_beams(model.mesh, edge_set, spec.name)
         result = replace(model, mesh=mesh, liners={**model.liners, spec.name: spec})
         edit = {"kind": "liner", "tag": spec.name, "edge_set": edge_set}
@@ -152,27 +154,29 @@ def put_structure(model, spec, *, edge_set=None, nodes=None):
         else:
             a, b = map(int, nodes)
             if not (0 <= a < model.mesh.nn and 0 <= b < model.mesh.nn):
-                raise ValueError("Bolt uç düğümü ağ dışında.")
+                raise ValueError("Bolt end node is outside the mesh.")
             if np.linalg.norm(model.mesh.coords[a] - model.mesh.coords[b]) <= 1e-12:
-                raise ValueError("Bolt uçları farklı konumlarda olmalıdır.")
+                raise ValueError("Bolt ends must be at different locations.")
             mesh = add_bar(model.mesh, a, b, spec.name)
             points = [model.mesh.coords[n].tolist() for n in (a, b)]
             edit = {"kind": "bolt", "tag": spec.name, "points": points}
         result = replace(model, mesh=mesh, bolts={**model.bolts, spec.name: spec})
     block = mesh.block(spec.name)
     if not block.ne:
-        raise ValueError("Seçilen kenar kümesi boş.")
+        raise ValueError("The selected edge set is empty.")
     if np.any(
         np.linalg.norm(mesh.coords[block.conn[:, 1]] - mesh.coords[block.conn[:, 0]], axis=1)
         <= 1e-12
     ):
-        raise ValueError("Yapı sıfır uzunluklu eleman içeriyor.")
+        raise ValueError("Structure contains a zero-length element.")
     return validate_edit(record_mesh_edit(result, edit))
 
 
 def remove_structure(model, tag):
     if model.structure_tags()[tag] == "interface":
-        raise ValueError("Ara yüz silme düğüm birleştirmesi gerektirir; bu formda desteklenmiyor.")
+        raise ValueError(
+            "Deleting an interface requires welding nodes; this form does not support it."
+        )
     mesh = api.Mesh(
         model.mesh.coords,
         tuple(b for b in model.mesh.blocks if b.tag != tag),
@@ -231,18 +235,18 @@ def region_names(model) -> dict[int, str]:
 def region_label(model, region: int) -> str:
     names = region_names(model)
     name = names.get(int(region))
-    return f"Bölge {region} ({name})" if name else f"Bölge {region}"
+    return f"Region {region} ({name})" if name else f"Region {region}"
 
 
 def structure_label(model, tag: str) -> str:
-    kind_map = {"beam": "Kiriş", "bar": "Ankraj/Çivi", "interface": "Ara yüz"}
+    kind_map = {"beam": "Beam", "bar": "Anchor/nail", "interface": "Interface"}
     kind = (model.structure_tags().get(tag) if model is not None else None) or ""
     if model is not None and model.geometry:
         for sup in model.geometry.get("supports", ()):
             ent = sup.get("entity", "")
             if f"cad_{ent}" == tag:
-                sk = {"pile": "Kazık", "liner": "Kaplama", "bolt": "Ankraj/Çivi"}.get(
-                    sup.get("kind"), kind_map.get(kind, "Destek")
+                sk = {"pile": "Pile", "liner": "Lining", "bolt": "Anchor/nail"}.get(
+                    sup.get("kind"), kind_map.get(kind, "Support")
                 )
                 return f"{ent} ({sk})"
     clean = tag[4:] if tag.startswith("cad_") else tag
@@ -286,14 +290,14 @@ def set_region_stage_state(
     """RS2-style region assignment: ``material=None`` excavates; a name activates/assigns."""
     all_regions = frozenset(model.mesh.regions())
     if region not in all_regions:
-        raise ValueError(f"Bilinmeyen bölge: {region}")
+        raise ValueError(f"Unknown region: {region}")
     mat_name = (
         model.region_material[region]
         if material == "__active__"
         else material
     )
     if mat_name is not None and mat_name not in model.materials:
-        raise ValueError(f"Bilinmeyen malzeme: {mat_name}")
+        raise ValueError(f"Unknown material: {mat_name}")
 
     initial = model.initial
     region_material = dict(model.region_material)
@@ -344,7 +348,7 @@ def set_structure_stage_state(
     from ..cad.supports import companion_tags
 
     if tag not in model.structure_tags():
-        raise ValueError(f"Bilinmeyen yapı: {tag}")
+        raise ValueError(f"Unknown structure: {tag}")
     tags = {tag, *(t for t in companion_tags(tag) if t in model.interfaces)}
     initial = model.initial
     stages = list(model.stages)
@@ -372,10 +376,10 @@ def append_stage_rs2(model, after_index: int | None = None, name: str | None = N
     existing_names = {s.name for s in stages}
     if name is None:
         n = len(stages) + 1
-        candidate = f"Aşama {n}"
+        candidate = f"Stage {n}"
         while candidate in existing_names:
             n += 1
-            candidate = f"Aşama {n}"
+            candidate = f"Stage {n}"
         name = candidate
     if not stages or (after_index is not None and after_index <= 0):
         new_stage = api.Stage(
@@ -404,7 +408,7 @@ def put_interface(model, spec, edge_set, side="left"):
     from ..mesh.structures import insert_interface
 
     if not spec.name.strip() or "," in spec.name or spec.name == "auto":
-        raise ValueError("Ara yüz etiketi boş, virgüllü veya auto olamaz.")
+        raise ValueError("Interface label cannot be empty, contain a comma, or be auto.")
     mesh = insert_interface(model.mesh, edge_set, spec.name, side)
     edit = {"kind": "interface", "tag": spec.name, "edge_set": edge_set, "side": side}
     return validate_edit(
@@ -418,7 +422,7 @@ def remove_interface(model, tag):
     """Weld paired coincident nodes. Refuse to collapse another interface element."""
     block = model.mesh.block(tag)
     if model.structure_tags().get(tag) != "interface":
-        raise ValueError("Ara yüz bloğu seçilmeli.")
+        raise ValueError("An interface block must be selected.")
     parent = np.arange(model.mesh.nn)
 
     def root(i):
@@ -429,7 +433,7 @@ def remove_interface(model, tag):
     half = block.conn.shape[1] // 2
     for a, b in zip(block.conn[:, :half].ravel(), block.conn[:, half:].ravel()):
         if np.linalg.norm(model.mesh.coords[a] - model.mesh.coords[b]) > 1e-9:
-            raise ValueError("Çakışmayan ara yüz düğümleri birleştirilemez.")
+            raise ValueError("Non-coincident interface nodes cannot be welded.")
         a, b = root(a), root(b)
         parent[max(a, b)] = min(a, b)
     remap = np.array([root(i) for i in range(model.mesh.nn)])
@@ -441,7 +445,9 @@ def remove_interface(model, tag):
         if model.structure_tags().get(b.tag) == "interface":
             n = conn.shape[1] // 2
             if np.any(np.all(conn[:, :n] == conn[:, n:], axis=1)):
-                raise ValueError("Silme başka ara yüz elemanını kapatır; önce onu kaldırın.")
+                raise ValueError(
+                    "Deletion would collapse another interface element; remove that one first."
+                )
         blocks.append(replace(b, conn=conn))
     mesh = api.Mesh(
         model.mesh.coords,

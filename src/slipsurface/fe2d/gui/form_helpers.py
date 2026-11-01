@@ -27,8 +27,8 @@ class EditorDialog(QDialog):
         box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        box.button(QDialogButtonBox.StandardButton.Ok).setText("Uygula")
-        box.button(QDialogButtonBox.StandardButton.Cancel).setText("İptal")
+        box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply")
+        box.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancel")
         box.accepted.connect(accept)
         box.rejected.connect(self.reject)
         self.root.addWidget(box)

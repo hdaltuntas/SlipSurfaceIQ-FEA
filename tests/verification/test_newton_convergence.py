@@ -1,4 +1,4 @@
-"""Kapı 2 — quadratic convergence of full Newton-Raphson with the consistent tangent.
+"""Gate 2 — quadratic convergence of full Newton-Raphson with the consistent tangent.
 
 Cylinder under internal pressure (P2 geometry) with (a) associated Tresca and (b)
 non-associated Mohr-Coulomb (unsymmetric tangent, LU). In the asymptotic range the

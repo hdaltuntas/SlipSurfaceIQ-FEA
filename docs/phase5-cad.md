@@ -1,110 +1,113 @@
-# Faz 5.2 — native CAD ve çizimden ağ
+# Phase 5.2 — native CAD and mesh-from-drawing
 
-> Güncel ana pencere düzeni: [Bütünleşik modelleyici](integrated-modeler.md).
-> Bu sayfadaki ayrı CAD penceresi görüntüleri önceki sürüme aittir.
+> Current main-window layout: [Integrated modeller](integrated-modeler.md).
+> The separate CAD-window images on this page belong to the previous version.
 
-PR #3, `de1f12a` ile `main` dalına birleştirildi. Bu teslim onun üzerine kuruludur.
-**Kapı 5/v1.0 tamamlanmış değildir.**
+PR #3 was merged to `main` as `de1f12a`. This delivery is built on top of that.
+**Gate 5/v1.0 is not complete.**
 
-![Geometri ve ağ penceresi](images/phase5-cad.png)
+![Geometry and mesh window](images/phase5-cad.png)
 
-## Kullanım
+## Use
 
 ```bash
 python -m pip install -e ".[dev,gui]"
 python -m slipsurface.fe2d.gui
 ```
 
-1. **Geometri / CAD** düğmesini açın. **Örnek** ile mesnetleri ve yükü atanmış
-   dikdörtgeni yükleyin veya **Çizim aç** ile
-   `examples/cad/rectangle-with-void.sscad.json` dosyasını seçin.
-2. Yeni öğeye benzersiz ad, tür ve bölge numarası verin. **Fareyle yeni çiz** ardından
-   sol tıkla noktaları girin; Enter/sağ tık bitirir, Esc yarım çizimi iptal eder.
-   Koordinatları satır başına `x y` girerek de ekleyebilir veya seçili öğeyi değiştirebilirsiniz.
-3. Nokta/kenar ortası yakalama 10 ekran pikseli içindedir. Pozitif ızgara aralığı
-   metrik ızgaraya yakalar; `0` yalnız nokta yakalamayı bırakır. Tekerlek yakınlaştırır;
-   çizim dışında sürükleme kaydırır. **Sığdır** tüm geometriyi gösterir.
-4. Kenar tablosunda ux/uy mesnetlerini ve basıncı atayın. Adlar `Öğe:1`, `Öğe:2`, …
-   biçimindedir; sırayı koordinat listesi belirler. Basınç pozitif içeri, birimi kPa.
-5. Hedef h, E ve ν seçip **Ağ üret ve yeni modele uygula** düğmesini kullanın.
-   Ana pencerede **Çöz** ile analiz başlatılır; mevcut sonuç dışa aktarımları kullanılabilir.
+1. Open **Geometry / CAD**. Load the rectangle that already has fixities and a load with
+   **Example**, or choose `examples/cad/rectangle-with-void.sscad.json` with **Open drawing**.
+2. Give the new item a unique name, a type, and a region number. After **Draw new with the mouse**,
+   enter points with the left button; Enter/right click finishes, Esc cancels a half-drawn item.
+   You can also add coordinates as `x y` per line, or edit the selected item.
+3. Point/edge-midpoint snap is within 10 screen pixels. A positive grid spacing snaps to
+   the metric grid; `0` leaves point snap only. The wheel zooms; dragging outside the
+   drawing pans. **Fit** shows the whole geometry.
+4. Assign ux/uy fixities and the pressure in the edge table. Names have the form `Item:1`,
+   `Item:2`, …; the coordinate list sets the order. Pressure is positive inward, in kPa.
+5. Choose the target h, E, and ν and use **Generate mesh and apply to a new model**.
+   In the main window, **Solve** starts the analysis; the existing result exports can be used.
 
-Geometri ekleme/güncelleme/silme ve çizim değiştirme işlemleri geri alınabilir/yinelenebilir.
-Bir öğenin koordinatları veya adı değiştirildiğinde **o öğenin kenar koşulları temizlenir**;
-yeniden atayın. Geri al eski geometri ve koşullarını birlikte getirir. Mesnet/yük tablosundaki
-tek tek hücre düzenlemeleri bağımsız undo komutları değildir.
+Adding/updating/deleting geometry and changing the drawing can be undone/redone.
+When an item’s coordinates or name change, **that item’s boundary conditions are cleared**;
+assign them again. Undo restores the old geometry and its conditions together. Individual
+cell edits in the fixity/load table are not independent undo commands.
 
-## Model ve kayıt sözleşmesi
+## Model and record contract
 
-- Çizimden ağ üretimi **yeni**, düzlem şekil değiştirme, ağırlıksız ve başlangıç
-  gerilmesiz elastik model oluşturur. Tüm bölgelere başlangıçta aynı E/ν atanır.
-  Önceki modelin malzemeleri, aşamaları, yapıları ve sonuçları otomatik taşınmaz;
-  bu davranış pencerede açıkça yazılıdır. Yeniden ağlama sonrası FE atama aktarımı
-  bu teslimin kapsamında değildir.
-- Bölgeler ayrı numaralarla ağda korunur. İç içe bölgelerde en içteki bölge geçerlidir;
-  ortak kenarlı komşu bölgeler mümkündür. Kısmi alan çakışmaları reddedilir.
-- **Boşluk**, başlangıçtan itibaren eleman bulunmayan alandır. Aşamalı kazı için
-  boşluk yerine malzeme bölgesi kullanılır; mevcut aşama düzenleyicisinde pasifleştirilir.
-- Çizgi, ağın izleyeceği adlandırılmış kenar zinciridir; otomatik liner/bolt değildir.
-- `.sscad.json`, henüz ağlanmamış çizimi ve kenar koşullarını saklar. `.ssproj` ve
-  model JSON içindeki isteğe bağlı `geometry` alanı, son ağı üreten CAD girdisini taşır.
-  Çözücü bu alanı kullanmaz; hesap daima kaydedilmiş FE ağı üzerinden yapılır.
-  Eski, CAD alanı olmayan projeler açılır; ağdan CAD geri çıkarımı yapılmaz.
-- Shapely ve ezdxf yalnız `gui` ek bağımlılıklarıdır; çekirdek çözücü bunları gerektirmez.
+- Mesh generation from a drawing creates a **new** plane-strain elastic model that is
+  weightless and has no initial stress. Every region is first assigned the same E/ν.
+  Materials, stages, structures, and results of the previous model are not transferred
+  automatically; this behaviour is stated explicitly in the window. Transfer of FE
+  assignments after remeshing is not in the scope of this delivery.
+- Regions are preserved in the mesh under separate numbers. In nested regions the innermost
+  region wins; neighbouring regions that share an edge are allowed. Partial area overlaps
+  are rejected.
+- A **void** is a region with no elements from the start. For staged excavation, use a
+  material region instead of a void; deactivate it in the existing stage editor.
+- A line is a named edge chain that the mesh will follow; it is not an automatic liner/bolt.
+- `.sscad.json` stores the drawing that has not been meshed yet, and its boundary conditions.
+  The optional `geometry` field inside `.ssproj` and the model JSON carries the CAD input
+  that produced the last mesh. The solver does not use this field; the calculation always
+  runs on the saved FE mesh. Older projects that have no CAD field open; CAD is not
+  reconstructed from the mesh.
+- Shapely and ezdxf are only extra dependencies of `gui`; the core solver does not need them.
 
-## DXF kapsamı
+## DXF scope
 
-DXF alırken **metre / DXF birimi** açıkça seçilir (m=1, cm=0.01, mm=0.001).
-Bu katsayı `$INSUNITS` etiketinden bağımsız uygulanır. Çıktı birimi metredir.
+On DXF import, **metres / DXF unit** is chosen explicitly (m=1, cm=0.01, mm=0.001).
+This factor is applied independently of the `$INSUNITS` tag. The output unit is metres.
 
-Desteklenen modelspace öğeleri: düz `LINE`, düz açık/kapalı `LWPOLYLINE` ve 2D
-`POLYLINE`. Kapalı çizgiler bölgedir; `HOLE*` katmanındaki kapalı çizgiler boşluktur.
-Native DXF çıktıları ad/tür/bölgeyi XDATA ile korur. Harici DXF için bu atamaları
-pencerede kontrol edin. Mesnet/yük ve malzeme özellikleri DXF ile taşınmaz.
+Supported model-space entities: straight `LINE`, straight open/closed `LWPOLYLINE`, and 2D
+`POLYLINE`. Closed polylines are regions; closed polylines on a `HOLE*` layer are voids.
+Native DXF output preserves name/type/region in XDATA. For an external DXF, check these
+assignments in the window. Fixities/loads and material properties are not carried by DXF.
 
-Yay/bulge, ARC/CIRCLE, SPLINE, INSERT/blok, TEXT ve XY düzlemi dışındaki koordinatlar
-**dosyanın tamamının reddedilmesine** yol açar. Kısmi çizim sessizce alınmaz; önce bu
-öğeleri desteklenen düz 2D parçalara dönüştürün veya ayrı bir DXF hazırlayın.
-DWG, blok çözme ve eğri yaklaşımı sonraki işlerdir.
+Bulge/arc, ARC/CIRCLE, SPLINE, INSERT/block, TEXT, and coordinates outside the XY plane
+cause **the whole file to be rejected**. A partial drawing is not imported silently; first
+convert these entities to supported flat 2D pieces, or prepare a separate DXF.
+DWG, block explosion, and curve approximation are later work.
 
-## Koruma ve doğrulama
+## Guards and verification
 
-- Kendini kesen/tekrarlı/sıfır alanlı poligonlar, geçersiz sayılar, zemin dışı çizgiler,
-  dış sınıra değen boşluklar ve çakışan boşluklar reddedilir. Boşluk bir bölge sınırını
-  kesemez; katmanları kesen boşluk çizimi henüz desteklenmez.
-- Mesnetlerin her bağlantılı ağ parçasındaki iki öteleme ve dönmeyi engellemesi gerekir.
-  Bu kontrol her türlü mekanizmanın veya nonlinear yakınsamanın garantisi değildir.
-- Basınç yalnız gerçek dış/boşluk sınırına uygulanır; iç bölge sınırına basınç ve aynı
-  ağ kenarına yinelenen basınç ataması reddedilir.
-- Ağ ayrı Qt işçisinde üretilir. İptal refinman turları arasında kontrol edilir;
-  devam eden tek Qhull/PSLG işlemini zorla kesmez. Hata/iptal ana modeli değiştirmez.
-  Bu CAD kurucusunda üst sınır 100.000 nokta; aşılırsa açık hata.
-- Büyük harita koordinatlarında `Domain.add_polygon` göreli `allclose` nedeniyle
-  son köşeyi yanlışlıkla kaldırabiliyordu. Kapanış artık tam eşitlikle tanınır;
-  alan hesabı yerel koordinatlara ötelenerek yapılır. 1.000.000/2.000.000 m
-  koordinatlarında 12 × 6 m poligonun dört köşesi ve 72 m² alanı test edildi.
+- Self-intersecting/repeated/zero-area polygons, invalid numbers, lines outside the ground,
+  voids that touch the outer boundary, and overlapping voids are rejected. A void cannot
+  cut a region boundary; a void drawing that cuts through layers is not supported yet.
+- Fixities must restrain both translations and the rotation of every connected mesh part.
+  This check is not a guarantee of every mechanism or of nonlinear convergence.
+- Pressure is applied only to a real outer/void boundary; pressure on an internal region
+  boundary, and a repeated pressure assignment on the same mesh edge, are rejected.
+- The mesh is generated on a separate Qt worker. Cancel is checked between refinement
+  rounds; it does not forcibly cut a single in-progress Qhull/PSLG operation. An error or
+  a cancel does not change the main model. This CAD builder has an upper limit of 100,000
+  points; above that it raises an explicit error.
+- At large map coordinates, `Domain.add_polygon` could drop the last vertex by mistake
+  because of a relative `allclose`. Closure is now recognised by exact equality; the area
+  is computed after a shift into local coordinates. The four corners and the 72 m² area of
+  a 12 × 6 m polygon at coordinates 1,000,000/2,000,000 m were tested.
 
-Yerel Linux/Python 3.12 tam regresyon: **423 geçti, 1 strict xfail, 2 benchmark hariç;
-95.18 s**. Son arayüz/girdi değişikliklerinden sonra CAD/masaüstü/kayıt alt kümesi:
-**50 geçti**. Ruff ve `git diff --check` başarılı. Gerçek Qt fare/klavye olayları,
-undo/redo, iptal/hata, iki proje biçimi, DXF ölçeği ve kayıplı aktarım reddi test edildi.
-CAD kurucusundan alınan uniform basınçlı model analitik düzlem şekil değiştirme
-çözümünü sağlar; Qt işçi sonucu doğrudan API ile bit düzeyinde aynıdır.
-Linux/Windows GUI CI işi yeni CAD testlerini de çalıştırır.
+Local Linux/Python 3.12 full regression: **423 passed, 1 strict xfail, 2 benchmarks excluded;
+95.18 s**. After the last interface/input changes, the CAD/desktop/record subset:
+**50 passed**. Ruff and `git diff --check` succeeded. Real Qt mouse/keyboard events,
+undo/redo, cancel/error, both project formats, DXF scale, and rejection of a lossy
+transfer were tested. A uniform-pressure model taken from the CAD builder satisfies the
+analytical plane-strain solution; the Qt worker result is bit-identical to the direct API.
 
-İlk CI denemesinde 35 GUI testi geçmesine rağmen süreç kapanışında Qt hatası oluştu.
-Aynı sıra yerelde de `exit 139` ile yeniden üretildi. Test modüllerinin ayrı QApplication
-ömürleri yerine oturum boyunca tek uygulama nesnesi ve her testten sonra widget/deferred
-delete temizliği kullanıldı. Aynı 35 test `exit 0` ile bitti; test atlama veya çıkış kodunu
-yok sayma eklenmedi. Wheel paketi de başarıyla derlendi.
+The Linux/Windows GUI CI job also runs the new CAD tests.
 
-## Sıradaki teslim
+On the first CI attempt, 35 GUI tests passed but a Qt error occurred as the process closed.
+The same sequence was reproduced locally with `exit 139`. Instead of a separate QApplication
+lifetime per test module, a single application object for the session and widget/deferred-delete
+cleanup after every test are used. The same 35 tests finished with `exit 0`; no test skipping
+or ignoring of the exit code was added. The wheel package also built successfully.
 
-Yeni malzeme/bölge atama, liner/bolt ve yük/su kurucuları; aşama ekle/sil/sırala
-ve zaman çizelgesi. Ardından özgün dört aşamalı tüneli kodsuz kurma ve API
-karşılaştırması; sonuç grafiklerinin tamamlanması ve Windows portable paketi.
-S4 dış karşılaştırmasının ertelenmiş durumu ve eski P4 strict xfail sınırı değişmez.
+## Next delivery
 
-Devam teslimi: [Faz 5.3](phase5-model-editors.md) ile ağdan sonra yeni malzemeler,
-bölge atamaları, liner/bolt, yük/su ve aşamalar kurulabilir. Yeniden ağlama sırasında
-bu FE tanımlarının otomatik taşınması bu kapsamda değildir.
+New material/region assignment, liner/bolt, and load/water builders; stage add/delete/reorder
+and a timeline. Then building the original four-stage tunnel without code and comparing it
+with the API; finishing the result plots and the Windows portable package.
+The deferred status of the S4 external comparison and the legacy P4 strict-xfail limit do not change.
+
+Follow-on delivery: with [Phase 5.3](phase5-model-editors.md), new materials, region
+assignments, liners/bolts, loads/water, and stages can be built after the mesh. Automatic
+transfer of these FE definitions during remeshing is not in this scope.

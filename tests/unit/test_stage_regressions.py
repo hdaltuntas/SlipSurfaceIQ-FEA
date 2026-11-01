@@ -1,4 +1,4 @@
-"""Regression tests for the Faz 3 staging fixes (Oct 2026 review).
+"""Regression tests for the Phase 3 staging fixes (Oct 2026 review).
 
 * an inactive interface means full continuity (its duplicated nodes are tied);
 * a newly activated interface takes over the soil traction (no stress release);

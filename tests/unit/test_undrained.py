@@ -1,4 +1,4 @@
-"""Undrained analysis (Faz 4): methods A/B (pore-water stiffness), C (total stress),
+"""Undrained analysis (Phase 4): methods A/B (pore-water stiffness), C (total stress),
 dissipation in a drained stage, result storage."""
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Shallow circular tunnel in two layers on an unstructured Delaunay/Ruppert mesh.
 
 Elastic: gravity initial stress with the opening present, then a surface surcharge.
-(Excavation by element deactivation arrives with staged construction in Faz 3.)
+(Excavation by element deactivation arrives with staged construction in Phase 3.)
 Run:  python examples/tunnel_unstructured_elastic.py   ->  writes tunnel.vtu
 """
 

@@ -1,4 +1,4 @@
-"""Staged cantilever sheet pile in sand (Faz 3 example; the S4 verification model).
+"""Staged cantilever sheet pile in sand (Phase 3 example; the S4 verification model).
 
 Stages: K0 initial stress -> wall + interfaces installed (wished in place) -> excavation
 lift 1 (2 m) -> lift 2 (4 m). Writes the project with results (wall.ssproj) and a VTU of

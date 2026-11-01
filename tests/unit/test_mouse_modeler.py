@@ -132,7 +132,7 @@ def test_clicking_pile_and_anchor_opens_section_force_diagrams(qt_app):
     result = api.run(model)
     window.set_model(result.model, result)
     qt_app.processEvents()
-    window._on_canvas_structure_clicked("cad_Kazik")
+    window._on_canvas_structure_clicked("cad_Pile")
     dialog = window.force_dialog
     assert dialog.kind == "beam" and dialog.segments and dialog.component.count() == 3
     dialog.component.setCurrentIndex(2)
@@ -141,7 +141,7 @@ def test_clicking_pile_and_anchor_opens_section_force_diagrams(qt_app):
     assert np.isfinite(values).all() and np.abs(values).max() > 0
     assert dialog.tabs.count() == 3 and dialog.disp_plots[0].y.size
     assert np.isfinite(dialog.disp_plots[0].y).any()
-    window.show_structure_forces("cad_Ankraj1")
+    window.show_structure_forces("cad_Anchor1")
     assert window.force_dialog.kind == "bar" and window.force_dialog.component.count() == 1
     from slipsurface.fe2d.gui.result_tools import StructureDisplacementDialog
 
@@ -159,9 +159,9 @@ def test_left_tools_and_file_icons(qt_app):
     window.show()
     qt_app.processEvents()
     cad = window.cad
-    assert "destek değildir" not in cad.tool_actions["tunnel"].toolTip().lower()
-    assert cad.tool_actions["tunnel"].toolTip().startswith("Tünel")
-    assert cad.tool_actions["natm"].toolTip().startswith("Eşdeğer kesit tünel")
+    assert "not a support" not in cad.tool_actions["tunnel"].toolTip().lower()
+    assert cad.tool_actions["tunnel"].toolTip().startswith("Tunnel")
+    assert cad.tool_actions["natm"].toolTip().startswith("Horseshoe")
     toolbar = window.findChild(QToolBar, "main_toolbar")
     labels = []
     for action in toolbar.actions():
@@ -173,13 +173,13 @@ def test_left_tools_and_file_icons(qt_app):
         assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
         assert not action.icon().isNull()
         labels.append(action.text())
-    assert labels == ["Yeni", "Aç", "Kaydet", "Ağı üret", "Çöz", "Durdur", "Ağ", "Sonuçlar"]
-    assert "Görünüme sığdır" not in labels
+    assert labels == ["New", "Open", "Save", "Generate mesh", "Solve", "Stop", "Mesh", "Results"]
+    assert "Fit view" not in labels
     assert window.status.fit_button.defaultAction() is window.fit_action
     assert window.fit_action.shortcut().toString() == "F2"
     strip = cad.tool_strip
     last = [a for a in strip.actions() if a.text()][-1]
-    assert last.text().startswith("Görünüme sığdır")
+    assert last.text().startswith("Fit view")
     window.close()
 
 

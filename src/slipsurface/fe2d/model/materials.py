@@ -203,7 +203,7 @@ class MaterialSpec:
         ``mb``, ``s`` follow from GSI, mi and the new ``D`` at constitutive build time.
         """
         if self.model != "hoek_brown":
-            raise ModelError("örselenme yalnız Hoek-Brown kaya malzemesinde tanımlanır")
+            raise ModelError("disturbance is only defined for Hoek-Brown rock")
         if not 0.0 <= D <= 1.0:
             raise ModelError(f"material '{self.name}': need 0 <= D <= 1")
         p = dict(self.params)

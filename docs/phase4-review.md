@@ -1,46 +1,48 @@
-# Faz 4 incelemesi ve Faz 5 geçişi
+# Phase 4 review and the move to Phase 5
 
-Başlangıç: `main` / `baeac4c`; önceki düzeltme dalı: PR #1 / `ac29dbd`.
-Ana dalın değişiklik öncesi benchmark dışı testi: **190 geçti** (Linux, Python 3.12).
-Bu geçiş tüm testlerin geçmesinin tek başına bünye doğruluğu kanıtı olmadığını gösterdi.
+Start: `main` / `baeac4c`; previous fix branch: PR #1 / `ac29dbd`.
+Benchmark-excluded test of the main branch before the change: **190 passed** (Linux, Python 3.12).
+This transition showed that passing every test is not, by itself, proof of constitutive correctness.
 
-## Tespit edilen ve düzeltilen durumlar
+## Findings that were identified and fixed
 
-| Bulgu | Sonuç / düzeltme | Kanıt |
+| Finding | Result / fix | Evidence |
 |---|---|---|
-| Ana dal MC dönüşü, akış yönleriyle ulaşılamayan denemeyi en yakın köşeye zorluyordu | PR #1'deki koni kontrolü ve `MaterialIntegrationError` taşındı; SRF yerel reddi göçme sınırı sayamaz | MC/apex/KKT ve P4 testleri |
-| İki geliştirme dalı farklı kayıt API'leri taşıyordu | İki format ve iki proje çağrı sırası korundu; Faz 4 su alanları ve hata geçmişleri gidiş-dönüşte tutuldu | Kayıt ve phase4/progress regresyonları |
-| Yakınsamayan sızma mekanik aşamaya aktarılıyordu | Mekanik çözüm başlamadan `SolverError`; akışın kendisi `converged=False` ile teşhis edilebilir | Zorlanmış başarısız Picard testi |
-| Tekil/izole sızma, çakışan yük sınırları ve geçersiz kontrol değerleri | Bağlı her bölge için hidrolik referans, sonlu/pozitif iletkenlik ve değer kontrolleri; tekil/NaN çözüm reddi | Bağlantısız bölge, sınır ve kontrol testleri |
-| Hız alanı bir sonraki Picard iletkenliğinden, debi önceki matristen hesaplanıyordu | Çıktıların tamamı çözülen aynı iletkenlik/matris durumuna bağlı | Hız/debi analitik karşılaştırması, W1–W3 |
-| HB'de ψ=0 ve ortalama çekme apex üzerinde olsa bile gerilme apex'e kırpılıyordu | Altı MC tipi potansiyelin negatif olmayan konisi; bulunamayan dönüş batch'i reddeder. Geçerli sabit apex tanjantı tam sıfır | Hacimsel akış, girdi korunması, apex türevi; C3 |
-| HB tekil iki-yüzey matrisinin belleği başlatılmadan kullanılabiliyordu | Matris sıfır başlatılır; tekil tanjant reddedilir | HB dönüş/tanjant testleri |
-| MCC yerel `LinAlgError`, global adım geri alma yolunu atlayabiliyordu | Yerel Jacobian/tanjant tekilliği `LocalIntegrationError` olarak taşınır; ortak malzeme hata ailesi | MCC C1/C2 ve girdi regresyonları |
-| Geçersiz Kw/n, hidrolik tuple ve MCC basınç ölçekleri kabul edilebiliyordu | Sonluluk/boyut/pozitiflik denetimi; yöntem B için φ=0 ve uygun dayanım modeli | Parametre regresyonları |
-| Yeni kalıntı geri izleme kodu tam NR'yi sessizce committed matrise geçiriyordu | PR #1'in tam NR/adım kesme yolu korundu; isteğe bağlı line search mevcut. Toleranslar değişmedi | P5 çekme platosu önce başarısız, düzeltmeden sonra geçti; C1/C2/S4 korundu |
-| Kazılmış hücreler görüntü/VTU'da kalıyor, NaN GP'ler komşu düğüm gerilmelerini bozuyordu | Aktif topoloji ile SPR/ortalama ve çıktı; kullanılmayan düğüm NaN'ı sıfıra çevrilmez | Kazı sınırında sonlu alan ve VTU/PyVista eşitliği |
-| Tam sıfır satır/sütunlu plastik rijitlik SuperLU'da BLAS parametre iletileri üretiyordu | Sonlu değer ve sıfır satır/sütun kontrolü faktörizasyondan önce; giriş matrisi korunur | P4 tekrarında BLAS iletisi yok; doğrudan matris regresyonu |
-| Sabit gerilme yuvarlaması ekranda sahte renk farkı oluşturuyordu | Bağıl 1e-10 altındaki renk aralığı tek renk; sayısal sonuç değiştirilmez | Native arayüz testi ve ekran kontrolü |
+| On main, the MC return forced a trial that the flow directions could not reach onto the nearest corner | The cone check and `MaterialIntegrationError` from PR #1 were carried over; an SRF local rejection cannot be a collapse bound | MC/apex/KKT and P4 tests |
+| The two development branches carried different record APIs | Both formats and both project call orders were kept; Phase 4 water fields and error histories survive a round trip | Record and phase4/progress regressions |
+| Unconverged seepage was passed into the mechanical stage | `SolverError` before the mechanical solve starts; the flow itself can be diagnosed with `converged=False` | Forced failed Picard test |
+| Singular/isolated seepage, conflicting head boundaries, and invalid control values | A hydraulic reference for every connected region, finite/positive conductivity, and value checks; singular/NaN solutions are rejected | Disconnected-region, boundary, and control tests |
+| The velocity field was taken from the next Picard conductivity, the discharge from the previous matrix | Every output is tied to the same solved conductivity/matrix state | Analytical velocity/discharge comparison, W1–W3 |
+| In HB, stress was clipped to the apex even when ψ=0 and the mean tension was above the apex | Non-negative cone of the six MC-type potentials; a return that cannot be found rejects the batch. A valid fixed-apex tangent is exactly zero | Volumetric flow, input preservation, apex derivative; C3 |
+| The memory of a singular HB two-surface matrix could be used before it was initialised | The matrix is zero-initialised; a singular tangent is rejected | HB return/tangent tests |
+| A local MCC `LinAlgError` could skip the global step-rollback path | Local Jacobian/tangent singularity is raised as `LocalIntegrationError`; shared material error family | MCC C1/C2 and input regressions |
+| Invalid Kw/n, hydraulic tuples, and MCC pressure scales could be accepted | Finiteness/size/positivity checks; for method B, φ=0 and a suitable strength model | Parameter regressions |
+| New residual backtracking silently switched full NR onto the committed matrix | The full NR/step-cut path from PR #1 was kept; optional line search is present. Tolerances were not changed | P5 tension plateau failed before the fix and passed after; C1/C2/S4 kept |
+| Excavated cells remained in the view/VTU, and NaN Gauss points corrupted neighbouring nodal stresses | SPR/averaging and output use the active topology; an unused-node NaN is not turned into zero | Finite field at the excavation boundary and VTU/PyVista equality |
+| A plastic stiffness with an entirely zero row/column produced BLAS parameter messages in SuperLU | Finite-value and zero row/column checks before factorisation; the input matrix is preserved | No BLAS message on the P4 repeat; direct matrix regression |
+| Rounding of a constant stress produced a false colour difference on screen | A colour range below a relative 1e-10 is a single colour; the numerical result is not changed | Native interface test and screen check |
 
-Hoek–Brown'a yeni çekme potansiyeli eklenmedi. ψ=0 altında hacim koruyan akışın
-ulaşamadığı hidrostatik deneme artık açık hata verir; farklı akış isteniyorsa ayrıca
-adlandırılıp doğrulanması gerekir. Dış programlardaki HB seçenekleriyle otomatik
-özdeşlik iddiası yoktur.
+No new tension potential was added to Hoek–Brown. A hydrostatic trial that volume-preserving
+flow at ψ=0 cannot reach now raises an explicit error; a different flow, if wanted, has to
+be named and verified separately. There is no claim of automatic identity with the HB
+options of external programs.
 
-## Doğrulama
+## Verification
 
-**Nihai yerel koşu: 397 geçti, 1 strict xfail, 2 benchmark hariç; 86.42 s.**
-PySide6 ve PyVista testleri çalıştı; atlanan modül yok. Ruff, `git diff --check`,
-masaüstü `--help` komutu ve wheel derlemesi başarılı. BLAS parametre hata iletisi
-çıkmadı. Benchmark kapısı ve Windows portable bu koşuda doğrulanmadı.
-Test toleransları gevşetilmedi.
-Eski hatalı MC testi, akış kuralının ihlal edilmesini zorunlu kılmak yerine açık
-Rankine seçeneğini ve kesmesiz modelin reddini ayrı kontrol eder. ψ=0 HB rastgele
-kabul testi ortalama basınçta çalışır; çekme engeli ayrı red testiyle korunur.
+**Final local run: 397 passed, 1 strict xfail, 2 benchmarks excluded; 86.42 s.**
+The PySide6 and PyVista tests ran; no module was skipped. Ruff, `git diff --check`,
+the desktop `--help` command, and the wheel build succeeded. No BLAS parameter error
+message appeared. The benchmark gate and the Windows portable build were not verified
+in this run.
+Test tolerances were not relaxed.
+The old incorrect MC test checks the explicit Rankine option and the rejection of the
+model without a tension cut-off separately, instead of requiring the flow rule to be
+violated. The ψ=0 HB random acceptance test runs in mean compression; the tension
+barrier is protected by a separate rejection test.
 
-Ortam: Linux x86-64, Python 3.12, NumPy 2.3.5, SciPy 1.17.0, Numba 0.68.0,
-h5py 3.16.0; Qt offscreen ve PyVista kurulu. Windows yerel çalıştırması bu ortamda
-yapılmadı; CI matrisinin görevidir.
+Environment: Linux x86-64, Python 3.12, NumPy 2.3.5, SciPy 1.17.0, Numba 0.68.0,
+h5py 3.16.0; Qt offscreen and PyVista installed. A local Windows run was not done in
+this environment; that is the CI matrix’s job.
 
 ```bash
 ruff check src tests
@@ -49,4 +51,4 @@ QT_QPA_PLATFORM=offscreen OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
 python -m pip wheel --no-deps . -w /tmp/fea-dist
 ```
 
-**S4 dış karşılaştırması ertelendi. Eski kesmesiz P4 strict xfail. Kapı 5 ve v1.0 açık.**
+**The S4 external comparison was deferred. Legacy uncut P4 is a strict xfail. Gate 5 and v1.0 are open.**

@@ -1,157 +1,168 @@
-# Açık çekme kesmesi ve çakışan apex
+# Explicit tension cut-off and a coincident apex
 
-`MaterialSpec.mohr_coulomb(..., sig_t=0.)` artık c=0 durumunda da açıkça verilen
-Rankine çekme potansiyelini korur. Önceki `sig_t >= apex` koşulu, kesme düzlemi MC
-apex'iyle çakıştığında bu seçimi devre dışı bırakıyordu. `sig_t=None` kesme
-potansiyeli eklemez; bu varsayılan değiştirilmedi. Apex'in üstündeki kesme düzlemi
-MC bölgesinde etkin olmadığından yine devre dışıdır.
+`MaterialSpec.mohr_coulomb(..., sig_t=0.)` now keeps an explicitly given Rankine
+tension potential even when c=0. The previous `sig_t >= apex` condition disabled that
+choice when the cut-off plane coincided with the MC apex. `sig_t=None` does not add a
+cut-off potential; that default was not changed. A cut-off plane above the apex is
+still disabled, because it is not active inside the MC region.
 
-`MaterialSpec.mohr_coulomb(..., rankine_at_apex=True)` aynı ilişkili Rankine
-akışını mevcut MC apex'inde açıkça seçer. Sayısal `sig_t` ile birlikte verilmez;
-φ>0 gerektirir. Bu seçenek her SRF modelinde sınırı yeniden hesaplar ve tam eşit
-`sig_t=apex` kullanır. `c/F` ve `tanφ/F` aynı anda azaltıldığından analitik apex
-değişmez; yine de iki ayrı kayan nokta hesabının karşılaştırılması gerekmez.
-Varsayılan `False` eski MC akışını korur. Model/sonuç kaydında seçenek saklanır.
+`MaterialSpec.mohr_coulomb(..., rankine_at_apex=True)` explicitly selects the same
+associated Rankine flow at the existing MC apex. It is not given together with a
+numerical `sig_t`; it requires φ>0. This option recomputes the limit on every SRF
+model and uses exact equality `sig_t=apex`. Because `c/F` and `tanφ/F` are reduced
+together, the analytical apex does not change; a comparison of two separate
+floating-point evaluations is still not required. The default `False` keeps the old
+MC flow. The option is stored in the model/result record.
 
-## Yöntem ve yerel kontroller
+## Method and local checks
 
 Clausen–Damkilde (2006), *A simple and efficient FEM-implementation of the Modified
-Mohr-Coulomb criterion*, MC ile Rankine yüzeylerinin birleşimini; MC için ilişkisiz,
-Rankine için ilişkili akışla tarif eder. Dönüş ve tanjant asal gerilme uzayında
-hesaplanır. [Yazarların üniversitesindeki kaynak PDF](https://vbn.aau.dk/ws/portalfiles/portal/5145833/ClausenDamkilde.pdf),
-özellikle Eş. 1–6 ve 16. Aşağıdaki çakışma kontrolü bu denklemlerden türetilen
-yerel uygulama kontrolüdür; makalede bu yazılımın doğrulandığı iddia edilmez.
+Mohr-Coulomb criterion*, describes the union of the MC and Rankine surfaces, with
+non-associated flow for MC and associated flow for Rankine. The return and the tangent
+are computed in principal-stress space. [Source PDF at the authors’ university](https://vbn.aau.dk/ws/portalfiles/portal/5145833/ClausenDamkilde.pdf),
+in particular Eqs. 1–6 and 16. The coincidence check below is a local implementation
+check derived from those equations; the paper is not claimed to have verified this software.
 
-σt = c·cotφ noktasında altı MC ve üç Rankine potansiyeli birlikte etkindir.
-Köşe dönüşünde kabul edilebilir düzeltme konisi bu dokuz yönü kapsar. Yalnızca
-üç Rankine yönünü denemek, karışık kayma/çekme düzeltmelerini kaçırabilir.
-Çakışma testi deneme gerilmesinin büyüklüğüne göre değil yüzey parametrelerinin
-makine hassasiyetindeki farkına göre yapılır.
+At the point σt = c·cotφ, six MC potentials and three Rankine potentials are active
+together. In a corner return, the admissible correction cone spans these nine
+directions. Trying only the three Rankine directions can miss mixed shear/tension
+corrections. The coincidence test is based on the difference of the surface parameters
+at machine precision, not on the magnitude of the trial stress.
 
-ψ=0 için MC düzeltmeleri eş-hacimlidir. Ortalama deneme gerilmesi ortak apex'in
-üstündeyse Rankine hacimsel akışı gerekir. σ1=σt=apex ve MC kabul edilebilirliği
-birlikte σ2=σ3=apex gerektirir. Bu bölgenin gerilmesi sabittir; tanjantı tam sıfırdır.
-Eski 1e-8·D köşe rijitliği kaldırıldı. Bu sıfır tanjanttan boşaltmaya başlarken
-önceki durumun matrisi tekilse ilk Newton tahmini elastik matrisle yapılır.
-Sonraki NR iterasyonlarında gerçek malzeme tanjantı kullanılır; tekil iterasyon
-tanjantı varsayılan olarak elastik matrisle değiştirilmez.
+For ψ=0 the MC corrections are isochoric. If the mean trial stress is above the common
+apex, Rankine volumetric flow is required. σ1=σt=apex together with MC admissibility
+requires σ2=σ3=apex. The stress in this region is constant; its tangent is exactly zero.
+The old 1e-8·D corner stiffness was removed. When unloading starts from this zero
+tangent, the first Newton predictor uses the elastic matrix if the previous state’s
+matrix is singular. In later NR iterations the real material tangent is used; a singular
+iteration tangent is not replaced by the elastic matrix by default.
 
-## Erken apex dönüşü ve isteğe bağlı iterasyon rijitliği
+## Early apex return and optional iteration stiffness
 
-Çekirdekte yerel Newton döngüsü yerine asal gerilmelerde analitik aktif-küme
-adayları denenir. Standart düzlem/kenar adaylarından önce şu özel kontrol vardır:
-ψ=0, φ>0, açık Rankine sınırı MC apex'iyle çakışıyor, deneme akmış ve deneme
-ortalaması apex'e eşit veya üstünde. Düzeltmenin altı MC ve üç Rankine
-potansiyelinin negatif olmayan birleşimi olduğu ayrıca kontrol edilir. Kabul
-edilirse dört bileşenli gerilme `(apex, apex, apex, 0)` ve tam sıfır tanjant
-döner. İzotropik sabit gerilmenin dönüşümünde `cos²+sin²` yuvarlaması da önlenir.
+In the core, analytical active-set candidates in principal stress are tried instead of
+a local Newton loop. Before the standard plane/edge candidates there is this special
+check: ψ=0, φ>0, the explicit Rankine limit coincides with the MC apex, the trial has
+yielded, and the trial mean is at or above the apex. It is also checked that the
+correction is a non-negative combination of the six MC and three Rankine potentials.
+If it is accepted, the four-component stress `(apex, apex, apex, 0)` and an exactly
+zero tangent are returned. Rounding of `cos²+sin²` in the transformation of an
+isotropic constant stress is also avoided.
 
-Yalnız ortalama gerilme koşulu genel bir apex testi değildir: örneğin c=10,
-φ=30°, ψ=5°/30° ve deneme asal gerilmeleri (300,−100,−110) kPa iken ortalama
-apex üzerindedir ama kabul edilebilir dönüş kayma yüzeyinedir. Regresyon testi
-bu durumlarda yanlış apex kırpmasını engeller. Daha düşük bir Rankine kesmesi
-de bu erken bloğu kullanmaz. Akış seçilmemişse yerel hata korunur.
+The mean-stress condition alone is not a general apex test: for example, with c=10,
+φ=30°, ψ=5°/30° and trial principal stresses (300,−100,−110) kPa, the mean is above
+the apex but the admissible return is onto the shear surface. A regression test
+prevents a wrong apex clip in these cases. A lower Rankine cut-off does not use this
+early block either. If the flow was not selected, the local error is kept.
 
-Sabit dönüş bölgesinin içinde `dσ/dε=0`'dır; yüzey geçişinde klasik türev tek
-olmayabilir. `ε·D_elastic`, bu sabit dönüşün **tutarlı türevi değildir**. İstenen
-sayısal seçenek `SolverSettings(apex_stiffness_ratio=1e-6)` ile ayrı tutulur:
+Inside the fixed return region `dσ/dε=0`; at a surface transition the classical
+derivative may not be unique. `ε·D_elastic` is **not** the consistent derivative of
+this fixed return. The requested numerical option is kept separate with
+`SolverSettings(apex_stiffness_ratio=1e-6)`:
 
-- Yalnız MC apex'inde, plastik bayraklı ve tam sıfır tanjantlı GP'lerin Newton
-  faktörleme matrisi için `ratio·D_elastic` kullanılır. Diğer GP'ler/yapılar korunur.
-- Gerilme, iç değişken, iç kuvvet, kabul ölçütleri ve kaydedilen gerçek malzeme
-  tanjantı değişmez. Elastik veya daha düşük Rankine köşeleri etkilenmez.
-- `0` varsayılandır; kapalı durumda tam tanjant kullanılır. Etkin seçenek yaklaşık
-  Newton matrisidir; global tekilliği, iyi koşullanmayı veya dengeyi garanti etmez.
-- `--audit` içindeki son kabul edilen tanjant raporu gerçek tanjanta aittir;
-  seçenek açıkken faktörlenen yaklaşık matrisle aynı olduğu varsayılmamalıdır.
+- Only for Gauss points at the MC apex, with the plastic flag set and an exactly zero
+  tangent, `ratio·D_elastic` is used for the Newton factorisation matrix. Other Gauss
+  points/structures are unchanged.
+- Stress, internal variables, internal force, the acceptance criteria, and the stored
+  real material tangent do not change. Elastic corners, or lower Rankine corners, are
+  not affected.
+- `0` is the default; when it is off, the exact tangent is used. The active option is
+  an approximate Newton matrix; it does not guarantee global non-singularity, good
+  conditioning, or equilibrium.
+- The last accepted tangent report inside `--audit` belongs to the real tangent; when
+  the option is on it must not be assumed to be the same as the approximate matrix
+  that was factored.
 
-Kayıtlı P4/palplanş girdileri açık seçenekle kabul edilebilir apex gerilmesine
-döner. Bağımsız NNLS ayrıştırması, MC/Rankine potansiyellerinde negatif olmayan
-çarpanlar ve gereken pozitif toplam Rankine çarpanını doğrular. Gerçek tanjant
-sonlu farkla; yaklaşık matrisin kapsamı, giriş dizilerinin değişmezliği ve
-0/1e-8/1e-6/1e-4 ile yükleme–boşaltma–yeniden yükleme yolu ayrıca kontrol edilir.
+The recorded P4/sheet-pile inputs return to an admissible apex stress with the explicit
+option. An independent NNLS decomposition confirms non-negative multipliers on the
+MC/Rankine potentials and the required positive total Rankine multiplier. The real
+tangent is checked by finite difference; the scope of the approximate matrix, invariance
+of the input arrays, and the load–unload–reload path at 0/1e-8/1e-6/1e-4 are checked
+separately.
 
-## P4: açık Rankine-apex modeli
+## P4: explicit Rankine-apex model
 
 ```bash
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/slope_strength_reduction.py --rankine-at-apex --output /tmp/p4-exact.json
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/slope_strength_reduction.py --rankine-at-apex --apex-stiffness-ratio 1e-6 --output /tmp/p4-approximate.json
 ```
 
-E=100000 kPa, ν=0.3, c=10 kPa, φ=20°, ψ=0, γ=20 kN/m³; önceki geometri,
-mesnetler ve toleranslar korunur. Başarısız yerel dönüş SRF göçme sınırı sayılamaz.
-Burada eklenen akış yalnız MC apex'indedir; MC'nin elastik gerilme bölgesi
-daralmaz. Sıfır çekme dayanımlı farklı bir zemin seçilmemiştir.
+E=100000 kPa, ν=0.3, c=10 kPa, φ=20°, ψ=0, γ=20 kN/m³; the previous geometry,
+supports, and tolerances are kept. A failed local return cannot be counted as an SRF
+collapse bound. The flow added here is only at the MC apex; the elastic stress region
+of MC is not narrowed. A different soil with zero tensile strength was not selected.
 
-| h [m] | Düğüm | Apex iterasyon katsayısı | Kabul edilen F | Başarısız üst F |
+| h [m] | Nodes | Apex iteration factor | Accepted F | Failed upper F |
 |---:|---:|---:|---:|---:|
 | 1.5 | 1259 | 0 | 1.396484 | 1.406250 |
 | 1.5 | 1259 | 1e-8 | 1.396484 | 1.406250 |
 | 1.5 | 1259 | 1e-6 | 1.396484 | 1.406250 |
 | 1.0 | 2539 | 0 | 1.376953 | 1.386719 |
 
-Bu koşularda yerel ret yoktur. Kaba ağın tam tanjant koşusunda üst denemelerde
-tekil global matris retleri görüldü; 1e-6 koşusunda retler kalıntı duraklamasıydı.
-Her iki yaklaşım aynı alt/üst aralığı verdi. Süreler performans ölçütü değildir.
-İki ağ seviyesi tam ağ yakınsaması veya bütün modellerde katsayı bağımsızlığı
-kanıtı değildir.
+There is no local rejection in these runs. On the coarse mesh with the exact tangent,
+singular global-matrix rejections were seen on the upper trials; at 1e-6 the rejections
+were residual stall. Both approaches gave the same lower/upper bracket. The timings
+are not a performance criterion. Two mesh levels are not proof of full mesh
+convergence, or of factor independence on every model.
 
-`test_slope_factor_of_safety`, h=1.5 tam/1e-6 ve h=1.0 tam tanjant için önceki
-%3 Bishop, ≤0.01 aralık ve mekanizma-konumu ölçütlerini korur; kabul edilen
-gerilmelerin azaltılmış akma yüzeyine uygunluğu ayrıca kontrol edilir.
-[Griffiths–Lane (1999), yazarın kaynağı](https://inside.mines.edu/~vgriffit/slope64/Griffiths%20and%20Lane%201999)
-Örnek 1'de Bishop 1.38 ve FE 1.4 civarındaki geçişi verir. Bu, orijinal yazarların
-aynı apex akışını kullandığı iddiası değildir; bizim açıkça belgelenmiş model
-tamamlamamızın karşılaştırmasıdır. Eski kesmesiz test
-`test_legacy_slope_without_rankine_apex_flow` adıyla strict xfail kalır.
+`test_slope_factor_of_safety` keeps the previous 3% Bishop, ≤0.01 bracket, and
+mechanism-location criteria for h=1.5 exact/1e-6 and h=1.0 exact tangent; admissibility
+of the accepted stresses on the reduced yield surface is checked as well.
+[Griffiths–Lane (1999), the author’s source](https://inside.mines.edu/~vgriffit/slope64/Griffiths%20and%20Lane%201999)
+Example 1 reports a Bishop value of 1.38 and an FE pass around 1.4. This is not a claim
+that the original authors used the same apex flow; it is a comparison of our explicitly
+documented model completion. The legacy test without a cut-off remains a strict xfail
+under the name `test_legacy_slope_without_rankine_apex_flow`.
 
-`test_mc_coincident_cutoff.py`: c=0/10 kPa, hidrostatik ve karışık çekme/kayma
-yollarında analitik apex gerilmesi, kabul edilebilirlik ve sonlu farkla sıfır
-tanjant; kesme verilmediğinde hatanın korunması; ilişkili MC köşe tanjantı.
-`test_coincident_tension_path.py`: T3/T6/Q4/Q8 ile başlangıç basıncından çekmeye,
-elastik boşaltmaya ve yeniden yüklemeye analitik gerilme yolu ve kuvvet dengesi.
-Bu testte homojen deformasyonu dayatan düğüm değerleri, merkezde bir serbest
-yatay DOF bırakılarak uygulanır; genel serbest plastik çekme alanının tekilliği
-gizlenmez. Newton tahmini için geri dönüş kapsamı ayrı birim testleriyle sınırlanır.
+`test_mc_coincident_cutoff.py`: analytical apex stress, admissibility, and a zero
+tangent by finite difference on c=0/10 kPa, hydrostatic, and mixed tension/shear
+paths; the error is kept when no cut-off is given; associated MC corner tangent.
+`test_coincident_tension_path.py`: analytical stress path and force balance with
+T3/T6/Q4/Q8 from initial compression into tension, elastic unloading, and reloading.
+In this test the nodal values that impose a homogeneous strain are applied while
+leaving one free horizontal DOF at the centre; the singularity of a general free
+plastic tension field is not hidden. The scope of the return for the Newton predictor
+is limited by separate unit tests.
 
-## Palplanşta açık malzeme seçimi
+## Explicit material choice on the sheet pile
 
-Bu belgedeki palplanş sayısal kayıtları, iki taraflı ara yüzün gömülü uç
-bağlantısı düzeltilmeden önce alındı. Eski model ikinci eklenen tarafta ucu
-ayırıyordu; güncel kod iki tarafta da ucu ortak tutar. Eski değerler tanı
-geçmişidir; güncel model ve tekrarlar [S4 protokolündedir](s4-comparison.md).
+The sheet-pile numerical records in this document were taken before the embedded-tip
+connection of the two-sided interface was fixed. The old model split the tip on the
+second side that was added; the current code keeps the tip shared on both sides. The
+old values are diagnostic history; the current model and the replays are in the
+[S4 protocol](s4-comparison.md).
 
 ```bash
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/compare_sheet_pile_meshes.py --sizes 0.5 0.25 --gauss-order high --soil-tension 0 --csv /tmp/pile-cutoff-high.csv
 ```
 
-`--soil-tension 0` kullanıcı tarafından seçilen ilişkili çekme akışını etkinleştirir;
-parametre atlanırsa eski kesmesiz model korunur. CLI bu seçimi CSV/JSON tanısına
-kaydeder. Zemin E, ν, c, φ, ψ ve γ değerleri, ara yüz, sınırlar ve toleranslar
-değişmez. Buna rağmen çekme akışı farklı bir malzeme tanımıdır; önceki kesmesiz
-modelin doğrulanmış çözümü olarak sunulamaz.
+`--soil-tension 0` enables the associated tensile flow chosen by the user; if the
+parameter is omitted, the legacy model without a cut-off is kept. The CLI records this
+choice in the CSV/JSON diagnosis. The soil E, ν, c, φ, ψ, and γ, the interface, the
+boundaries, and the tolerances do not change. Even so, tensile flow is a different
+material definition; it cannot be presented as the verified solution of the previous
+model without a cut-off.
 
-Uç düzeltmesi öncesinde high integrasyonda dört koşu da kazıyı λ=1'e kadar tamamladı:
+Before the tip fix, all four high-integration runs completed the excavation up to λ=1:
 
-| h (m) | Ağ | Maksimum \|M\| (kNm/m) | Maksimum düğüm \|u\| (m) |
+| h (m) | Mesh | Maximum \|M\| (kNm/m) | Maximum nodal \|u\| (m) |
 |---|---|---:|---:|
 | 0.50 | T6 | 164.401016 | 0.04105281 |
 | 0.50 | T6+Q8 | 163.801169 | 0.03965327 |
 | 0.25 | T6 | 167.731475 | 0.04239181 |
 | 0.25 | T6+Q8 | 167.943773 | 0.04199557 |
 
-İnce ağda moment farkı %0.127, maksimum yer değiştirme normu farkı %0.935'tir.
-Kaba/ince moment değişimi T6 için %2.03, karma ağ için %2.53'tür. İki ağ
-seviyesinin bu uyumu tam ağ yakınsaması veya bağımsız doğrulama değildir.
-Tek ortamın süreleri performans garantisi olarak kullanılmaz.
+On the fine mesh the moment difference is 0.127% and the maximum displacement-norm
+difference is 0.935%. The coarse/fine moment change is 2.03% for T6 and 2.53% for the
+mixed mesh. Agreement of two mesh levels is not full mesh convergence or independent
+verification. Runtimes of a single machine are not used as a performance guarantee.
 
-S4'ün bağımsız araç referansı ve P4'ün eski kesmesiz yük yolu hâlâ açıktır.
-P4'ün açık Rankine-apex kapsamı yukarıda ayrıdır; Kapı 3 kapatılmadı.
+The independent-tool reference for S4, and the legacy uncut load path for P4, are still
+open. The explicit Rankine-apex scope of P4 is separate above; Gate 3 was not closed.
 
-Yeni açık apex seçimi ve 1e-6 iterasyon katsayısıyla h=0.5 karma/high palplanş
-kontrolü de λ=1'e ulaştı: maksimum |M|=163.801169 kNm/m, maksimum düğüm normu
-0.039653270 m, yerel ret sayısı 0. Bu c=0 modelinde apex zaten 0'dır; sonuç
-yukarıdaki açık σt=0 koşusuyla uyuşur. Bu tekrar bağımsız S4 referansı değildir.
+The new explicit apex choice, with an iteration factor of 1e-6, also reached λ=1 on
+the h=0.5 mixed/high sheet pile: maximum |M|=163.801169 kNm/m, maximum nodal norm
+0.039653270 m, local rejection count 0. In this c=0 model the apex is already 0; the
+result agrees with the explicit σt=0 run above. This repeat is not an independent S4 reference.
 
 ```bash
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/diagnose_sheet_pile.py --size 0.5 --mixed --gauss-order high --rankine-at-apex --apex-stiffness-ratio 1e-6 --output /tmp/pile-apex.json

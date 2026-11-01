@@ -1,9 +1,9 @@
 """SlipSurfaceIQ-FEA desktop shell, adapted from the SlipSurfaceIQ-LE modeler.
 
 menu bar
-workflow bar   Geometri › Destekler › Mesnet/yük › Ağ › Malzemeler › Aşamalar › Çöz › Sonuçlar
+workflow bar   Geometry › Supports › Fixity/load › Mesh › Materials › Stages › Solve › Results
                with a "next step" hint; finished steps are ticked
-left dock      Belge Görüntüleyici (aşamalar, model özeti) + Görüntüleme Seçenekleri
+left dock      Document viewer (stages, model summary) + Display options
 centre         result canvas + field selectors + solve log
 status bar     hints, coordinates, SNAP / GRID / ORTHO toggles
 """
@@ -63,14 +63,14 @@ from .worker import SolveWorker
 from .workflow import WorkflowBar
 
 STEPS = [
-    "Geometri",
-    "Destekler",
-    "Mesnet / yük",
-    "Ağ",
-    "Malzemeler",
-    "Aşamalar",
-    "Çöz",
-    "Sonuçlar",
+    "Geometry",
+    "Supports",
+    "Fixity / load",
+    "Mesh",
+    "Materials",
+    "Stages",
+    "Solve",
+    "Results",
 ]
 
 
@@ -78,11 +78,11 @@ class ModelFileError(ModelError):
     """A project/model file is not valid JSON — report the file, not just the parse."""
 
     def __init__(self, name: str, exc: json.JSONDecodeError) -> None:
-        where = f"satır {exc.lineno}, kolon {exc.colno}"
+        where = f"line {exc.lineno}, column {exc.colno}"
         super().__init__(
-            f"'{name}' JSON olarak okunamadı ({where}). "
-            f"Dosya bir SlipSurfaceIQ-FEA modeli (.ssproj / model JSON) değil "
-            "veya bozuk. Detay: " + str(exc)
+            f"'{name}' could not be read as JSON ({where}). "
+            f"The file is not a SlipSurfaceIQ-FEA model (.ssproj / model JSON) "
+            "or it is corrupt. Detail: " + str(exc)
         )
 
 
@@ -92,7 +92,7 @@ class MainWindow(QMainWindow):
         from .preferences import apply_theme
 
         apply_theme()
-        self.setWindowTitle("SlipSurfaceIQ-FEA · Masaüstü")
+        self.setWindowTitle("SlipSurfaceIQ-FEA · Desktop")
         self.resize(1280, 840)
         self.setIconSize(QSize(24, 24))
         self.model = self.result = None
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         # Clip instead of widening the window on small screens; the tooltip keeps the text.
         self.guidance.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         # Full-width row above the dock, so the project panel never squeezes the steps.
-        flow_bar = QToolBar("İş akışı")
+        flow_bar = QToolBar("Workflow")
         flow_bar.setObjectName("workflow_bar")
         flow_bar.setMovable(False)
         flow = QWidget()
@@ -175,7 +175,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.workspace, 1)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText("Çözüm günlüğü")
+        self.log.setPlaceholderText("Solve log")
         self.log_panel = self.log
         split.addWidget(self.log)
         split.setStretchFactor(0, 1)
@@ -186,14 +186,14 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 100)
         result_layout.addWidget(self.progress)
         self.setCentralWidget(root)
-        self.status.showMessage("Hazır · Birimler kN, m, kPa · Gerilmede çekme pozitif")
+        self.status.showMessage("Ready · Units kN, m, kPa · Tension positive in stress")
         self._view_menu()
         self._restore_layout()
         self.set_model(None)
 
     def _build_dock(self):
-        """Left dock: Belge Görüntüleyici (aşama listesi + özet) ve Görüntüleme
-        Seçenekleri (alan, deformasyon ölçeği, kaplamalar) — LE modeler layout."""
+        """Left dock: document viewer (stage list + summary) and display
+        options (field, deformation scale, overlays) — LE modeler layout."""
         self.stages = QListWidget()
         self.stages.currentRowChanged.connect(self._on_stage_list_changed)
         self.summary = QLabel()
@@ -225,27 +225,27 @@ class MainWindow(QMainWindow):
         self.deform.setRange(0, 1e6)
         self.deform.setValue(1.0)
         self.deform.valueChanged.connect(self.draw)
-        self.principal = QCheckBox("Asal oklar")
-        self.plastic_points = QCheckBox("Plastik noktalar")
+        self.principal = QCheckBox("Principal arrows")
+        self.plastic_points = QCheckBox("Plastic points")
         for checkbox in (self.principal, self.plastic_points):
             checkbox.toggled.connect(self.draw)
-        reset = QPushButton("Varsayılanlara dön")
+        reset = QPushButton("Restore defaults")
         reset.clicked.connect(self._reset_display)
         dock_split = QSplitter(Qt.Orientation.Vertical)
         left = QVBoxLayout()
-        left.addWidget(QLabel("BELGE GÖRÜNTÜLEYİCİ"))
+        left.addWidget(QLabel("DOCUMENT VIEWER"))
         left.addWidget(self.stages, 1)
         left.addWidget(self.summary)
         viewer = QWidget()
         viewer.setLayout(left)
         right = QVBoxLayout()
-        right.addWidget(QLabel("GÖRÜNTÜLEME SEÇENEKLERİ"))
+        right.addWidget(QLabel("DISPLAY OPTIONS"))
         row = QHBoxLayout()
-        row.addWidget(QLabel("Alan"))
+        row.addWidget(QLabel("Field"))
         row.addWidget(self.fields, 1)
         right.addLayout(row)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Deformasyon ×"))
+        row.addWidget(QLabel("Deformation ×"))
         row.addWidget(self.deform)
         right.addLayout(row)
         right.addWidget(self.principal)
@@ -303,17 +303,17 @@ class MainWindow(QMainWindow):
         if meshed and self.result is not None:
             done.update({6, 7})
         if self.worker is not None:
-            hint = "Çözüm sürüyor · ■ Durdur ile iptal"
+            hint = "Solve running · ■ Stop to cancel"
         elif 0 not in done:
-            hint = "Sıradaki: Geometri menüsünden zemin bölgesi çizin"
+            hint = "Next: draw a soil region from the Geometry menu"
         elif 2 not in done:
-            hint = "Sıradaki: Mesnet / yük tablosunda ux/uy işaretleyin"
+            hint = "Next: check ux/uy in the fixity / load table"
         elif 3 not in done:
-            hint = "Sıradaki: Ağı üret (Ctrl+M)"
+            hint = "Next: generate the mesh (Ctrl+M)"
         elif 6 not in done:
-            hint = "Sıradaki: Malzeme ve aşamaları kontrol edip Çöz (F5)"
+            hint = "Next: check materials and stages, then Solve (F5)"
         else:
-            hint = "Sonuçlar hazır · Sonuç incele / Sonuç aktar menüleri"
+            hint = "Results ready · Inspect results / Export results menus"
         return done, hint
 
     def _update_guidance(self, *_):
@@ -325,22 +325,22 @@ class MainWindow(QMainWindow):
         self.guidance.setToolTip(hint)
 
     def _view_menu(self):
-        menu = self.menuBar().addMenu("Görünüm")
+        menu = self.menuBar().addMenu("View")
         menu.addAction(self.fit_action)
         menu.addSeparator()
         # The dock is hidden by design while drawing; this is the results-view choice.
-        self.dock_action = QAction("Proje paneli", self)
+        self.dock_action = QAction("Project panel", self)
         self.dock_action.setCheckable(True)
         self.dock_action.setChecked(True)
         self.dock_action.toggled.connect(self._dock_toggled)
         menu.addAction(self.dock_action)
-        self.log_action = QAction("Çözüm günlüğü paneli", self)
+        self.log_action = QAction("Solve log panel", self)
         self.log_action.setCheckable(True)
         self.log_action.setChecked(True)
         self.log_action.toggled.connect(self.log_panel.setVisible)
         menu.addAction(self.log_action)
         menu.addSeparator()
-        reset = QAction("Yerleşimi sıfırla", self)
+        reset = QAction("Reset layout", self)
         reset.triggered.connect(self.reset_layout)
         menu.addAction(reset)
 
@@ -388,7 +388,7 @@ class MainWindow(QMainWindow):
         store.setValue("main/log", self.log_action.isChecked())
 
     def _actions(self):
-        toolbar = QToolBar("Çalışma alanı")
+        toolbar = QToolBar("Workspace")
         toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
@@ -410,42 +410,42 @@ class MainWindow(QMainWindow):
                 button.setAutoRaise(True)
             return a
 
-        file_menu = self.menuBar().addMenu("Dosya")
+        file_menu = self.menuBar().addMenu("File")
         for title, slot, shortcut, ic in [
-            ("Yeni", self.new_model, "Ctrl+N", "new"),
-            ("Aç", self.open_dialog, "Ctrl+O", "open"),
-            ("Kaydet", self.save_dialog, "Ctrl+S", "save"),
+            ("New", self.new_model, "Ctrl+N", "new"),
+            ("Open", self.open_dialog, "Ctrl+O", "open"),
+            ("Save", self.save_dialog, "Ctrl+S", "save"),
         ]:
             a = action(title, slot, shortcut, ic)
             a.setToolTip(f"{title} ({shortcut})")
             add_icon(a)
             file_menu.addAction(a)
             self.edit_actions.append(a)
-        file_menu.addAction(action("Parametrik dikdörtgen model…", self.new_mesh_model))
+        file_menu.addAction(action("Parametric rectangle model…", self.new_mesh_model))
         for title, method in [
-            ("Çizim aç…", "open_drawing"),
-            ("Çizim kaydet…", "save_drawing"),
-            ("DXF al…", "import_dxf"),
-            ("DXF ver…", "export_dxf"),
+            ("Open drawing…", "open_drawing"),
+            ("Save drawing…", "save_drawing"),
+            ("Import DXF…", "import_dxf"),
+            ("Export DXF…", "export_dxf"),
         ]:
             file_menu.addAction(
                 action(title, lambda _=False, m=method: self.drawing_file_action(m))
             )
         file_menu.addSeparator()
-        self.examples_menu = file_menu.addMenu("Örnekler")
+        self.examples_menu = file_menu.addMenu("Examples")
         for title, slot in [
-            ("Dört aşamalı tünel", self.open_tunnel_example),
-            ("Aşamalı iksa kazısı (palplanş + ankraj)", self.open_excavation_example),
-            ("İki tabakalı şerit temel", self.open_footing_example),
+            ("Four-stage tunnel", self.open_tunnel_example),
+            ("Staged excavation (sheet pile + anchor)", self.open_excavation_example),
+            ("Two-layer strip footing", self.open_footing_example),
         ]:
             ex_action = action(title, slot)
             self.examples_menu.addAction(ex_action)
             self.edit_actions.append(ex_action)
-        edit_menu = self.menuBar().addMenu("Düzenle")
+        edit_menu = self.menuBar().addMenu("Edit")
         for title, method in [
-            ("Geri al", "undo"),
-            ("Yinele", "redo"),
-            ("Seçileni sil", "delete_entity"),
+            ("Undo", "undo"),
+            ("Redo", "redo"),
+            ("Delete selection", "delete_entity"),
         ]:
             edit_menu.addAction(
                 action(title, lambda _=False, m=method: self.drawing_file_action(m))
@@ -453,88 +453,90 @@ class MainWindow(QMainWindow):
         # Modelling steps live in the numbered workflow bar; the toolbar keeps file/run.
         model_menu = self.menuBar().addMenu("Model")
         for title, slot in [
-            ("Geometri / CAD", self.edit_geometry),
-            ("Malzemeler…", self.edit_materials),
-            ("Yapılar (çizim)", self.edit_structures),
-            ("Sınırlar (ağ kümeleri)…", self.edit_boundaries),
-            ("Aşamalar…", self.edit_stages),
+            ("Geometry / CAD", self.edit_geometry),
+            ("Materials…", self.edit_materials),
+            ("Structures (drawing)", self.edit_structures),
+            ("Boundaries (mesh sets)…", self.edit_boundaries),
+            ("Stages…", self.edit_stages),
         ]:
             a = action(title, slot)
             model_menu.addAction(a)
             self.edit_actions.append(a)
         toolbar.addSeparator()
-        self.mesh_action = action("Ağı üret", self.build_mesh, "Ctrl+M", "mesh")
-        self.mesh_action.setToolTip("Ağı üret (Ctrl+M)")
+        self.mesh_action = action("Generate mesh", self.build_mesh, "Ctrl+M", "mesh")
+        self.mesh_action.setToolTip("Generate mesh (Ctrl+M)")
         add_icon(self.mesh_action)
         self.edit_actions.append(self.mesh_action)
-        self.run_action = action("Çöz", self.start_solve, "F5", "compute")
-        self.run_action.setToolTip("Çöz (F5)")
-        self.stop_action = action("Durdur", self.cancel_solve, ic="stop")
-        self.stop_action.setToolTip("Durdur")
+        self.run_action = action("Solve", self.start_solve, "F5", "compute")
+        self.run_action.setToolTip("Solve (F5)")
+        self.stop_action = action("Stop", self.cancel_solve, ic="stop")
+        self.stop_action.setToolTip("Stop")
         self.stop_action.setEnabled(False)
         add_icon(self.run_action)
         add_icon(self.stop_action)
-        self.mesh_view_action = action("Ağ", self.show_results, "F6", "mesh_view")
-        self.mesh_view_action.setToolTip("Ağ (F6)")
-        self.results_action = action("Sonuçlar", self.show_results, ic="results")
-        self.results_action.setToolTip("Sonuçlar")
+        self.mesh_view_action = action("Mesh", self.show_results, "F6", "mesh_view")
+        self.mesh_view_action.setToolTip("Mesh (F6)")
+        self.results_action = action("Results", self.show_results, ic="results")
+        self.results_action.setToolTip("Results")
         add_icon(self.mesh_view_action)
         add_icon(self.results_action)
-        self.fit_action = action("Görünüme sığdır", self.fit_active_view, "F2", "zoom_all")
-        self.fit_action.setToolTip("Görünüme sığdır (F2)")
-        geometry_menu = self.menuBar().addMenu("Geometri")
+        self.fit_action = action("Fit view", self.fit_active_view, "F2", "zoom_all")
+        self.fit_action.setToolTip("Fit view (F2)")
+        geometry_menu = self.menuBar().addMenu("Geometry")
         for title, kind in [
-            ("Çokgen bölge", "region"),
-            ("Kazı / bölme çizgisi", "split"),
-            ("Boşluk", "hole"),
-            ("Ağ kısıt çizgisi", "line"),
+            ("Polygon region", "region"),
+            ("Excavation / split line", "split"),
+            ("Void", "hole"),
+            ("Mesh constraint line", "line"),
         ]:
             geometry_menu.addAction(action(title, lambda _=False, k=kind: self.draft_tool(k)))
-        support_menu = self.menuBar().addMenu("Destek")
+        support_menu = self.menuBar().addMenu("Support")
         for title, kind in [
-            ("Kazık çiz", "pile"),
-            ("Kaplama / kiriş çiz", "liner"),
-            ("Tek bulon / ankraj / zemin çivisi çiz", "bolt"),
+            ("Draw pile", "pile"),
+            ("Draw lining / beam", "liner"),
+            ("Draw single bolt / anchor / soil nail", "bolt"),
         ]:
             support_menu.addAction(action(title, lambda _=False, k=kind: self.draft_tool(k)))
         support_menu.addSeparator()
         support_menu.addAction(
             action(
-                "Bulon paterni (seçili çizgi)…",
+                "Bolt pattern (selected line)…",
                 lambda _=False: self.drawing_file_action("bolt_pattern"),
             )
         )
         support_menu.addSeparator()
-        support_menu.addAction(action("Mevcut ağdaki yapı özellikleri…", self.edit_mesh_structures))
-        tunnel_menu = self.menuBar().addMenu("Tünel")
+        support_menu.addAction(
+            action("Structure properties on the current mesh…", self.edit_mesh_structures)
+        )
+        tunnel_menu = self.menuBar().addMenu("Tunnel")
         tunnel_menu.addAction(
             action(
-                "Tünel çiz (merkez + yarıçap)",
+                "Draw tunnel (centre + radius)",
                 lambda _=False: self.draft_tool("tunnel"),
             )
         )
         for title, method in [
-            ("Eşdeğer kesit tünel…", "open_tunnel_designer"),
-            ("Kaplama / püskürtme beton / iksa tasarımcısı…", "open_lining_designer"),
+            ("Equivalent-section tunnel…", "open_tunnel_designer"),
+            ("Lining / shotcrete / steel-set designer…", "open_lining_designer"),
         ]:
             tunnel_menu.addAction(
                 action(title, lambda _=False, m=method: self.drawing_file_action(m))
             )
-        result_menu = self.menuBar().addMenu("Sonuç incele")
+        result_menu = self.menuBar().addMenu("Inspect results")
         for title, slot in [
-            ("Sorgu çizgisi", self.query_line),
+            ("Query line", self.query_line),
             ("Liner N–V–M", self.beam_diagrams),
-            ("Tünel / kazık deplasmanı", self.structure_displacements),
+            ("Tunnel / pile displacement", self.structure_displacements),
         ]:
             a = action(title, slot)
             result_menu.addAction(a)
             self.export_actions.append(a)
-        export_menu = self.menuBar().addMenu("Sonuç aktar")
+        export_menu = self.menuBar().addMenu("Export results")
         for title, kind in [
             ("VTU / ParaView", "vtu"),
-            ("Düğüm CSV", "csv"),
-            ("Kiriş N–V–M CSV", "beam"),
-            ("HTML rapor", "html"),
+            ("Node CSV", "csv"),
+            ("Beam N–V–M CSV", "beam"),
+            ("HTML report", "html"),
         ]:
             a = action(title, lambda checked=False, k=kind: self.export_dialog(k), None, "export")
             export_menu.addAction(a)
@@ -546,7 +548,7 @@ class MainWindow(QMainWindow):
             self.stage_tabs.removeTab(0)
         if self.model is not None:
             names = [
-                "0. Başlangıç",
+                "0. Initial",
                 *[f"{i + 1}. {s.name}" for i, s in enumerate(self.model.stages)],
             ]
             for name in names:
@@ -572,10 +574,10 @@ class MainWindow(QMainWindow):
             return
         stage_idx = max(0, self.stages.currentRow())
         cur_mat = stage_region_material(self.model, stage_idx, region)
-        state = f"malzeme {cur_mat}" if cur_mat else "bu aşamada kazılmış"
+        state = f"material {cur_mat}" if cur_mat else "excavated in this stage"
         self.status.showMessage(
             f"{region_label(self.model, region)} · {state}. "
-            "Kesit tesiri için kaplama, kazık veya ankraja tıklayın.",
+            "Click a lining, pile or anchor for section forces.",
             6000,
         )
 
@@ -590,25 +592,25 @@ class MainWindow(QMainWindow):
         stage_idx = max(0, self.stages.currentRow())
         menu = QMenu(self)
         st_title = (
-            "0. Başlangıç"
+            "0. Initial"
             if stage_idx <= 0
             else f"{stage_idx}. {self.model.stages[stage_idx - 1].name}"
         )
-        header = menu.addAction(f"Aşama: {st_title}")
+        header = menu.addAction(f"Stage: {st_title}")
         header.setEnabled(False)
         if region > 0:
             cur_mat = stage_region_material(self.model, stage_idx, region)
-            state = cur_mat if cur_mat else "kazılmış"
+            state = cur_mat if cur_mat else "excavated"
             label = menu.addAction(f"{region_label(self.model, region)} · {state}")
             label.setEnabled(False)
         if struct_tag:
             s_lbl = structure_label(self.model, struct_tag)
             active = struct_tag in stage_active_structures(self.model, stage_idx)
-            forces = menu.addAction(f"Kesit tesirleri (N–V–M): {s_lbl}")
+            forces = menu.addAction(f"Section forces (N–V–M): {s_lbl}")
             forces.setEnabled(self.result is not None)
             forces.triggered.connect(lambda _=False, t=struct_tag: self.show_structure_forces(t))
             if not active:
-                note = menu.addAction("Bu aşamada henüz yok; pencere yüklü aşamayı açar")
+                note = menu.addAction("Not active in this stage; the window opens the loaded stage")
                 note.setEnabled(False)
         menu.exec(global_pos)
 
@@ -627,23 +629,23 @@ class MainWindow(QMainWindow):
         selected_row = len(model.stages) if result else (1 if model.stages else 0)
         self.stages.blockSignals(True)
         self.stages.clear()
-        self.stages.addItems(["Başlangıç", *[s.name for s in model.stages]])
+        self.stages.addItems(["Initial", *[s.name for s in model.stages]])
         self.stages.setCurrentRow(selected_row)
         self.stages.blockSignals(False)
         self._sync_stage_tabs(selected_row)
         self.summary.setText(
-            f"{model.analysis.value}\n\n{model.mesh.nn} düğüm\n"
-            f"{sum(b.ne for b in model.mesh.blocks)} eleman\n"
-            f"{len(model.materials)} malzeme · {len(model.mesh.regions())} bölge\n\n"
-            "Sonuç:\n"
-            "· Alt sekmelerden aşama seçin\n"
-            "· Alan: |u| / ux / uy veya N / V / M\n"
-            "· Kesit penceresi için yapıya tıklayın · Düğüm: çift tık"
+            f"{model.analysis.value}\n\n{model.mesh.nn} nodes\n"
+            f"{sum(b.ne for b in model.mesh.blocks)} elements\n"
+            f"{len(model.materials)} materials · {len(model.mesh.regions())} regions\n\n"
+            "Results:\n"
+            "· Pick a stage from the tabs below\n"
+            "· Field: |u| / ux / uy or N / V / M\n"
+            "· Click a structure for the section window · Node: double-click"
         )
         for a in self.export_actions:
             a.setEnabled(result is not None)
         self.setWindowTitle(
-            f"SlipSurfaceIQ-FEA · {Path(path).name if path else 'Yeni model'}"
+            f"SlipSurfaceIQ-FEA · {Path(path).name if path else 'New model'}"
             + (" *" if dirty else "")
         )
         if result is not None:
@@ -652,7 +654,7 @@ class MainWindow(QMainWindow):
             self.progress.setValue(0)
         self.draw()
         self._update_guidance()
-        self.status.showMessage("Model hazır · Birimler kN, m, kPa")
+        self.status.showMessage("Model ready · Units kN, m, kPa")
 
     def _set_empty_state(self, path=None, dirty=False):
         """No model yet: blank scene, clear stage list, hint at first steps."""
@@ -666,31 +668,33 @@ class MainWindow(QMainWindow):
         self.stages.blockSignals(False)
         self._sync_stage_tabs(0)
         self.summary.setText(
-            "Boş proje.\n\nBaşlamak için:\n"
-            "· Dosya > Yeni ile dikdörtgen zemin modeli\n"
-            "· Geometri / CAD ile çizimden ağ\n"
-            "· Dosya > Aç ile mevcut proje"
+            "Empty project.\n\nTo start:\n"
+            "· File > New for a rectangular soil model\n"
+            "· Geometry / CAD to mesh from a drawing\n"
+            "· File > Open for an existing project"
         )
         for a in self.export_actions:
             a.setEnabled(False)
-        self.setWindowTitle(f"SlipSurfaceIQ-FEA · {Path(path).name if path else 'Boş proje'}")
+        self.setWindowTitle(f"SlipSurfaceIQ-FEA · {Path(path).name if path else 'Empty project'}")
         self.progress.setValue(0)
         self.canvas.scene().clear()
         self.canvas.model = self.canvas.stage = None
         self.legend.setText("")
         self._update_guidance()
         self.statusBar().showMessage(
-            "Modelleyici · Geometri, Tünel veya Destek menüsünden çizime başlayın"
+            "Modeler · Start a drawing from the Geometry, Tunnel or Support menu"
         )
 
     def _require_model(self):
         if self.cad.mesh_outdated:
             self.edit_geometry()
-            self.status.showMessage("Çizim değişti · Önce Ağ üret ile hesap modelini güncelleyin.")
+            self.status.showMessage(
+                "Drawing changed · Generate the mesh before updating the analysis model."
+            )
             return False
         if self.model is None:
             self.status.showMessage(
-                "Model yok · Dosya > Yeni, Geometri / CAD ya da Dosya > Aç ile başlayın", 8000
+                "No model · Start with File > New, Geometry / CAD, or File > Open", 8000
             )
             return False
         return True
@@ -722,7 +726,7 @@ class MainWindow(QMainWindow):
         )
         self.legend.setText(self.canvas.legend)
         if st is not None:
-            self.statusBar().showMessage(f"{st.name} · kabul edilen λ={st.lam:.6g}")
+            self.statusBar().showMessage(f"{st.name} · accepted λ={st.lam:.6g}")
 
     def query_line(self):
         if self.result is not None:
@@ -737,11 +741,13 @@ class MainWindow(QMainWindow):
         """Plaxis-style N–V–M window of the clicked pile / liner / anchor."""
         if self.result is None:
             self.status.showMessage(
-                "Kesit tesirleri için önce Çöz (F5) ile analizi tamamlayın.", 6000
+                "Finish the analysis with Solve (F5) before opening section forces.", 6000
             )
             return
         if tag not in self.result.model.structure_tags():
-            self.status.showMessage(f"{tag} ağda yapı olarak bulunamadı; ağı yeniden üretin.")
+            self.status.showMessage(
+                f"{tag} was not found as a structure in the mesh; regenerate the mesh."
+            )
             return
         from .result_tools import StructureForceDialog
 
@@ -761,7 +767,7 @@ class MainWindow(QMainWindow):
     def structure_displacements(self):
         if self.result is None:
             self.status.showMessage(
-                "Deplasman grafiği için önce Çöz (F5) ile analizi tamamlayın.", 6000
+                "Finish the analysis with Solve (F5) before opening the displacement chart.", 6000
             )
             return
         from .result_tools import StructureDisplacementDialog
@@ -776,8 +782,8 @@ class MainWindow(QMainWindow):
         return (
             QMessageBox.question(
                 self,
-                "Kaydedilmemiş değişiklikler",
-                "Kaydedilmemiş değişiklikler bırakılsın mı?",
+                "Unsaved changes",
+                "Discard unsaved changes?",
                 QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel,
             )
@@ -799,7 +805,9 @@ class MainWindow(QMainWindow):
     def open_dialog(self):
         if self.busy or not self.discard_changes():
             return
-        path, _ = QFileDialog.getOpenFileName(self, "Proje aç", "", "SlipSurface (*.ssproj *.json)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open project", "", "SlipSurface (*.ssproj *.json)"
+        )
         if path:
             try:
                 self.open_path(path)
@@ -808,7 +816,7 @@ class MainWindow(QMainWindow):
 
     def open_path(self, path):
         if self.busy:
-            raise RuntimeError("Çözüm sürerken proje değiştirilemez.")
+            raise RuntimeError("The project cannot be changed while a solve is running.")
         try:
             if str(path).lower().endswith(".sscad.json"):
                 from ..cad.geometry import Drawing
@@ -828,14 +836,14 @@ class MainWindow(QMainWindow):
 
     def save_path(self, path):
         if self.busy:
-            raise RuntimeError("Çözüm sürerken kayıt yapılamaz.")
+            raise RuntimeError("Cannot save while a solve is running.")
         if self.cad.mesh_outdated:
             raise ValueError(
-                "Çizim değişti; önce ağı üretin veya Çizim kaydet ile taslağı saklayın."
+                "Drawing changed; generate the mesh first or use Save drawing to keep the draft."
             )
         api.save_project(self.model, path, self.result)
         self.set_model(self.model, self.result, path, False)
-        self.statusBar().showMessage(f"Kaydedildi: {Path(path).name}")
+        self.statusBar().showMessage(f"Saved: {Path(path).name}")
 
     def save_dialog(self):
         if self.busy:
@@ -844,7 +852,7 @@ class MainWindow(QMainWindow):
             self.cad.save_drawing()
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "Proje kaydet", str(self.path or "model.ssproj"), "SlipSurface (*.ssproj)"
+            self, "Save project", str(self.path or "model.ssproj"), "SlipSurface (*.ssproj)"
         )
         if path:
             try:
@@ -884,7 +892,7 @@ class MainWindow(QMainWindow):
             self.set_model(dialog.updated, path=self.path, dirty=True)
 
     def edit_drawing_conditions(self):
-        """Mesnet/yük step: the drawing's edge table, or the mesh form for a meshed-only model."""
+        """Fixity/load step: the drawing's edge table, or the mesh form for a meshed-only model."""
         if self.busy:
             return
         if self.model is not None and not self.model.geometry and not self.cad.document.entities:
@@ -916,7 +924,9 @@ class MainWindow(QMainWindow):
         for toggle in self.status.toggles.values():
             toggle.setEnabled(True)
         self.workflow.set_current(0, emit=False)
-        self.status.showMessage("Modelleyici · Nokta seç / koordinat gir · F2: tüm çizim · F6: ağ")
+        self.status.showMessage(
+            "Modeler · Pick points / enter coordinates · F2: whole drawing · F6: mesh"
+        )
         self.cad.canvas.viewport().update()
 
     def show_results(self):
@@ -959,22 +969,25 @@ class MainWindow(QMainWindow):
         try:
             model, report = transfer_model(self.model, model)
         except Exception as exc:  # noqa: BLE001 - fall back to the drawing's fresh model
-            report = [f"Önceki model tanımları aktarılamadı, yeni elastik model kuruldu: {exc}"]
+            report = [
+                "Previous model definitions were not transferred; "
+                f"a new elastic model was built: {exc}"
+            ]
         carried = self.model is not None
         self.set_model(model, dirty=True)
         self.cad.undo_stack, self.cad.redo_stack = history
         self.log.clear()
         if carried:
             self.log.appendPlainText(
-                "Yeni ağ üretildi. Malzemeler, aşamalar, ara yüzler ve ek yapılar aktarıldı; "
-                "önceki sonuçlar yeni ağda geçersiz."
+                "New mesh generated. Materials, stages, interfaces and extra structures "
+                "were transferred; previous results are invalid on the new mesh."
             )
         for line in report:
             self.log.appendPlainText("· " + line)
         self.status.showMessage(
-            f"Ağ hazır · {len(report)} uyarı, Çözüm günlüğüne bakın."
+            f"Mesh ready · {len(report)} warnings, see the solve log."
             if report
-            else "Ağ ve destekler hazır · Aşamaları kontrol edip Çöz ile ilerleyin."
+            else "Mesh and supports are ready · Check the stages, then Solve."
         )
 
     def _cad_worker_stopped(self):
@@ -1036,14 +1049,14 @@ class MainWindow(QMainWindow):
     def on_progress(self, event):
         if event.completed:
             self.progress.setValue(round(100 * (event.stage_index + 1) / event.stage_count))
-            self.log.appendPlainText(f"{event.stage} · tamamlandı · λ={event.lam:.6g}")
+            self.log.appendPlainText(f"{event.stage} · completed · λ={event.lam:.6g}")
         elif event.accepted:
             self.log.appendPlainText(
                 f"{event.stage} · λ={event.lam:.6g} · "
-                f"{event.iteration} iterasyon · R={event.residual:.3g}"
+                f"{event.iteration} iterations · R={event.residual:.3g}"
             )
         self.statusBar().showMessage(
-            f"{event.stage} · λ={event.lam:.5g} · iterasyon {event.iteration}"
+            f"{event.stage} · λ={event.lam:.5g} · iteration {event.iteration}"
         )
 
     @Slot(object)
@@ -1051,17 +1064,17 @@ class MainWindow(QMainWindow):
         self.set_model(result.model, result, self.path, dirty=True)
         self.workflow.set_current(7, emit=False)
         self.progress.setValue(100)
-        self.log.appendPlainText("Analiz tamamlandı. Sonuçlar kaydedilmeye hazır.")
+        self.log.appendPlainText("Analysis completed. Results are ready to save.")
 
     @Slot(str)
     def on_failure(self, message):
         self.log.appendPlainText(message)
-        self.statusBar().showMessage("Çözüm başarısız; sonuç üretilmedi. Günlüğü inceleyin.")
+        self.statusBar().showMessage("Solve failed; no result was produced. Inspect the log.")
 
     @Slot()
     def on_cancelled(self):
-        self.log.appendPlainText("Analiz iptal edildi. Sonuç üretilmedi.")
-        self.statusBar().showMessage("İptal edildi")
+        self.log.appendPlainText("Analysis cancelled. No result was produced.")
+        self.statusBar().showMessage("Cancelled")
 
     @Slot()
     def on_finished(self):
@@ -1079,14 +1092,16 @@ class MainWindow(QMainWindow):
         if self.worker is not None:
             self.worker.requestInterruption()
             self.stop_action.setEnabled(False)
-            self.statusBar().showMessage("İptal isteniyor; mevcut işlem güvenle tamamlanıyor…")
+            self.statusBar().showMessage(
+                "Cancel requested; the current operation is finishing safely…"
+            )
 
     def export_dialog(self, kind):
         if self.result is None:
             return
         ext = "csv" if kind == "beam" else kind
         path, _ = QFileDialog.getSaveFileName(
-            self, "Sonuç aktar", f"sonuc.{ext}", f"{ext.upper()} (*.{ext})"
+            self, "Export results", f"result.{ext}", f"{ext.upper()} (*.{ext})"
         )
         if not path:
             return
@@ -1100,13 +1115,13 @@ class MainWindow(QMainWindow):
                 export_csv(self.result, path, st)
             else:
                 api.export_vtu(self.result, path, st)
-            self.statusBar().showMessage(f"Aktarıldı: {Path(path).name}")
+            self.statusBar().showMessage(f"Exported: {Path(path).name}")
         except Exception as exc:
             self.show_error(str(exc))
 
     def show_error(self, text):
         self.log.appendPlainText(text)
-        QMessageBox.warning(self, "İşlem tamamlanamadı", text)
+        QMessageBox.warning(self, "Operation failed", text)
 
     def closeEvent(self, event):
         if self.cad.worker is not None:

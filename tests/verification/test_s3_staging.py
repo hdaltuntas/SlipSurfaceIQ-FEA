@@ -1,4 +1,4 @@
-"""S3 — staged excavation in an elastic layer; Kapı 3 stage-splitting invariance.
+"""S3 — staged excavation in an elastic layer; Gate 3 stage-splitting invariance.
 
 * multi-stage excavation (3 lifts) ends in the same state as excavating everything in one
   stage (linear elasticity), difference < 1e-8;

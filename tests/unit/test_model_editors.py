@@ -72,17 +72,29 @@ def test_hoek_brown_disturbance_copy_assigns_blast_halo(qt_app):
         materials={"rock": rock},
         region_material={1: "rock"},
         stages=[
-            replace(model.stages[0], name="CAD yükleme"),
-            api.Stage("kazı"),
-            api.Stage("destek"),
+            replace(model.stages[0], name="CAD loading"),
+            api.Stage("excavation"),
+            api.Stage("support"),
         ],
         geometry={
-            "entities": [{"name": "Tunel_Orselenme", "kind": "region", "region": 1, "points": []}],
-            "sequence": [
-                {"name": "kazı", "excavate": ["Tunel_Ust"], "install": [], "disturb": []},
-                {"name": "destek", "excavate": [], "install": [], "disturb": ["Tunel_Orselenme"]},
+            "entities": [
+                {
+                    "name": "Tunnel_Disturbance",
+                    "kind": "region",
+                    "region": 1,
+                    "points": [],
+                }
             ],
-            "disturbance": {"D": 0.8, "thickness": 2.0, "regions": ["Tunel_Orselenme"]},
+            "sequence": [
+                {"name": "excavation", "excavate": ["Tunnel_Head"], "install": [], "disturb": []},
+                {
+                    "name": "support",
+                    "excavate": [],
+                    "install": [],
+                    "disturb": ["Tunnel_Disturbance"],
+                },
+            ],
+            "disturbance": {"D": 0.8, "thickness": 2.0, "regions": ["Tunnel_Disturbance"]},
         },
     )
     dialog = DisturbanceDialog(rock, model)
@@ -151,7 +163,7 @@ def test_load_row_removal_does_not_leave_stale_kind_callbacks(qt_app):
     editor.table.cellWidget(0, 1).setCurrentText("right")
     assert editor.values() == (api.EdgeLoad("right", 3, -4),)
     # Exercise the real clicked(bool) signal, not just direct helper calls.
-    next(b for b in editor.findChildren(QPushButton) if b.text() == "Ekle").click()
+    next(b for b in editor.findChildren(QPushButton) if b.text() == "Add").click()
     assert editor.table.rowCount() == 2
 
 
@@ -203,7 +215,7 @@ def test_water_roundtrip_and_initial_explicit_empty_activation(qt_app):
 def test_structure_creation_edit_and_removal_preserve_source(qt_app):
     model = sample_model(nx=2, ny=2)
     original_blocks = model.mesh.blocks
-    with pytest.raises(ValueError, match="Yapı adı"):
+    with pytest.raises(ValueError, match="Structure name"):
         put_structure(model, api.BoltSpec("a,b", 1e5, 100), nodes=(0, 1))
     liner = StructureSpecDialog(model)
     liner.name.setText("shotcrete")

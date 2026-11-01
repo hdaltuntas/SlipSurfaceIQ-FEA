@@ -73,10 +73,10 @@ def test_workflow_guides_from_empty_drawing_to_results(qt_app):
     window.show()
     qt_app.processEvents()
     assert window.workflow.done == set()
-    assert "Geometri menüsünden" in window.guidance.text()
+    assert "Geometry menu" in window.guidance.text()
     window.cad.commit(replace(Drawing.example(), h=3))
     assert window.workflow.done == {0, 2}
-    assert "Ağı üret" in window.guidance.text()
+    assert "generate the mesh" in window.guidance.text()
     window.workflow.step_changed.emit(2)
     assert window.cad.inspector.currentIndex() == 1 and window.workflow.current == 2
     window.workflow.step_changed.emit(3)
@@ -93,7 +93,7 @@ def test_workflow_guides_from_empty_drawing_to_results(qt_app):
     qt_app.processEvents()
     assert window.result is not None
     assert {6, 7} <= window.workflow.done and window.workflow.current == 7
-    assert window.guidance.text().startswith("Sonuçlar hazır")
+    assert window.guidance.text().startswith("Results ready")
     window.workflow.step_changed.emit(0)
     assert window.workspace.currentWidget() is window.cad and not window.project_dock.isVisible()
     window.close()
@@ -131,12 +131,12 @@ def test_remesh_in_window_keeps_user_materials_and_stages(qt_app):
     window.cad.commit(replace(Drawing.example(), h=3))
     window.build_mesh()
     wait_mesh(window, qt_app)
-    clay = api.MaterialSpec.mohr_coulomb("kil", E=3e4, nu=0.3, c=10, phi=28, gamma=19)
+    clay = api.MaterialSpec.mohr_coulomb("clay", E=3e4, nu=0.3, c=10, phi=28, gamma=19)
     edited = replace(
         window.model,
-        materials={**window.model.materials, "kil": clay},
-        region_material={1: "kil"},
-        stages=[*window.model.stages, api.Stage("Ek yük")],
+        materials={**window.model.materials, "clay": clay},
+        region_material={1: "clay"},
+        stages=[*window.model.stages, api.Stage("Extra load")],
     )
     window.set_model(edited, dirty=True)
     window.cad.commit(replace(window.cad.current_drawing(), h=2))
@@ -145,7 +145,7 @@ def test_remesh_in_window_keeps_user_materials_and_stages(qt_app):
     wait_mesh(window, qt_app)
     model = window.model
     assert model.mesh.nn != edited.mesh.nn
-    assert model.region_material == {1: "kil"} and model.materials["kil"] == clay
-    assert [s.name for s in model.stages] == ["CAD yükleme", "Ek yük"]
-    assert "aktarıldı" in window.log.toPlainText()
+    assert model.region_material == {1: "clay"} and model.materials["clay"] == clay
+    assert [s.name for s in model.stages] == ["CAD loading", "Extra load"]
+    assert "transferred" in window.log.toPlainText()
     window.close()

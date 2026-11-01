@@ -33,27 +33,27 @@ class Entity:
             p = p[:-1]
         object.__setattr__(self, "points", p)
         if not self.name.strip() or ":" in self.name or self.name in {"boundary", "all"}:
-            raise ValueError("Geometri adı boş, ayrılmış bir ad veya ':' içeren bir ad olamaz.")
+            raise ValueError("Geometry name cannot be empty, a reserved name, or contain ':'.")
         if self.kind not in {"region", "hole", "line"}:
-            raise ValueError("Geometri türü region, hole veya line olmalıdır.")
+            raise ValueError("Geometry kind must be region, hole or line.")
         if len(p) < (2 if self.kind == "line" else 3):
-            raise ValueError("Çizgi en az 2, kapalı bölge en az 3 nokta gerektirir.")
+            raise ValueError("A line needs at least 2 points and a closed region at least 3.")
         xy = np.asarray(p)
         if xy.ndim != 2 or xy.shape[1] != 2 or not np.isfinite(xy).all():
-            raise ValueError("Koordinatlar sonlu (x, y) çiftleri olmalıdır.")
+            raise ValueError("Coordinates must be finite (x, y) pairs.")
         if isinstance(self.region, bool) or int(self.region) != self.region or self.region < 1:
-            raise ValueError("Bölge numarası pozitif tamsayı olmalıdır.")
+            raise ValueError("Region number must be a positive integer.")
         if len(set(p)) != len(p):
-            raise ValueError(f"{self.name}: tekrarlanan nokta var.")
+            raise ValueError(f"{self.name}: repeated point.")
         shape = self.shape()
         if not shape.is_valid or not shape.is_simple:
             raise ValueError(
-                f"{self.name}: geçersiz/kendini kesen geometri: {explain_validity(shape)}"
+                f"{self.name}: invalid or self-intersecting geometry: {explain_validity(shape)}"
             )
         if self.kind != "line" and shape.area <= 1e-12:
-            raise ValueError(f"{self.name}: sıfır veya çok küçük alan.")
+            raise ValueError(f"{self.name}: zero or too small area.")
         if any(np.linalg.norm(np.subtract(a, b)) <= 1e-9 for a, b in self.segments()):
-            raise ValueError(f"{self.name}: sıfır veya çok kısa kenar.")
+            raise ValueError(f"{self.name}: zero or too short edge.")
 
     def shape(self):
         return LineString(self.points) if self.kind == "line" else Polygon(self.points)
@@ -75,9 +75,9 @@ class BoundaryRule:
 
     def __post_init__(self):
         if not isinstance(self.ux, bool) or not isinstance(self.uy, bool):
-            raise ValueError("Mesnet değerleri true/false olmalıdır.")
+            raise ValueError("Fixity values must be true or false.")
         if not np.isfinite(self.pressure):
-            raise ValueError("Basınç sonlu olmalıdır.")
+            raise ValueError("Pressure must be finite.")
 
 
 @dataclass(frozen=True)
@@ -101,9 +101,9 @@ class ConstructionStep:
         object.__setattr__(self, "install", tuple(self.install))
         object.__setattr__(self, "disturb", tuple(self.disturb))
         if not self.name.strip():
-            raise ValueError("Aşama adı boş olamaz.")
+            raise ValueError("Stage name cannot be empty.")
         if not 0.0 < float(self.load_split) <= 1.0:
-            raise ValueError("Destek öncesi yük oranı (0, 1] aralığında olmalıdır.")
+            raise ValueError("Pre-support load ratio must be in (0, 1].")
 
 
 @dataclass(frozen=True)
@@ -121,9 +121,9 @@ class Drawing:
 
     def __post_init__(self):
         if not np.isfinite([self.h, self.E, self.nu, self.gamma]).all():
-            raise ValueError("Ağ ve malzeme değerleri sonlu olmalıdır.")
+            raise ValueError("Mesh and material values must be finite.")
         if self.h <= 0 or self.E <= 0 or self.gamma < 0 or not 0 <= self.nu < 0.5:
-            raise ValueError("h ve E pozitif, γ ≥ 0 ve 0 ≤ ν < 0.5 olmalıdır.")
+            raise ValueError("h and E must be positive, γ ≥ 0 and 0 ≤ ν < 0.5.")
 
     def to_dict(self):
         return {"version": 2, **asdict(self)}
@@ -131,7 +131,7 @@ class Drawing:
     @classmethod
     def from_dict(cls, data):
         if data.get("version") not in (1, 2):
-            raise ValueError("Desteklenmeyen CAD dosya sürümü.")
+            raise ValueError("Unsupported CAD file version.")
         return cls(
             tuple(Entity(**e) for e in data["entities"]),
             tuple(BoundaryRule(**r) for r in data.get("rules", [])),
@@ -184,45 +184,47 @@ class Drawing:
     @classmethod
     def example(cls):
         return cls(
-            (Entity("Zemin", "region", ((0, 0), (12, 0), (12, 6), (0, 6))),),
+            (Entity("Soil", "region", ((0, 0), (12, 0), (12, 6), (0, 6))),),
             (
-                BoundaryRule("Zemin:1", True, True),
-                BoundaryRule("Zemin:2", True),
-                BoundaryRule("Zemin:3", pressure=50),
-                BoundaryRule("Zemin:4", True),
+                BoundaryRule("Soil:1", True, True),
+                BoundaryRule("Soil:2", True),
+                BoundaryRule("Soil:3", pressure=50),
+                BoundaryRule("Soil:4", True),
             ),
         )
 
     def validate(self):
         names = [e.name for e in self.entities]
         if len(set(names)) != len(names):
-            raise ValueError("Geometri adları benzersiz olmalıdır.")
+            raise ValueError("Geometry names must be unique.")
         assigned = set()
         by_name = {e.name: e for e in self.entities}
         for support in self.supports:
             if support.entity not in by_name or support.entity in assigned:
-                raise ValueError("Destek geometriye bağlı olmalı ve aynı nesneye bir kez atanmalı.")
+                raise ValueError(
+                    "A support must reference geometry and be assigned once per object."
+                )
             if support.kind in {"pile", "bolt"} and by_name[support.entity].kind != "line":
-                raise ValueError("Kazık ve ankraj/çivi için çizgi geometrisi gereklidir.")
+                raise ValueError("Piles and anchors/nails require line geometry.")
             assigned.add(support.entity)
         step_names = [step.name for step in self.sequence]
         if len(set(step_names)) != len(step_names):
-            raise ValueError("Yapım aşaması adları benzersiz olmalıdır.")
+            raise ValueError("Construction stage names must be unique.")
         supported = {s.entity for s in self.supports}
         for step in self.sequence:
             for name in step.excavate:
                 if name not in by_name or by_name[name].kind != "region":
-                    raise ValueError(f"{step.name}: kazılacak bölge '{name}' bulunamadı.")
+                    raise ValueError(f"{step.name}: excavation region '{name}' was not found.")
             for name in step.install:
                 if name not in supported:
-                    raise ValueError(f"{step.name}: yerleştirilecek destek '{name}' bulunamadı.")
+                    raise ValueError(f"{step.name}: support to install '{name}' was not found.")
             for name in step.disturb:
                 if name not in by_name or by_name[name].kind != "region":
-                    raise ValueError(f"{step.name}: örselenecek bölge '{name}' bulunamadı.")
+                    raise ValueError(f"{step.name}: region to disturb '{name}' was not found.")
         regions = [e for e in self.entities if e.kind == "region"]
         holes = [e for e in self.entities if e.kind == "hole"]
         if not regions:
-            raise ValueError("En az bir kapalı malzeme bölgesi çizilmelidir.")
+            raise ValueError("At least one closed material region must be drawn.")
         polys = [e.shape() for e in regions]
         for i, a in enumerate(polys):
             for b in polys[i + 1 :]:
@@ -230,43 +232,46 @@ class Drawing:
                     a.intersection(b).area > 1e-12 and not (a.covers(b) or b.covers(a))
                 ):
                     raise ValueError(
-                        "Bölgeler kısmen çakışıyor. Ortak kenar veya iç içe bölgeler kullanın."
+                        "Regions overlap partially. Use a shared edge or nested regions."
                     )
         outer = unary_union(polys)
         voids = [e.shape() for e in holes]
         for i, hole in enumerate(voids):
             if not outer.contains(hole) or outer.boundary.intersects(hole):
-                raise ValueError("Boşluk tamamen zemin içinde olmalı; dış sınıra değemez.")
+                raise ValueError(
+                    "A void must lie entirely inside the soil "
+                    "and must not touch the outer boundary."
+                )
             if any(hole.intersects(b) for b in voids[i + 1 :]):
-                raise ValueError("Boşluklar kesişemez veya iç içe olamaz.")
+                raise ValueError("Voids cannot intersect or nest.")
             # Domain uses the innermost polygon: crossing layers/islands would be ambiguous.
             if any(hole.intersection(p).area > 1e-12 and not p.covers(hole) for p in polys):
-                raise ValueError("Boşluk bir bölge sınırını kesemez veya bölge içeremez.")
+                raise ValueError("A void cannot cross a region boundary or contain a region.")
         soil = outer.difference(unary_union(voids))
         for e in self.entities:
             if e.kind == "line" and not soil.covers(e.shape()):
-                raise ValueError(f"{e.name}: çizgi zemin dışında veya boşluk içinde.")
+                raise ValueError(f"{e.name}: line is outside the soil or inside a void.")
         edge_names = {n for e in self.entities for n in e.edge_names()}
         seen = set()
         for rule in self.rules:
             if rule.edge not in edge_names or rule.edge in seen:
-                raise ValueError(f"Geçersiz veya yinelenen kenar koşulu: {rule.edge}")
+                raise ValueError(f"Invalid or duplicate edge condition: {rule.edge}")
             seen.add(rule.edge)
             if not np.isfinite(rule.pressure):
-                raise ValueError("Basınç sonlu olmalıdır.")
+                raise ValueError("Pressure must be finite.")
         return soil
 
-    def split_with_line(self, points, name_prefix="Kazi") -> Drawing:
+    def split_with_line(self, points, name_prefix="Excav") -> Drawing:
         """RS2-style excavation/layer line: subdivide existing region(s) into new region(s)."""
         pts = [tuple(float(v) for v in xy) for xy in points]
         if len(pts) < 2:
-            raise ValueError("Bölme çizgisi en az 2 nokta gerektirir.")
+            raise ValueError("A split line needs at least 2 points.")
         cutter = LineString(pts)
         if not cutter.is_valid or cutter.length <= 1e-6:
-            raise ValueError("Bölme çizgisi geçersiz veya sıfır uzunluklu.")
+            raise ValueError("Split line is invalid or has zero length.")
         regions = [e for e in self.entities if e.kind == "region"]
         if not regions:
-            raise ValueError("Önce bölünecek bir zemin bölgesi çizin.")
+            raise ValueError("Draw a soil region to split first.")
         holes = [e.shape() for e in self.entities if e.kind == "hole"]
         void_union = unary_union(holes) if holes else Polygon()
         reg_polys = [(e, e.shape()) for e in regions]
@@ -314,8 +319,8 @@ class Drawing:
 
         if not new_faces:
             raise ValueError(
-                "Çizgi herhangi bir bölgeyi iki kapalı parçaya ayırmadı. "
-                "Çizgi uçlarını bölge sınırlarına veya kazığa birleştirin."
+                "The line did not split any region into two closed parts. "
+                "Join the line ends to a region boundary or a pile."
             )
 
         existing_names = {e.name for e in self.entities}
@@ -378,15 +383,15 @@ class Drawing:
         for r in self.rules:
             edges = mesh.edge_sets[r.edge]
             if (r.ux or r.uy or r.pressure) and edges.size == 0:
-                raise ValueError(f"{r.edge}: koşul için ağ kenarı bulunamadı.")
+                raise ValueError(f"{r.edge}: no mesh edge found for this condition.")
             if r.ux or r.uy:
                 fixities.append(api.Fixity(r.edge, r.ux, r.uy))
             if r.pressure:
                 keys = {tuple(sorted(e[:2])) for e in edges}
                 if not keys <= boundary:
-                    raise ValueError(f"{r.edge}: basınç yalnız dış/boşluk sınırına atanabilir.")
+                    raise ValueError(f"{r.edge}: pressure only on an outer or void boundary.")
                 if keys & loaded:
-                    raise ValueError(f"{r.edge}: aynı ağ kenarına iki basınç atanmış.")
+                    raise ValueError(f"{r.edge}: two pressures assigned to the same mesh edge.")
                 loaded.update(keys)
                 loads.append(api.EdgeLoad(r.edge, qn=r.pressure))
         _check_supports(mesh, fixities)
@@ -399,7 +404,7 @@ class Drawing:
             # No structures in the initial state: pile skin interfaces stay tied (continuous).
             # K0 from self-weight is what loads a lining when the opening is excavated.
             initial=api.InitialStress("k0_field", active_structures=frozenset()),
-            stages=[api.Stage("CAD yükleme", loads=tuple(loads))],
+            stages=[api.Stage("CAD loading", loads=tuple(loads))],
             geometry=self.to_dict(),
         )
         model = compile_supports(model, self)
@@ -470,8 +475,8 @@ def _check_supports(mesh, fixities):
                 rows.append([0, 1, x])
         if not rows or np.linalg.matrix_rank(np.asarray(rows)) < 3:
             raise ValueError(
-                f"Zemin parçası {k + 1}: mesnetler rijit hareketi önlemiyor. "
-                "Kenar tablosunda ux/uy mesnetlerini tamamlayın."
+                f"Soil part {k + 1}: supports do not prevent rigid-body motion. "
+                "Complete the ux/uy fixities in the edge table."
             )
 
 
@@ -487,7 +492,7 @@ def snap_point(point, entities, tolerance, grid=0.0):
         distance = np.linalg.norm(q - p, axis=1)
         j = int(distance.argmin())
         if distance[j] <= tolerance:
-            return tuple(q[j]), "Nokta/orta nokta"
+            return tuple(q[j]), "Endpoint/midpoint"
     if grid > 0:
-        return tuple(np.round(p / grid) * grid), "Izgara"
-    return tuple(p), "Serbest"
+        return tuple(np.round(p / grid) * grid), "Grid"
+    return tuple(p), "Free"

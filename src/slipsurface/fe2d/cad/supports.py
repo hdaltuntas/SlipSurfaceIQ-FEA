@@ -20,7 +20,7 @@ INTERFACE_SIDES = ("ifL", "ifR")
 def pile_section(D, spacing):
     """Equivalent area and inertia per metre out of plane of a row of solid round piles."""
     if not (np.isfinite([D, spacing]).all() and D > 0 and spacing > 0):
-        raise ValueError("Kazık çapı ve aralığı pozitif olmalıdır.")
+        raise ValueError("Pile diameter and spacing must be positive.")
     return np.pi * D**2 / 4 / spacing, np.pi * D**4 / 64 / spacing
 
 
@@ -71,9 +71,9 @@ class SupportAssignment:
 
     def __post_init__(self):
         if self.kind not in {"pile", "liner", "bolt"}:
-            raise ValueError("Destek türü pile, liner veya bolt olmalıdır.")
+            raise ValueError("Support kind must be pile, liner or bolt.")
         if not self.entity or "," in self.entity or not isinstance(self.active, bool):
-            raise ValueError("Destek adı ve etkinlik değeri geçersiz.")
+            raise ValueError("Support name or active flag is invalid.")
         legacy = self.kind == "pile" and "A" in self.properties and "D" not in self.properties
         props = {**default_properties(self.kind, legacy), **self.properties}
         object.__setattr__(self, "properties", props)
@@ -101,7 +101,7 @@ class SupportAssignment:
             return ()
         p = self.properties
         if not (p["T_skin"] >= 0 and p["kn"] > 0 and p["ks"] >= 0):
-            raise ValueError("Ara yüz: T_skin ≥ 0, kn > 0, ks ≥ 0 olmalıdır.")
+            raise ValueError("Interface: T_skin ≥ 0, kn > 0 and ks ≥ 0 are required.")
         c = p["T_skin"] / (2 * p["spacing"])
         return tuple(
             api.InterfaceSpec(name, p["kn"], p["ks"], c=c, sig_t=c)
@@ -119,7 +119,7 @@ def compile_supports(model, drawing):
         entity = entities[assignment.entity]
         edges = np.vstack([mesh.edge_sets[name] for name in entity.edge_names()])
         if not len(edges):
-            raise ValueError(f"{entity.name}: destek için ağ kenarı bulunamadı.")
+            raise ValueError(f"{entity.name}: no mesh edge found for the support.")
         edge_name = f"{assignment.tag}:path"
         mesh = replace(mesh, edge_sets={**mesh.edge_sets, edge_name: edges})
         if assignment.kind == "bolt":

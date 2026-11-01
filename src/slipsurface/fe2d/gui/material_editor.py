@@ -30,30 +30,30 @@ MODELS = ["elastic", "mohr_coulomb", "hoek_brown", "mcc", "drucker_prager", "von
 PARAM_LABELS = {
     "E": "E (kPa)",
     "nu": "Poisson ν",
-    "c": "Kohezyon c (kPa)",
-    "phi": "Sürtünme φ (°)",
-    "psi": "Dilatans ψ (°)",
-    "sig_t": "Çekme sınırı (kPa; boş=yok)",
-    "rankine_at_apex": "Apex'te açık Rankine akışı",
-    "Kw_n": "Kw/n (kPa; boş=otomatik)",
-    "sigci": "Sağlam kaya UCS (kPa)",
+    "c": "Cohesion c (kPa)",
+    "phi": "Friction φ (°)",
+    "psi": "Dilation ψ (°)",
+    "sig_t": "Tensile cutoff (kPa; blank=none)",
+    "rankine_at_apex": "Open Rankine flow at the apex",
+    "Kw_n": "Kw/n (kPa; blank=automatic)",
+    "sigci": "Intact rock UCS (kPa)",
     "GSI": "GSI",
     "mi": "mi",
-    "D": "Örselenme faktörü D",
+    "D": "Disturbance D",
     "M": "M",
     "lam": "λ (e–ln p)",
     "kappa": "κ (e–ln p)",
     "e0": "e₀",
     "OCR": "OCR",
     "p_min": "Minimum p (kPa)",
-    "p_ref": "Referans p (kPa)",
-    "sy": "Akma dayanımı (kPa)",
-    "H": "Pekleşme H (kPa)",
-    "match": "DP eşleştirme",
+    "p_ref": "Reference p (kPa)",
+    "sy": "Yield strength (kPa)",
+    "H": "Hardening H (kPa)",
+    "match": "DP matching",
 }
 
 
-def default_material(kind, name="Yeni malzeme"):
+def default_material(kind, name="New material"):
     constructors = {
         "elastic": lambda: api.MaterialSpec.elastic(name, 20000, 0.3),
         "mohr_coulomb": lambda: api.MaterialSpec.mohr_coulomb(name, 20000, 0.3, 20, 30),
@@ -67,7 +67,7 @@ def default_material(kind, name="Yeni malzeme"):
 
 class MaterialSpecDialog(EditorDialog):
     def __init__(self, spec=None, parent=None):
-        super().__init__("Malzeme tanımı", parent)
+        super().__init__("Material definition", parent)
         self.resize(560, 780)
         self.original = spec or default_material("elastic")
         form = QFormLayout()
@@ -75,8 +75,8 @@ class MaterialSpecDialog(EditorDialog):
         self.kind = QComboBox()
         self.kind.addItems(MODELS)
         self.kind.setCurrentText(self.original.model)
-        form.addRow("Ad", self.name)
-        form.addRow("Bünye", self.kind)
+        form.addRow("Name", self.name)
+        form.addRow("Constitutive model", self.kind)
         self.root.addLayout(form)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -95,12 +95,12 @@ class MaterialSpecDialog(EditorDialog):
         self.extra = {}
         for key, title, value in [
             ("gamma", "γ (kN/m³)", self.original.gamma_unsat),
-            ("gamma_sat", "γ doygun (kN/m³)", self.original.gamma_sat),
+            ("gamma_sat", "γ saturated (kN/m³)", self.original.gamma_sat),
             ("kx", "kx (m/s)", self.original.k_sat[0]),
             ("ky", "ky (m/s)", self.original.k_sat[1]),
             ("alpha", "VG α (1/m)", self.original.vg[0]),
             ("n", "VG n", self.original.vg[1]),
-            ("floor", "VG bağıl k alt sınırı", self.original.vg[2]),
+            ("floor", "VG relative-k floor", self.original.vg[2]),
         ]:
             self.extra[key] = QLineEdit(str(value))
             other.addRow(title, self.extra[key])
@@ -108,11 +108,11 @@ class MaterialSpecDialog(EditorDialog):
         for drainage in api.Drainage:
             self.drainage.addItem(drainage.value, drainage)
         self.drainage.setCurrentIndex(list(api.Drainage).index(self.original.drainage))
-        other.addRow("Drenaj", self.drainage)
+        other.addRow("Drainage", self.drainage)
         self.root.addLayout(other)
         note = QLabel(
-            "B: φ=0 ve c=su; C: toplam gerilme parametreleri. "
-            "Rankine seçeneği ayrı bir akış kuralıdır; varsayılan kapalıdır."
+            "B: φ=0 and c=su; C: total-stress parameters. "
+            "The Rankine option is a separate flow rule; it is off by default."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
@@ -156,12 +156,13 @@ class MaterialSpecDialog(EditorDialog):
             mb, s, a = hb_parameters(gsi, mi, D)
             ratio = hoek_diederichs_ratio(gsi, D) / hoek_diederichs_ratio(gsi, 0.0)
             self.hb_preview.setText(
-                f"Kaya kütlesi: mb = {mb:.4g} · s = {s:.4g} · a = {a:.4g} · E = {E:.4g} kPa\n"
+                f"Rock mass: mb = {mb:.4g} · s = {s:.4g} · a = {a:.4g} · E = {E:.4g} kPa\n"
                 f"Hoek–Diederichs Erm(D)/Erm(0) = {ratio:.3f}. "
-                f"Örselenmiş kopya bu D ile E ve D'yi günceller; ana malzeme D=0 kalmalıdır."
+                "A disturbed copy updates E and D with this D; "
+                "the parent material should stay at D=0."
             )
         except (KeyError, TypeError, ValueError):
-            self.hb_preview.setText("GSI, mi ve D girilince mb, s, a ve E oranı hesaplanır.")
+            self.hb_preview.setText("Enter GSI, mi and D to compute mb, s, a and the E ratio.")
 
     def specification(self):
         params = {}
@@ -173,7 +174,7 @@ class MaterialSpecDialog(EditorDialog):
             elif widget.text().strip():
                 params[key] = float(widget.text())
             elif key not in {"Kw_n", "sig_t"}:
-                raise ValueError(f"{key} boş olamaz.")
+                raise ValueError(f"{key} cannot be empty.")
         v = {k: float(w.text()) for k, w in self.extra.items()}
         spec = api.MaterialSpec(
             self.name.text().strip(),
@@ -199,13 +200,13 @@ class MaterialSpecDialog(EditorDialog):
 
 class MaterialDialog(EditorDialog):
     def __init__(self, model, parent=None):
-        super().__init__("Malzemeler ve bölge atamaları", parent)
+        super().__init__("Materials and region assignments", parent)
         self.model = model
         self.resize(900, 540)
         self.root.addWidget(
             QLabel(
-                "Yeni malzemeyi oluşturun, ardından bölgelere atayın. "
-                "Aşama değişimleri Aşamalar → Ayrıntı altında."
+                "Create the new material, then assign it to regions. "
+                "Stage changes are under Stages → Detail."
             )
         )
         split = QSplitter()
@@ -213,18 +214,18 @@ class MaterialDialog(EditorDialog):
         split.addWidget(self.list)
         right = QWidget()
         layout = QVBoxLayout(right)
-        self.assignments = table(["Bölge", "Malzeme"])
+        self.assignments = table(["Region", "Material"])
         layout.addWidget(self.assignments)
         split.addWidget(right)
         self.root.addWidget(split)
         toolbar(
             self.root,
             [
-                ("Yeni", self.add_material),
-                ("Düzenle", self.edit_material),
-                ("Kopyala", self.copy_material),
-                ("Örselenmiş kopya", self.disturb_material),
-                ("Sil", self.delete_material),
+                ("New", self.add_material),
+                ("Edit", self.edit_material),
+                ("Copy", self.copy_material),
+                ("Disturbed copy", self.disturb_material),
+                ("Delete", self.delete_material),
             ],
         )
         self.list.itemDoubleClicked.connect(self.edit_material)
@@ -293,7 +294,7 @@ class MaterialDialog(EditorDialog):
             return
         spec = self.model.materials[name]
         if spec.model != "hoek_brown":
-            self.error(ValueError("Örselenme yalnız Hoek-Brown kaya malzemesinde tanımlanır."))
+            self.error(ValueError("Disturbance is only defined for Hoek-Brown rock."))
             return
         dialog = DisturbanceDialog(spec, self.model, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -332,7 +333,7 @@ class DisturbanceDialog(QDialog):
 
     def __init__(self, spec, model, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Örselenmiş kopya · {spec.name}")
+        self.setWindowTitle(f"Disturbed copy · {spec.name}")
         self.parent_spec = spec
         self.updated = None
         self.assign = False
@@ -347,14 +348,14 @@ class DisturbanceDialog(QDialog):
         self.name = QLineEdit(f"{spec.name}_D{self.D.value():g}")
         self.preview = QLabel()
         self.preview.setWordWrap(True)
-        self.assign_box = QCheckBox("Patlatma zonuna ve kazıdan sonraki aşamalara ata")
+        self.assign_box = QCheckBox("Assign to the blast zone and the stages after excavation")
         regions = blast_disturbance_regions(model.geometry)
         self.assign_box.setEnabled(bool(regions))
         self.assign_box.setChecked(bool(regions))
         if not regions:
-            self.assign_box.setText("Patlatma zonu yok (tünel tasarımcısından eklenir)")
-        layout.addRow("Örselenme faktörü D", self.D)
-        layout.addRow("Yeni malzeme adı", self.name)
+            self.assign_box.setText("No blast zone (add one from the tunnel designer)")
+        layout.addRow("Disturbance factor D", self.D)
+        layout.addRow("New material name", self.name)
         layout.addRow(self.preview)
         layout.addRow(self.assign_box)
         buttons = QDialogButtonBox(

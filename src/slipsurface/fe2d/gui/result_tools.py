@@ -48,7 +48,7 @@ class TracePlot(QWidget):
         p.drawRect(box)
         finite = np.isfinite(self.x) & np.isfinite(self.y)
         if not finite.any():
-            p.drawText(box, Qt.AlignmentFlag.AlignCenter, "Aktif sonuç yok")
+            p.drawText(box, Qt.AlignmentFlag.AlignCenter, "No active result")
             return
         xmin, xmax = float(self.x.min()), float(self.x.max())
         ymin, ymax = min(0.0, float(self.y[finite].min())), max(0.0, float(self.y[finite].max()))
@@ -83,7 +83,7 @@ class TracePlot(QWidget):
             p.drawText(3, int(screen(xmin, value)[1]) + 5, f"{value:.4g}")
         p.drawText(int(box.left()), int(box.bottom()) + 22, f"{xmin:.5g}")
         p.drawText(int(box.right()) - 55, int(box.bottom()) + 22, f"{xmax:.5g}")
-        p.drawText(int(box.center().x()) - 65, self.height() - 12, "Yol mesafesi s (m)")
+        p.drawText(int(box.center().x()) - 65, self.height() - 12, "Path distance s (m)")
 
 
 class QueryDialog(QDialog):
@@ -92,7 +92,7 @@ class QueryDialog(QDialog):
     def __init__(self, result, stage, parent=None):
         super().__init__(parent)
         self.result, self.stage, self.profile = result, stage, None
-        self.setWindowTitle(f"Sorgu çizgisi · {stage.name}")
+        self.setWindowTitle(f"Query line · {stage.name}")
         self.resize(850, 640)
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -121,22 +121,22 @@ class QueryDialog(QDialog):
         self.count.setRange(2, 10001)
         self.count.setValue(101)
         self.region = QComboBox()
-        self.region.addItem("Tüm aktif bölgeler", None)
+        self.region.addItem("All active regions", None)
         for r in sorted(result.model.mesh.regions()):
             self.region.addItem(str(r), r)
         for label, widget in [
-            ("Başlangıç x,y (m)", self.start),
-            ("Bitiş x,y (m)", self.end),
-            ("Alan", self.field),
-            ("Örnek sayısı", self.count),
-            ("Bölge / sınır tarafı", self.region),
+            ("Start x,y (m)", self.start),
+            ("End x,y (m)", self.end),
+            ("Field", self.field),
+            ("Sample count", self.count),
+            ("Region / boundary side", self.region),
         ]:
             form.addRow(label, widget)
         layout.addLayout(form)
         note = QLabel(
-            "Deforme olmamış koordinatlar. Boşluk/pasif elemanda veri yoktur; "
-            "grafik boşlukları birleştirmez. Gerilmeler eleman içi GP ekstrapolasyonudur. "
-            "Tam sınırda ilk eleman seçilir; taraf için bölge filtresini kullanın."
+            "Undeformed coordinates. A void or inactive element has no data; "
+            "the plot does not bridge gaps. Stresses are in-element GP extrapolation. "
+            "On an exact boundary the first element is used; filter by region to pick a side."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -146,7 +146,7 @@ class QueryDialog(QDialog):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         row = QHBoxLayout()
-        for label, slot in [("Sorgula", self.query), ("CSV", self.export), ("Kapat", self.accept)]:
+        for label, slot in [("Query", self.query), ("CSV", self.export), ("Close", self.accept)]:
             button = QPushButton(label)
             button.clicked.connect(slot)
             row.addWidget(button)
@@ -167,7 +167,7 @@ class QueryDialog(QDialog):
             )
             p = self.profile
             self.plot.set_data(p.distance, p.values, p.field, p.unit)
-            self.status.setText(f"{np.isfinite(p.values).sum()}/{len(p.values)} aktif örnek")
+            self.status.setText(f"{np.isfinite(p.values).sum()}/{len(p.values)} active samples")
             self.line_changed.emit((a, b))
         except Exception as exc:
             self.profile = None
@@ -177,7 +177,7 @@ class QueryDialog(QDialog):
     def export(self):
         if self.profile is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Çizgi sorgusu", "sorgu.csv", "CSV (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, "Line query", "query.csv", "CSV (*.csv)")
         if path:
             try:
                 self.export_path(path)
@@ -203,16 +203,16 @@ class BeamDiagramDialog(QDialog):
         controls = QHBoxLayout()
         self.tag, self.path = QComboBox(), QComboBox()
         self.tag.addItems(sorted(stage.beams))
-        controls.addWidget(QLabel("Yapı"))
+        controls.addWidget(QLabel("Structure"))
         controls.addWidget(self.tag)
-        controls.addWidget(QLabel("Bağlantılı yol"))
+        controls.addWidget(QLabel("Connected path"))
         controls.addWidget(self.path)
         layout.addLayout(controls)
         note = QLabel(
-            "Yerel x yol yönünde, y buna 90° saat yönü tersi. N çekme (+). "
-            "Kesit N/V/M: başlangıçta −yerel düğüm etkisi, bitişte +yerel etki. "
-            "Ters elemanda uçlar yer değiştirir, M işaret değiştirir; N/V korunur. "
-            "Ortak uçlar ortalanmaz; dallar ve pasif parçalar ayrı yoldur."
+            "Local x follows the path; y is 90° counter-clockwise from it. N is tension (+). "
+            "Section N/V/M: minus the local nodal action at the start, plus it at the end. "
+            "A reversed element swaps the ends and the sign of M; N and V are unchanged. "
+            "Shared ends are not averaged; branches and inactive parts are separate paths."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -220,7 +220,7 @@ class BeamDiagramDialog(QDialog):
         self.plots = [
             TracePlot(title, unit) for title, unit in [("N", "kN/m"), ("V", "kN/m"), ("M", "kNm/m")]
         ]
-        for title, plot in zip(["Normal kuvvet N", "Kesme kuvveti V", "Moment M"], self.plots):
+        for title, plot in zip(["Axial force N", "Shear force V", "Moment M"], self.plots):
             self.tabs.addTab(plot, title)
         layout.addWidget(self.tabs, 1)
         self.status = QLabel()
@@ -228,9 +228,9 @@ class BeamDiagramDialog(QDialog):
         layout.addWidget(self.status)
         row = QHBoxLayout()
         for title, slot in [
-            ("Yol CSV", self.export),
-            ("Grafik PNG", self.export_image),
-            ("Kapat", self.accept),
+            ("Path CSV", self.export),
+            ("Chart PNG", self.export_image),
+            ("Close", self.accept),
         ]:
             button = QPushButton(title)
             button.clicked.connect(slot)
@@ -262,7 +262,7 @@ class BeamDiagramDialog(QDialog):
         if i < 0 or i >= len(self.paths):
             for plot in self.plots:
                 plot.set_data([], [])
-            self.status.setText("Bu aşamada aktif liner yok.")
+            self.status.setText("No active liner in this stage.")
             return
         path = self.paths[i]
         for j, plot in enumerate(self.plots):
@@ -270,15 +270,15 @@ class BeamDiagramDialog(QDialog):
         a, b = path.nodes[0, 0], path.nodes[-1, 1]
         X = self.result.model.mesh.coords
         self.status.setText(
-            f"Yol başlangıcı: düğüm {a} ({X[a, 0]:.4g}, {X[a, 1]:.4g}) → "
-            f"bitişi: düğüm {b} ({X[b, 0]:.4g}, {X[b, 1]:.4g}) m · "
-            f"{len(path.elements)} eleman · s={path.distance[-1, 1]:.5g} m"
+            f"Path start: node {a} ({X[a, 0]:.4g}, {X[a, 1]:.4g}) → "
+            f"end: node {b} ({X[b, 0]:.4g}, {X[b, 1]:.4g}) m · "
+            f"{len(path.elements)} elements · s={path.distance[-1, 1]:.5g} m"
         )
 
     def export(self):
         if not self.paths:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Liner yolu", "liner.csv", "CSV (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, "Liner path", "liner.csv", "CSV (*.csv)")
         if path:
             try:
                 self.export_path(path)
@@ -295,18 +295,18 @@ class BeamDiagramDialog(QDialog):
                     writer.writerow([e, node, station, *forces])
 
     def export_image(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Liner grafiği", "liner.png", "PNG (*.png)")
+        path, _ = QFileDialog.getSaveFileName(self, "Liner chart", "liner.png", "PNG (*.png)")
         if path and not self.tabs.currentWidget().grab().save(path, "PNG"):
-            self.status.setText("PNG kaydedilemedi.")
+            self.status.setText("PNG could not be saved.")
 
 
 FORCE_COMPONENTS = {
     "beam": [
-        ("N", "Normal kuvvet N", "kN/m"),
-        ("V", "Kesme kuvveti V", "kN/m"),
-        ("M", "Eğilme momenti M", "kNm/m"),
+        ("N", "Axial force N", "kN/m"),
+        ("V", "Shear force V", "kN/m"),
+        ("M", "Bending moment M", "kNm/m"),
     ],
-    "bar": [("N", "Eksenel kuvvet N", "kN")],
+    "bar": [("N", "Axial force N", "kN")],
 }
 
 
@@ -337,7 +337,7 @@ def structure_segments(result, stage, tag):
             segments.append((X[a], X[b], (distance, distance + length), np.array([[n], [n]])))
             distance += length
         return "bar", segments
-    raise ValueError(f"'{tag}' bir kiriş/kazık veya ankraj değil.")
+    raise ValueError(f"'{tag}' is not a beam/pile or an anchor.")
 
 
 def diagram_amplitude(segments, component, extent, fraction=0.22):
@@ -419,7 +419,7 @@ class StructureDiagram(QWidget):
         p.fillRect(self.rect(), QColor("white"))
         if not self.segments:
             p.setPen(QColor("#526677"))
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Bu aşamada aktif eleman yok")
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No active element in this stage")
             return
         pts = np.array([pt for a, b, _, _ in self.segments for pt in (a, b)], float)
         lo, hi = pts.min(0), pts.max(0)
@@ -452,7 +452,7 @@ class StructureDiagram(QWidget):
         p.drawPath(path)
         ext = self.extremes()
         p.setPen(QColor("#213547"))
-        for label, (value, where) in zip(("min", "maks"), ext):
+        for label, (value, where) in zip(("min", "max"), ext):
             at = screen(where)
             p.drawEllipse(at, 3, 3)
             p.drawText(at + QPointF(6, -6), f"{label} {value:.4g} {self.unit}")
@@ -466,7 +466,7 @@ class StructureForceDialog(QDialog):
         from .editing import structure_label
 
         self.result, self.tag = result, tag
-        self.setWindowTitle(f"Kesit tesirleri · {structure_label(result.model, tag)}")
+        self.setWindowTitle(f"Section forces · {structure_label(result.model, tag)}")
         self.resize(980, 680)
         layout = QVBoxLayout(self)
         controls = QHBoxLayout()
@@ -474,33 +474,31 @@ class StructureForceDialog(QDialog):
         snapshots = [result.initial, *result.stages]
         for i, st in enumerate(snapshots):
             self.stage.addItem(st.name, i)
-        controls.addWidget(QLabel("Aşama"))
+        controls.addWidget(QLabel("Stage"))
         controls.addWidget(self.stage, 1)
         self.component = QComboBox()
-        controls.addWidget(QLabel("Kesit tesiri"))
+        controls.addWidget(QLabel("Section force"))
         controls.addWidget(self.component, 1)
         layout.addLayout(controls)
         self.tabs = QTabWidget()
         self.diagram = StructureDiagram()
         self.trace = TracePlot()
-        self.tabs.addTab(self.diagram, "Yapı üzerinde")
-        self.tabs.addTab(self.trace, "Uzunluk boyunca")
-        self.disp_plots = [
-            TracePlot(title, "m") for title in ("|u|", "ux", "uy")
-        ]
+        self.tabs.addTab(self.diagram, "On the structure")
+        self.tabs.addTab(self.trace, "Along the length")
+        self.disp_plots = [TracePlot(title, "m") for title in ("|u|", "ux", "uy")]
         disp_page = QWidget()
         disp_layout = QVBoxLayout(disp_page)
         disp_layout.setContentsMargins(0, 0, 0, 0)
         for plot in self.disp_plots:
             disp_layout.addWidget(plot, 1)
-        self.tabs.addTab(disp_page, "Deplasman")
+        self.tabs.addTab(disp_page, "Displacement")
         layout.addWidget(self.tabs, 1)
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         row = QHBoxLayout()
         row.addStretch(1)
-        for title, slot in [("Grafik PNG", self.export_image), ("Kapat", self.accept)]:
+        for title, slot in [("Chart PNG", self.export_image), ("Close", self.accept)]:
             button = QPushButton(title)
             button.clicked.connect(slot)
             row.addWidget(button)
@@ -559,7 +557,7 @@ class StructureForceDialog(QDialog):
             plot.set_data(ds, y, name, "m")
         ext = self.diagram.extremes()
         if ext is None:
-            self.status.setText("Bu aşamada yapı pasif; kesit tesiri yok.")
+            self.status.setText("Structure is inactive in this stage; no section force.")
             return
         (vmin, pmin), (vmax, pmax) = ext
         ranges = []
@@ -568,15 +566,15 @@ class StructureForceDialog(QDialog):
             ranges.append(f"{name} [{np.nanmin(col):.4g}, {np.nanmax(col):.4g}] {unit}")
         self.status.setText(
             f"{key}: min {vmin:.5g} {unit} @ ({pmin[0]:.3g}, {pmin[1]:.3g}) m · "
-            f"maks {vmax:.5g} {unit} @ ({pmax[0]:.3g}, {pmax[1]:.3g}) m · "
+            f"max {vmax:.5g} {unit} @ ({pmax[0]:.3g}, {pmax[1]:.3g}) m · "
             + " · ".join(ranges)
-            + f" · {len(self.segments)} eleman · N çekme (+)"
+            + f" · {len(self.segments)} elements · N tension (+)"
         )
 
     def export_image(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Kesit tesiri", "kesit.png", "PNG (*.png)")
+        path, _ = QFileDialog.getSaveFileName(self, "Section force", "section.png", "PNG (*.png)")
         if path and not self.tabs.currentWidget().grab().save(path, "PNG"):
-            self.status.setText("PNG kaydedilemedi.")
+            self.status.setText("PNG could not be saved.")
 
 
 class StructureDisplacementDialog(QDialog):
@@ -585,7 +583,7 @@ class StructureDisplacementDialog(QDialog):
     def __init__(self, result, stage_index, parent=None):
         super().__init__(parent)
         self.result = result
-        self.setWindowTitle("Deplasman · tünel / kazık")
+        self.setWindowTitle("Displacement · tunnel / pile")
         self.resize(920, 640)
         layout = QVBoxLayout(self)
         controls = QHBoxLayout()
@@ -596,14 +594,14 @@ class StructureDisplacementDialog(QDialog):
         self.tag = QComboBox()
         for tag, label in beam_profile_tags(result.model):
             self.tag.addItem(label, tag)
-        controls.addWidget(QLabel("Aşama"))
+        controls.addWidget(QLabel("Stage"))
         controls.addWidget(self.stage, 1)
-        controls.addWidget(QLabel("Yapı"))
+        controls.addWidget(QLabel("Structure"))
         controls.addWidget(self.tag, 1)
         layout.addLayout(controls)
         note = QLabel(
-            "Kaplama (tünel çevresi) ve kazık boyunca düğüm deplasmanı. "
-            "Kanvasta yalnız ısı haritası kalır; sayısal değerler bu grafiktedir."
+            "Nodal displacement along the lining (around the tunnel) and the pile. "
+            "The canvas keeps only the colour map; the numbers are on this chart."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -615,7 +613,7 @@ class StructureDisplacementDialog(QDialog):
         layout.addWidget(self.status)
         row = QHBoxLayout()
         row.addStretch(1)
-        close = QPushButton("Kapat")
+        close = QPushButton("Close")
         close.clicked.connect(self.accept)
         row.addWidget(close)
         layout.addLayout(row)
@@ -630,7 +628,7 @@ class StructureDisplacementDialog(QDialog):
         if not tag:
             for plot in self.plots:
                 plot.set_data([], [])
-            self.status.setText("Kaplama veya kazık yok.")
+            self.status.setText("No lining or pile.")
             return
         i = self.stage.currentData() or 0
         st = self.result.initial if i == 0 else self.result.stages[i - 1]
@@ -646,11 +644,11 @@ class StructureDisplacementDialog(QDialog):
             plot.set_data(s, y, name, "m")
         finite = np.isfinite(umag)
         if not finite.any():
-            self.status.setText("Bu aşamada yapı pasif; deplasman yok.")
+            self.status.setText("The structure is inactive in this stage; no displacement.")
             return
         imin, imax = int(np.nanargmin(umag)), int(np.nanargmax(umag))
         self.status.setText(
             f"|u| min {umag[imin]:.5g} m @ s={s[imin]:.4g} m · "
-            f"maks {umag[imax]:.5g} m @ s={s[imax]:.4g} m · "
-            f"{len(segments)} eleman"
+            f"max {umag[imax]:.5g} m @ s={s[imax]:.4g} m · "
+            f"{len(segments)} elements"
         )

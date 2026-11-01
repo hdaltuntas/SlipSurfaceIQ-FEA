@@ -85,25 +85,25 @@ def export_html(result, path):
             f"<tr><td>{escape(st.name)}</td><td>{st.lam:.6g}</td>"
             f"<td>{maximum}</td><td>{attempts}</td><td>{rejected}</td></tr>"
         )
-    html = """<!doctype html><html lang="tr"><meta charset="utf-8">
-<title>SlipSurfaceIQ · Analiz raporu</title><style>
+    html = """<!doctype html><html lang="en"><meta charset="utf-8">
+<title>SlipSurfaceIQ · Analysis report</title><style>
 body{font:16px system-ui;max-width:1000px;margin:48px auto;color:#213547;padding:24px}
 h1{color:#155e75}table{border-collapse:collapse;width:100%;margin:24px 0}
 th,td{text-align:left;padding:12px;border-bottom:1px solid #ddd}th{background:#edf6f8}
-</style><h1>SlipSurfaceIQ-FEA</h1><p>Aşamalı analiz sonuç özeti</p>"""
+</style><h1>SlipSurfaceIQ-FEA</h1><p>Staged analysis results summary</p>"""
     html += (
-        f"<p>Analiz: {escape(result.model.analysis.value)} · "
-        f"Düğüm: {result.model.mesh.nn} · "
-        f"Eleman: {sum(b.ne for b in result.model.mesh.blocks)}</p>"
+        f"<p>Analysis: {escape(result.model.analysis.value)} · "
+        f"Nodes: {result.model.mesh.nn} · "
+        f"Elements: {sum(b.ne for b in result.model.mesh.blocks)}</p>"
     )
-    html += "<p>Birimler: kN, m, kPa. Gerilme işareti: çekme pozitif. "
-    html += "Eksenel simetride kuvvetler radyan başınadır.</p>"
-    html += "<table><tr><th>Aşama</th><th>λ</th><th>En büyük |u| (m)</th>"
-    html += "<th>Adım denemesi</th><th>Reddedilen deneme</th></tr>"
+    html += "<p>Units: kN, m, kPa. Stress sign: tension positive. "
+    html += "In axisymmetry, forces are per radian.</p>"
+    html += "<table><tr><th>Stage</th><th>λ</th><th>Maximum |u| (m)</th>"
+    html += "<th>Step attempts</th><th>Rejected attempts</th></tr>"
     html += "".join(records) + "</table>"
     html += (
-        "<p>λ, aşamanın yük/serbest bırakma çarpanıdır; güvenlik katsayısı değildir. "
-        "Bu rapor kayıtlı çözümleri özetler; bağımsız mühendislik doğrulaması içermez. "
-        "S4 dış karşılaştırması ertelenmiştir.</p></html>"
+        "<p>λ is the stage load/release factor, not a factor of safety. "
+        "This report summarises stored solutions; it is not an independent engineering check. "
+        "The S4 external comparison is deferred.</p></html>"
     )
     return _atomic_write(path, lambda tmp: Path(tmp).write_text(html, encoding="utf-8"))

@@ -1,9 +1,10 @@
-# Karma üçgen/dörtgen ağ (deneysel)
+# Mixed triangle/quad mesh (experimental)
 
-`recombine_mesh` mevcut bir sürekli ortam ağındaki uygun üçgen çiftlerini birleştirir:
-T3 → Q4 veya T6 → Q8. Aynı ağda yalnızca tek interpolasyon derecesi kullanılır.
-Üçgen/dörtgen geçişi ortak köşe ve (kuadratikte) ortak orta düğüm kimlikleriyle
-uyumludur; hanging node/MPC kullanılmaz. scikit-fem bağımlılığı eklenmedi.
+`recombine_mesh` merges suitable pairs of triangles in an existing continuum mesh:
+T3 → Q4 or T6 → Q8. Only one interpolation degree is used in the same mesh.
+The triangle/quad transition is conforming through shared corner nodes and, for
+quadratics, shared midside node ids; hanging nodes/MPCs are not used. No scikit-fem
+dependency was added.
 
 ```python
 from slipsurface.fe2d.mesh import rectangle, recombine_mesh, mesh_quality
@@ -13,90 +14,94 @@ mixed = recombine_mesh(tri, where=lambda xy: xy[:, 0] < 10.)
 print(mesh_quality(mixed))
 ```
 
-Bu işlemi Model, yük, malzeme ataması ve beam/bar/interface elemanlarını oluşturmadan
-önce yapın. Düğüm numaraları değişebilir; düğüm/kenar kümeleri yeniden eşlenir.
-Çözülmüş durumun veya geçmiş değişkenlerinin yeni ağa aktarılması desteklenmez.
+Do this before creating the Model, the loads, the material assignment, and the
+beam/bar/interface elements. Node numbers can change; node/edge sets are remapped.
+Transfer of a solved state, or of history variables, onto the new mesh is not supported.
 
-## Korunan sınırlar ve kalite
+## Preserved limits and quality
 
-- Çiftler aynı blok ve bölgeden seçilir; adlandırılmış kenarlar silinmez.
-- Adlandırılmış düğüm kümesindeki kuadratik köşegen orta düğümü korunur (`all` hariç).
-- Eğri T6 çiftleri üçgen kalır. Yalnızca düz kenarlı, dışbükey çiftler birleştirilir.
-- Varsayılan iç açı aralığı 45–135°, en büyük kenar karesi/en küçük köşe çapraz
-  çarpımı oranı en çok 5'tir; `min_angle` ve `max_aspect` ile değiştirilebilir.
-- Kaliteye göre deterministik açgözlü eşleştirme yapılır. Düzenli, duvara paralel
-  dörtgen katman veya belirli bir dörtgen yüzdesi garanti edilmez.
+- Pairs are chosen from the same block and region; named edges are not deleted.
+- A quadratic diagonal midside node that belongs to a named node set is kept (`all` excluded).
+- Curved T6 pairs stay triangles. Only flat-edged, convex pairs are merged.
+- The default interior-angle range is 45–135°, and the ratio of the largest edge-squared
+  to the smallest corner cross product is at most 5; both can be changed with `min_angle`
+  and `max_aspect`.
+- Deterministic greedy matching is done by quality. A regular quad layer parallel to the
+  wall, or a particular quad percentage, is not guaranteed.
 
-`validate_conformity` yinelenen kullanılan düğüm koordinatlarını, ikiden fazla
-elemanın paylaştığı kenarları, uyumsuz orta düğümleri ve düz kenarlardaki hanging
-köşeleri reddeder. Genel eğri kenar kesişimi ve eleman içi örtüşme denetimi yapmaz.
-`mesh_quality` artık üçgen/dörtgen sayısını ve dörtgen köşelerinde ölçekli Jacobian'ı
-raporlar. Yarıçap/kenar oranı yalnızca üçgenler içindir; eğri elemanların iç Jacobian
-kontrolünün yerini köşe geometrisi ölçütleri almaz.
+`validate_conformity` rejects duplicate coordinates of used nodes, edges shared by more
+than two elements, inconsistent midside nodes, and hanging corners on straight edges.
+It does not check general curved-edge intersection or overlap inside an element.
+`mesh_quality` now reports the triangle/quad counts and the scaled Jacobian at quad
+corners. The radius/edge ratio is for triangles only; corner-geometry measures do not
+replace an interior Jacobian check of curved elements.
 
-## Doğrulanan kapsam
+## Verified scope
 
-`test_mixed_mesh.py`, `test_mixed_patch.py` ve `test_e2_cantilever.py` içinde:
-geometri/küme korunması ve determinizm; çarpık ağda düzlem/eksenel simetrik sabit
-deformasyon; asgari rijit cisim kısıtlarıyla çekme; analitik konsol sehimi ve reaksiyon;
-analitik Tresca plastik basınç; elastik yolda kazı/geri dolgu; iki taraflı liner/ara yüz;
-hidrostatik basınç ve kuvvet dengesi; HDF5/.ssproj/VTU gidiş-dönüşü kontrol edilir.
-Yüksek dereceli ağda hidrostatik efektif gerilme alanı da analitik kontrol edilir.
-Bu kapsam, zeminli nonlinear palplanşın doğrulandığı anlamına gelmez.
+In `test_mixed_mesh.py`, `test_mixed_patch.py`, and `test_e2_cantilever.py` the following
+are checked: geometry/set preservation and determinism; plane and axisymmetric constant
+strain on a distorted mesh; tension with the minimum rigid-body restraints; analytical
+cantilever deflection and reactions; analytical Tresca plastic compression; excavation/backfill
+on an elastic path; a two-sided liner/interface; hydrostatic pressure and force balance;
+HDF5/.ssproj/VTU round trip. On the higher-order mesh the hydrostatic effective-stress
+field is also checked analytically. This scope does not mean that the nonlinear sheet
+pile in soil has been verified.
 
-## Aynı palplanş modeliyle karşılaştırma
+## Comparison on the same sheet-pile model
 
-Bu belgedeki palplanş sayısal kayıtları, iki taraflı ara yüzün gömülü uç
-bağlantısı düzeltilmeden önce alındı. Eski model ikinci eklenen tarafta ucu
-ayırıyordu; güncel kod iki tarafta da ucu ortak tutar. Eski değerler tanı
-geçmişidir; güncel model ve tekrarlar [S4 protokolündedir](s4-comparison.md).
+The sheet-pile numerical records in this document were taken before the embedded-tip
+connection of the two-sided interface was fixed. The old model split the tip on the
+second side that was added; the current code keeps the tip shared on both sides. The
+old values are diagnostic history; the current model and the replays are in the
+[S4 protocol](s4-comparison.md).
 
 ```bash
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/compare_sheet_pile_meshes.py --sizes 0.5 0.25 --gauss-order default --csv /tmp/pile-default.csv
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/compare_sheet_pile_meshes.py --sizes 0.5 0.25 --gauss-order high --csv /tmp/pile-high.csv
 ```
 
-Her iki model aynı geometri, malzeme, sınır ve yük aşamalarını kullanır. Karma
-modelde yalnızca |x| < 4 m içindeki uygun çiftler birleştirilir. Başarısız koşu
-çıkış kodu 1 verir; son yakınsayan yük çarpanı raporlanır, tamamlanmış aşama
-momenti/yer değiştirmesi üretilmez.
+Both models use the same geometry, materials, boundaries, and load stages. In the mixed
+model only suitable pairs with |x| < 4 m are merged. A failed run returns exit code 1;
+the last converged load factor is reported, and no completed-stage moment/displacement
+is produced.
 
-| h (m) | Ağ | Düğüm | T6 / Q8 | GP (default / high) |
+| h (m) | Mesh | Nodes | T6 / Q8 | GP (default / high) |
 |---|---|---:|---:|---:|
 | 0.50 | T6 | 3889 | 1829 / 0 | 5487 / 10974 |
 | 0.50 | T6+Q8 | 3658 | 1367 / 231 | 5025 / 10281 |
 | 0.25 | T6 | 5380 | 2520 / 0 | 7560 / 15120 |
 | 0.25 | T6+Q8 | 4917 | 1594 / 463 | 6634 / 13731 |
 
-`default`: T6 3 GP, Q8 2×2 azaltılmış integrasyon; `high`: T6 6 GP, Q8 3×3.
-Kaba ağda düğüm sayısı %5.94, default GP sayısı %8.42 azalır. Bu, hızlanma veya
-nonlinear yakınsama garantisi değildir. Yerel MC dönüşünün başarısızlığını `255`
-bayraklı elastik denemeyle gizleyen hatanın ilk düzeltmesinde (`b5dfcbe`) aynı sekiz
-koşu tekrar çalıştırıldı; aşağıdaki kayıtlar çekme kesmesi seçilmemiş o kod içindir.
+`default`: T6 with 3 GP, Q8 with 2×2 reduced integration; `high`: T6 with 6 GP, Q8 with 3×3.
+On the coarse mesh the node count drops by 5.94% and the default GP count by 8.42%. This
+is not a speed-up or a nonlinear-convergence guarantee. In the first fix (`b5dfcbe`) of the
+bug that hid a failed local MC return behind an elastic trial flagged `255`, the same eight
+runs were repeated; the records below are for that code with no tension cut-off selected.
 
-| h (m) | Ağ | Integrasyon | Kazı son yük çarpanı | Tamamlandı mı? |
+| h (m) | Mesh | Integration | Excavation final load factor | Completed? |
 |---|---|---|---:|---|
-| 0.50 | T6 | default | 0.98698 | Hayır |
-| 0.50 | T6+Q8 | default | 1.00000 | Evet |
-| 0.25 | T6 | default | 0.88966 | Hayır |
-| 0.25 | T6+Q8 | default | 0.57445 | Hayır |
-| 0.50 | T6 | high | 0.96729 | Hayır |
-| 0.50 | T6+Q8 | high | 0.14826 | Hayır |
-| 0.25 | T6 | high | 0.42167 | Hayır |
-| 0.25 | T6+Q8 | high | 0.06509 | Hayır |
+| 0.50 | T6 | default | 0.98698 | No |
+| 0.50 | T6+Q8 | default | 1.00000 | Yes |
+| 0.25 | T6 | default | 0.88966 | No |
+| 0.25 | T6+Q8 | default | 0.57445 | No |
+| 0.50 | T6 | high | 0.96729 | No |
+| 0.50 | T6+Q8 | high | 0.14826 | No |
+| 0.25 | T6 | high | 0.42167 | No |
+| 0.25 | T6+Q8 | high | 0.06509 | No |
 
-Tamamlanan tek koşuda |M|max = 168.278009 kNm/m ve maksimum düğüm yer değiştirme
-normu 0.04217045 m. Eşdeğer T6 koşusu tamamlanmadığından doğrulanmış bir moment
-farkı veya ağ yakınsaması hesabı yapılamaz. Önceden bildirilen %1.80 fark ve diğer
-yük çarpanları korumasız koda aittir; doğrulama kanıtı olarak geri çekilmiştir.
+In the only completed run, |M|max = 168.278009 kNm/m and the maximum nodal displacement
+norm is 0.04217045 m. Because the equivalent T6 run did not complete, a verified moment
+difference or a mesh-convergence calculation cannot be made. The previously reported 1.80%
+difference and the other load factors belong to the unguarded code; they have been withdrawn
+as verification evidence.
 
-High karma kaba ağ tanısı, eski kabul edilmiş durumdaki 6 adet `255` GP'yi
-gösterdi; koruma sonrasında bu durum kabul edilmiyor. Ayırıcı elastik-zemin
-koşusu tamamlandı. Yerel hata, P4'e etkisi ve tanı komutları:
+The high mixed coarse-mesh diagnosis showed 6 Gauss points flagged `255` in the old
+accepted state; after the guard that state is not accepted. The separating elastic-soil
+run completed. The local error, its effect on P4, and the diagnostic commands:
 [nonlinear-diagnostics.md](nonlinear-diagnostics.md).
-Toleranslar ve fiziksel malzeme parametreleri bu karşılaştırmada değiştirilmedi.
-İnce ağ yakınsaması, P4 ve bağımsız S4 referansı çözülmeden kapılar açık kalır.
+Tolerances and the physical material parameters were not changed in this comparison.
+The gates stay open until the fine-mesh convergence, P4, and an independent S4 reference are resolved.
 
-Açık `--soil-tension 0` seçimiyle güncel high integrasyon koşullarının dördü de
-tamamlanır; bu farklı çekme akışının tanımı, yerel testler ve yeni sonuç tablosu
-[coincident-tension-cutoff.md](coincident-tension-cutoff.md) içindedir.
+With the explicit `--soil-tension 0` choice, all four of the current high-integration
+cases complete; the definition of that different tension flow, the local tests, and the
+new result table are in [coincident-tension-cutoff.md](coincident-tension-cutoff.md).

@@ -1,129 +1,141 @@
-# Yakınsama tanısı: geometri, matris ve Newton seçenekleri
+# Convergence diagnostics: geometry, the matrix, and Newton options
 
-Bu çalışma, palplanş örneğinde tekillik, kilitlenme, yumuşama, eleman kalitesi ve
-çözüm yöntemi önerilerini ayrı kontrollerle inceler. Üretim çözücüsünün yöntemi,
-toleransları veya malzeme kuralları bu tanı çalışmasıyla değiştirilmedi.
+This study examines, with separate checks, the suggestions of singularity, locking,
+softening, element quality, and solution method on the sheet-pile example. The method,
+the tolerances, and the material rules of the production solver were not changed by
+this diagnostic study.
 
-Yerel ret girdilerinin sonraki bağımsız tekrarı, hem palplanş hem P4 için ψ=0,
-Rankine akışı olmayan seçimin bazı deneme artışlarında ortalama gerilmeyi apex'e
-indiremediğini gösterdi. Kayıtlar, iz dengesi çıkarımı ve alt adım tablosu:
-[nonlinear-diagnostics.md](nonlinear-diagnostics.md#yerel-girdilerin-bağımsız-tekrarı).
-Bu sonuç, bütün ağ/eleman kararlılığının kanıtı veya küresel dengenin yokluğu değildir.
+A later independent replay of the local-rejection inputs showed, for both the sheet
+pile and P4, that the ψ=0 choice with no Rankine flow cannot bring the mean stress
+down to the apex on some trial increments. The records, the trace-balance argument,
+and the substep table:
+[nonlinear-diagnostics.md](nonlinear-diagnostics.md#independent-replay-of-the-local-inputs).
+This result is not proof of the stability of the whole mesh/element, or of the absence
+of global equilibrium.
 
-## Mevcut model ve yöntemler
+## Current model and methods
 
-Bu belgedeki palplanş sayısal kayıtları, iki taraflı ara yüzün gömülü uç
-bağlantısı düzeltilmeden önce alındı. Eski model ikinci eklenen tarafta ucu
-ayırıyordu; güncel kod iki tarafta da ucu ortak tutar. Eski değerler tanı
-geçmişidir; güncel model ve tekrarlar [S4 protokolündedir](s4-comparison.md).
+The sheet-pile numerical records in this document were taken before the embedded-tip
+connection of the two-sided interface was fixed. The old model split the tip on the
+second side that was added; the current code keeps the tip shared on both sides. The
+old values are diagnostic history; the current model and the replays are in the
+[S4 protocol](s4-comparison.md).
 
-- Zemin ν=0.30, c=0, φ=30°, ψ=0; ideal elastoplastik MC. İç değişkene bağlı
-  dayanım düşüşü yok. Noktasal dış yük yok; mesnetler alt ve yan kenar kümelerinde.
-- Kazı köşesi (0, −5), palplanş ucu (0, −10.5) ve duvar üstü (0, 0) tanı noktalarıdır.
-  Bunlar bu örneğe özgü bilinen konumlardır; genel otomatik köşe tespitçisi eklenmedi.
-- Varsayılan NR + line search; alternatifler `mNR`, `hybrid`, `initial` zaten vardı.
-  `initial`, mevcut aşama/aktif kümenin elastik rijitliğidir; kazıdan önceki tek bir
-  global matrisi tüm aktif küme değişikliklerinde sabit tutmaz.
-- Yakınsamayan adım geri alınır, Δλ yarıya iner; hızlı kabulden sonra 1.5 kat büyür.
-  Kalıntı duraklaması bazı adımları max_iter dolmadan kesebilir.
+- Soil ν=0.30, c=0, φ=30°, ψ=0; ideal elastoplastic MC. No strength drop that depends
+  on an internal variable. No point external load; supports are on the bottom and side edge sets.
+- The excavation corner (0, −5), the sheet-pile tip (0, −10.5), and the top of the wall
+  (0, 0) are diagnostic points. These are known locations specific to this example; a
+  general automatic corner detector was not added.
+- Default NR + line search; the alternatives `mNR`, `hybrid`, and `initial` already existed.
+  `initial` is the elastic stiffness of the current stage/active set; it does not hold one
+  global matrix from before excavation fixed across every active-set change.
+- A step that does not converge is rolled back and Δλ is halved; after a fast acceptance
+  it grows by a factor of 1.5. Residual stall can cut some steps before max_iter is reached.
 
-ν≈0.5 kaynaklı elastik kilitlenme bu model için öncelikli bulgu değildir; bu,
-plastik kilitlenmenin tüm yük yollarında dışlandığı anlamına gelmez. Q4'te B-bar,
-Q8'de default 2×2 ve high 3×3 integrasyon vardır. T3+Q4/T6+Q8 karma ağ, u–p
-karma formülasyonu değildir; basınç için ayrı bilinmeyen henüz yoktur. Sıkışmazlık
-için u–p seçimi stabil bir eleman çifti/formülasyon gerektirir
-([MoFEM birincil dokümantasyonu](https://mofem.eng.gla.ac.uk/elasticity_mixed_formulation.html)).
+Elastic locking from ν≈0.5 is not the primary finding for this model; that does not
+mean plastic locking is excluded on every load path. Q4 has B-bar; Q8 has default 2×2
+and high 3×3 integration. A T3+Q4/T6+Q8 mixed mesh is not a u–p mixed formulation;
+there is no separate pressure unknown yet. A u–p choice for incompressibility needs a
+stable element pair/formulation
+([MoFEM primary documentation](https://mofem.eng.gla.ac.uk/elasticity_mixed_formulation.html)).
 
-Yumuşama parametresi bulunmaması ağ bağımlılığını kesin dışlamaz: ilişkisiz akışta
-ideal plastisiteyle de yapısal yumuşama ve eliptiklik kaybı görülebilir.
-[Sabet–de Borst (2019), yazar kurumu arşivi](https://eprints.whiterose.ac.uk/id/eprint/148931/).
-Bu modelde akustik tensör/eliptiklik analizi yapılmadı; lokalizasyon teşhisi konmadı.
+The absence of a softening parameter does not strictly exclude mesh dependence:
+structural softening and loss of ellipticity can also appear with ideal plasticity
+under non-associated flow.
+[Sabet–de Borst (2019), the authors’ institutional archive](https://eprints.whiterose.ac.uk/id/eprint/148931/).
+No acoustic-tensor/ellipticity analysis was done on this model; no localisation diagnosis was made.
 
-## Aynı yük düzeyinde yöntem karşılaştırması
+## Method comparison at the same load level
 
-T6+Q8, h=0.50 m, high, açık σt=0, kazı λ=0.05; aynı kuvvet/enerji toleransları,
-line search ve max_iter=30. Aşağıdaki iterasyonlar yalnız kazı aşamasınındır;
-reddedilen denemeleri de içerir.
+T6+Q8, h=0.50 m, high, explicit σt=0, excavation λ=0.05; the same force/energy
+tolerances, line search, and max_iter=30. The iterations below are for the excavation
+stage only; they include rejected trials.
 
-| Yöntem | İterasyon | Kabul / ret adımı | Son normalize kuvvet kalıntısı |
+| Method | Iterations | Accepted / rejected steps | Final normalised force residual |
 |---|---:|---:|---:|
 | NR | 6 | 1 / 0 | 1.15e-5 |
 | hybrid | 6 | 1 / 0 | 3.47e-6 |
 | mNR | 129 | 4 / 3 | 9.08e-5 |
 | initial | 172 | 4 / 3 | 9.96e-5 |
 
-Dört koşu da hedef λ=0.05'i tamamlar. mNR/initial için üç kesme nedeni iterasyon
-sınırıdır; bu örnekte NR/hybrid daha az iterasyonla tamamladı. Bu, tam kazının
-bütün yöntemlerle doğrulandığı veya NR'nin her modelde daha iyi olduğu iddiası değildir.
-`test_nonlinear_diagnostics.py`, yerel hata sonrası ilk 0.5 adımın iki kez kesilip
-0.125'te kabulünü ve sonraki hızlı adımın 0.1875'e büyümesini de kontrol eder.
+All four runs complete the target λ=0.05. For mNR/initial the reason of the three cuts
+is the iteration limit; in this example NR/hybrid finished in fewer iterations. This is
+not a claim that the full excavation was verified with every method, or that NR is
+better on every model.
+`test_nonlinear_diagnostics.py` also checks that, after a local error, the first 0.5
+step is cut twice and accepted at 0.125, and that the next fast step grows to 0.1875.
 
-Modified Newton bir adımın matrisiyle iterasyon yapar
+Modified Newton iterates with one step’s matrix
 ([OpenSees](https://opensees.github.io/OpenSeesDocumentation/user/manual/analysis/algorithm/ModifiedNewton.html)).
-Bu işlem tek başına pozitif tanımlılık veya tekillik hatalarının ortadan kalkmasını
-garanti etmez. Başlangıç elastik matrisi de eksik mesnet veya kopuk DOF varsa tekildir.
-İlişkisiz MC için simetrik olmayan LU zaten kullanılmaktadır; SPD şartı aranmaz.
+That operation by itself does not guarantee that positive-definiteness or singularity
+errors disappear. The initial elastic matrix is also singular if a support is missing
+or a DOF is disconnected. For non-associated MC, unsymmetric LU is already used; an SPD
+condition is not required.
 
-## Elastik referansta köşe ve ağ kalitesi
+## Corner and mesh quality on the elastic reference
 
-Yalnız tanı için aynı geometri ve elastik sabitlerle zemin elastik yapıldı;
-ara yüzün kn/ks değerleri korundu, kayma/açılma 1e20 dayanımla bastırıldı (φ=ψ=0).
-Bu farklı referans modeli, gerçek MC/ara yüz çözümünün yerine kullanılmaz.
-Üç ağ da aynı tam kazı λ=1 durumunda karşılaştırıldı. Gerilme ölçütü Gauss
-noktalarındaki 3B tensör Frobenius normudur; kayma bileşeni normda iki kez sayılır.
+For diagnosis only, the soil was made elastic with the same geometry and elastic
+constants; the interface kn/ks values were kept, and slip/opening was suppressed with
+a strength of 1e20 (φ=ψ=0). This different reference model is not used in place of the
+real MC/interface solution. All three meshes were compared at the same full-excavation
+λ=1 state. The stress measure is the 3D tensor Frobenius norm at the Gauss points; the
+shear component is counted twice in the norm.
 
-| h (m) | En büyük cond₂(J) | En küçük ölçekli J | Köşeye en yakın GP (m) | Köşe r≤0.75 m tepe norm (kPa) | 0.5≤r≤1 m ağırlıklı ortalama (kPa) |
+| h (m) | Largest cond₂(J) | Smallest scaled J | GP closest to the corner (m) | Peak norm for r≤0.75 m at the corner (kPa) | Weighted mean for 0.5≤r≤1 m (kPa) |
 |---|---:|---:|---:|---:|---:|
 | 0.50 | 4.706 | 0.4736 | 0.05036 | 349.87 | 100.96 |
 | 0.25 | 4.190 | 0.4721 | 0.02333 | 485.66 | 100.75 |
 | 0.125 | 4.148 | 0.4707 | 0.00996 | 907.60 | 100.95 |
 
-Örneklenen tüm detJ değerleri pozitif. En küçük köşe açısı 28.08–28.27°,
-en büyük mevcut aspect ölçütü 4.73–4.98. İncelenme sırasında J'nin şekil
-koşullanması kötüleşmiyor. detJ'nin h² ile küçülmesi tek başına kötü eleman değildir.
-T6/Q8 orta düğümleri J hesabına dahildir. Gauss örneklemesi eğri hücrenin her
-noktasında pozitif J garantisi vermez.
+Every sampled detJ is positive. The smallest corner angle is 28.08–28.27°, and the
+largest existing aspect measure is 4.73–4.98. The shape conditioning of J does not
+worsen as the mesh is refined. detJ shrinking with h² is not, by itself, a bad element.
+T6/Q8 midside nodes are included in the J calculation. Gauss sampling does not guarantee
+positive J at every point of a curved cell.
 
-GP köşeye yaklaşırken tepenin büyümesi, sabit uzaklıktaki alanın kararlı kalması
-elastik köşe tekilliğiyle **uyumludur**; üç ağ bunu matematiksel olarak kanıtlamaz.
-Elastik gerilme tekilliği, plastik malzemenin her durumda sonsuz gerilme üretmesi
-veya Newton'un asla yakınsayamaması demek değildir
-([COMSOL geometri dokümantasyonu](https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_geometry.23.003.html)).
-Fiziksel bir köşe yarıçapı varsa hassasiyet çalışmasında kullanılmalı; sayısal
-başarı elde etmek için geometri sessizce yuvarlatılmamalıdır.
+The peak growing as the Gauss point approaches the corner, while the field at a fixed
+distance stays stable, is **consistent with** an elastic corner singularity; three meshes
+do not prove that mathematically. An elastic stress singularity does not mean that the
+plastic material produces infinite stress in every case, or that Newton can never converge
+([COMSOL geometry documentation](https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_geometry.23.003.html)).
+If there is a physical corner radius it should be used in a sensitivity study; the
+geometry must not be rounded silently in order to obtain numerical success.
 
-## Rijitlik matrisinin koşullanması
+## Conditioning of the stiffness matrix
 
-Serbest DOF matrisi K_ff için deterministik t=1 bir-norm koşul sayısı alt tahmini,
-ham ve S K_ff S (S_ii=1/sqrt(|K_ii|)) ölçeklemesiyle raporlanır. Bu tahminler
-SPD testi, kesin koşul sayısı veya göçme ölçütü değildir. Ham değerler dönme ve
-öteleme DOF birimlerinden etkilenir. Global NumPy RNG durumu değiştirilmez.
+For the free-DOF matrix K_ff, a deterministic one-norm condition-number lower estimate
+at t=1 is reported, both raw and with the scaling S K_ff S (S_ii=1/sqrt(|K_ii|)).
+These estimates are not an SPD test, an exact condition number, or a collapse measure.
+The raw values are affected by the units of rotation and translation DOFs. The global
+NumPy RNG state is not changed.
 
-| Elastik referans h (m) | Ham κ₁ tahmini | Ölçekli κ₁ tahmini | LU U büyümesi |
+| Elastic reference h (m) | Raw κ₁ estimate | Scaled κ₁ estimate | LU U growth |
 |---|---:|---:|---:|
 | 0.50 | 3.120e7 | 4.680e6 | 1.000 |
 | 0.25 | 7.646e7 | 1.664e7 | 1.000 |
 | 0.125 | 3.418e8 | 6.603e7 | 1.000 |
 
-Ağ incelince global koşul sayısı artıyor; üç koşuda da LU faktörlemesi ve denge
-çözümü tamamlandı. Bu yüzden artışı doğrudan sliver/zero-pivot tanısı saymıyoruz.
-Kesmesiz karma/high h=0.50 m başarısız koşusunda son kabul λ=0.14826255:
-son kabul edilen tanjant κ₁≈3.288e7, ölçekli≈6.195e6 ve LU başarılı.
-Son ret nedeni `material_return`; `singular_tangent` değil. Bu matris **son kabul
-edilen duruma** aittir; reddedilen bütün iterasyonların spektrumu incelendi denmiyor.
+The global condition number increases as the mesh is refined; in all three runs LU
+factorisation and the equilibrium solve completed. The increase is therefore not counted
+directly as a sliver/zero-pivot diagnosis. In the uncut mixed/high h=0.50 m failed run,
+at the last accepted λ=0.14826255: the last accepted tangent has κ₁≈3.288e7,
+scaled≈6.195e6, and LU succeeded. The last rejection reason is `material_return`, not
+`singular_tangent`. This matrix belongs to the **last accepted state**; it is not claimed
+that the spectrum of every rejected iteration was examined.
 
-## Arc-length durumu ve doğrulama sınırı
+## Arc-length status and the verification limit
 
-Arc-length bu değişiklikte eklenmedi. Bir yük/deplasman ölçeği ve ek yol denklemiyle
-limit noktasının ötesini izlemek için ayrı bir devam yöntemidir
+Arc-length was not added in this change. It is a separate continuation method for
+following past a limit point with a load/displacement scale and an extra path equation
 ([OpenSees](https://opensees.github.io/OpenSeesDocumentation/user/manual/analysis/integrator/ArcLength.html)).
-Snap-through/snap-back göstermek için analitik bir denge eğrisinde yön seçimi,
-yükün azalması, artık denge ve yol kısıtı hatası; ardından geçmiş değişkenlerinin
-geri alınması ve FEM köprüsü bağımsız test edilmelidir. Arc-length yerel dönüşün
-kabul edilemezliğini, köşe tekilliğini veya ağ bağımlılığını kendiliğinden gidermez.
-Mevcut tanı fiziksel bir limit noktası kanıtı vermiyor. P4 ve bağımsız S4 açık kalır.
+To demonstrate snap-through/snap-back, direction choice on an analytical equilibrium
+curve, decrease of the load, residual equilibrium, and the path-constraint error must
+be tested independently, and then rollback of the history variables and the FEM bridge.
+Arc-length does not by itself remove inadmissibility of the local return, a corner
+singularity, or mesh dependence. The present diagnosis does not prove a physical limit
+point. P4 and the independent S4 remain open.
 
-## Tekrar üretim
+## Reproduction
 
 ```bash
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/diagnose_sheet_pile.py --size 0.5 --mixed --gauss-order high --soil-tension 0 --excavation-factor 0.05 --method mNR --audit --output /tmp/pile-mnr.json
@@ -131,65 +143,69 @@ PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/diagnose_sheet_pile.py --s
 PYTHONPATH=src OPENBLAS_NUM_THREADS=1 python examples/diagnose_sheet_pile.py --size 0.5 --mixed --gauss-order high --audit --output /tmp/pile-failed.json
 ```
 
-İlk komutta yöntem NR/hybrid/mNR/initial, ikinci komutta boyut 0.5/0.25/0.125
-olarak değiştirilir. Üçüncü komutun çıkış kodu 1'dir; bu beklenen açık başarısızlık
-gizlenmez. `--audit` ek LU faktörlemeleri yapar; performans zamanlaması için kullanılmaz.
-Tanı verisi JSON'dadır, solver restart dosyası değildir.
+In the first command the method is changed among NR/hybrid/mNR/initial; in the second,
+the size is changed among 0.5/0.25/0.125. The exit code of the third command is 1; this
+expected open failure is not hidden. `--audit` does extra LU factorisations; it is not
+used for performance timing. The diagnostic data is JSON; it is not a solver restart file.
 
-## Algoritmik tanjant ve regülarizasyon önerileri
+## Algorithmic tangent and regularisation proposals
 
-MC'nin asal gerilme dönüş/tanjantı ve Goodman dönüşü için yerel sonlu fark testleri
-zaten mevcuttur. `test_newton_convergence.py` ilişkili Tresca ve ilişkisiz MC'de
-asimptotik log-kalıntı eğimini >1.6, mNR için daha düşük eğimi kontrol eder.
-Klasik kuadratik yakınsama düzenlilik ve tekil olmayan tanjant gerektirir;
-köşe/aktif küme değişiminde her iterasyon için garanti değildir.
-Algoritmik türev yerine elastik/uyumsuz tanjant kullanmak yakınsamayı bozabilir;
-bu ayrım [MOOSE birincil dokümantasyonunda](https://mooseframework.inl.gov/moose/source/materials/ComputeMultipleInelasticStress.html)
-da açıkça yapılır.
+Local finite-difference tests already exist for the MC principal-stress return/tangent
+and for the Goodman return. `test_newton_convergence.py` checks an asymptotic
+log-residual slope >1.6 for associated Tresca and non-associated MC, and a lower slope
+for mNR. Classical quadratic convergence needs regularity and a non-singular tangent;
+it is not guaranteed for every iteration at a corner/active-set change. Using an
+elastic/inconsistent tangent instead of the algorithmic derivative can spoil convergence;
+that distinction is also made explicitly in the
+[MOOSE primary documentation](https://mooseframework.inl.gov/moose/source/materials/ComputeMultipleInelasticStress.html).
 
-Ek global kontrol: `test_global_algorithmic_tangent.py` T3+Q4 ve T6+Q8,
-default/high, kayma/açılma durumlarında sekiz koşu çalıştırır. MC, beam ve
-iki taraflı dilatanslı ara yüz monte edilir; üç serbest DOF yönünde iki pertürbasyon
-büyüklüğüyle
+Additional global check: `test_global_algorithmic_tangent.py` runs eight cases,
+T3+Q4 and T6+Q8, default/high, slip/opening. MC, the beam, and a two-sided interface
+with dilatancy are assembled; in three free-DOF directions, at two perturbation sizes,
 
     K_ff v ≈ [f_int(du+h v) − f_int(du−h v)]_free / (2h)
 
-karşılaştırılır. Bağıl hata <2e-6; elastoplastik ve ara yüz bayrakları pertürbasyonda
-değişmez; giriş gerilme/geçmiş dizileri korunur. Tanjantın ilişkisiz akıştan gelen
-simetrik olmayan kısmı da korunur. Bunlar sıfırdan farklı deneme artımında cebirsel
-türev testleridir; model denge benchmark'ı veya olası bütün köşe yollarının kanıtı
-değildir. Bayrakların aynı kalması, bütün MC alt-aktif kümelerinin aynı kaldığını
-tek başına kanıtlamaz; iki h değerindeki türev uyumu bu nedenle ayrıca kontrol edilir.
+is compared. The relative error is <2e-6; the elastoplastic and interface flags do not
+change under the perturbation; the input stress/history arrays are preserved. The
+unsymmetric part of the tangent that comes from non-associated flow is also preserved.
+These are algebraic derivative tests at a non-zero trial increment; they are not a model
+equilibrium benchmark or proof of every possible corner path. Flags staying the same
+does not by itself prove that every MC sub-active set stayed the same; agreement of the
+derivative at the two h values is therefore checked as well.
 
-**Dinamik gevşeme:** Açık zaman integrasyonu global K faktörlemesini gerektirmeyebilir;
-var olmayan statik dengeyi oluşturmaz. Yapay kütle, sönüm ve kritik zaman adımı
-seçimi; kuvvet kalıntısı, hız ve kinetik enerji kriterleriyle doğrulanmalıdır.
-Kritik sönüm bütün modlar için tek bir sayı değildir. Süren göçmede kuvvet kalıntısı
-ve hareket sönmeyebilir; [Itasca'nın denge dokümantasyonu](https://docs.itascacg.com/itasca900/flac3d/docproject/source/modeling/problemsolving/equilibrium.html)
-bu ayrımı tartışır. Henüz eklenmedi.
+**Dynamic relaxation:** explicit time integration may not need a global K factorisation;
+it does not create a static equilibrium that does not exist. The artificial mass,
+damping, and critical time-step choice must be verified with force-residual, velocity,
+and kinetic-energy criteria. Critical damping is not a single number for every mode.
+In ongoing collapse the force residual and the motion may not damp out;
+[Itasca’s equilibrium documentation](https://docs.itascacg.com/itasca900/flac3d/docproject/source/modeling/problemsolving/equilibrium.html)
+discusses that distinction. It has not been added yet.
 
-**Perzyna / Duvaut–Lions:** Ayrı, zamana bağlı bir malzeme tanımı gerektirir.
-Kendi gerilme güncellemesi ve algoritmik türevi türetilmeli; viskozite/gevşeme
-zamanı, Δt ve yükleme hızı duyarlılığı, disipasyon ve uygun hızdan bağımsız referans
-kontrol edilmelidir. Tek bir küçük viskozite koşusu η→0 limitinin doğrulanması
-değildir; limitin ağdan bağımsız/tekil olmayan bir çözüm verdiği ayrıca gösterilmelidir.
-Yeni modelde izin verilen overstress, mevcut hızdan bağımsız modelin `255` dönüş
-hatasını kabul etmekle aynı şey değildir.
-[Wang–Sluys–de Borst (1997), birincil kaynak](https://pure.tue.nl/ws/portalfiles/portal/4389528/605201.pdf).
-Viskoplastik model bu değişiklikte eklenmedi; üretim davranışına yapay viskozite konmadı.
+**Perzyna / Duvaut–Lions:** this needs a separate, time-dependent material definition.
+Its own stress update and algorithmic derivative must be derived; sensitivity to
+viscosity/relaxation time, Δt, and loading rate, dissipation, and a suitable
+rate-independent reference must be checked. A single small-viscosity run is not
+verification of the η→0 limit; it must also be shown that the limit gives a
+mesh-independent/non-singular solution. Allowed overstress in a new model is not the
+same thing as accepting the `255` return error of the existing rate-independent model.
+[Wang–Sluys–de Borst (1997), primary source](https://pure.tue.nl/ws/portalfiles/portal/4389528/605201.pdf).
+A viscoplastic model was not added in this change; no artificial viscosity was put into
+the production behaviour.
 
-**Non-local / gradient / Cosserat:** İçsel uzunluk ve malzeme kalibrasyonu gerektirir;
-çıktı plastik deformasyonunu sonradan komşu GP'lerle ortalamak yeterli değildir.
-Non-local bir iç değişkenin türevi komşu eleman DOF'larını da bağlar; mevcut yerel
-CSR deseni/assembly buna göre genişletilmelidir. Sınır ağırlıkları ve h/içsel-uzunluk
-duyarlılığı doğrulanmalıdır. Cosserat ayrıca bağımsız dönme ve çift-gerilme içerir;
-skaler GP ortalamasıyla aynı formülasyon değildir. Bu yöntemler lokalizasyon/ağ
-nesnelliğini hedefler; u–p hacimsel kilitlenme çözümünden ayrı bir konudur.
-İdeal, ilişkisiz plastisitede de regülarizasyon ihtiyacına ilişkin birincil örnek:
+**Non-local / gradient / Cosserat:** these need an internal length and material
+calibration; averaging the output plastic strain afterwards with neighbouring Gauss
+points is not enough. The derivative of a non-local internal variable also couples
+neighbouring element DOFs; the current local CSR pattern/assembly must be extended
+accordingly. Boundary weights and h/internal-length sensitivity must be verified.
+Cosserat also contains an independent rotation and a couple stress; it is not the same
+formulation as a scalar Gauss-point average. These methods target localisation/mesh
+objectivity; that is a separate subject from the u–p volumetric-locking solution.
+A primary example of the need for regularisation even in ideal, non-associated plasticity:
 [Sabet–de Borst (2019)](https://eprints.whiterose.ac.uk/id/eprint/148931/).
-Bu formülasyonlar henüz uygulanmadı.
+These formulations have not been implemented yet.
 
-Öncelik: doğrulanmış yerel güncelleme/tanjant ve bağımsız P4/S4 referansı korunarak,
-denge yolu izleme ile hız/uzunluk içeren yeni malzeme modelleri ayrı seçenekler olarak
-geliştirilmeli. Birden çok yapay mekanizmayı aynı anda açıp yakınsamayı başarı
-saymak yerine her yeni seçenek kendi denge, zaman ve ağ sınamalarıyla doğrulanmalı.
+Priority: with a verified local update/tangent and an independent P4/S4 reference kept,
+equilibrium-path tracking and new material models that contain a rate or a length
+should be developed as separate options. Instead of turning on several artificial
+mechanisms at once and counting convergence as success, each new option should be
+verified with its own equilibrium, time, and mesh tests.

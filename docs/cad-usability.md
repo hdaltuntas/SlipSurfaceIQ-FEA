@@ -1,64 +1,65 @@
-# CAD arayüz düzeltmeleri — 22 Ekim 2026
+# CAD interface fixes — 22 October 2026
 
-> Güncel ana pencere düzeni: [Bütünleşik modelleyici](integrated-modeler.md).
-> Bu sayfadaki ayrı CAD penceresi görüntüleri önceki sürüme aittir.
+> Current main-window layout: [Integrated modeller](integrated-modeler.md).
+> The separate CAD-window images on this page belong to the previous version.
 
-Release yayını kapalıdır. Bu değişiklikler kullanıcı arayüz kabulünün yerine geçmez.
+Release publication is closed. These changes do not replace user-interface acceptance.
 
-## Düzeltilen sorunlar
+## Problems that were fixed
 
-- Açık arka plandaki menü, araç düğmesi ve sekme metinleri sistemin koyu paletinden
-  etkilenmiyor. Fusion stili ve açık renklerin tüm ilgili palet rolleri ortak giriş
-  noktasından uygulanıyor; CAD penceresi tek başına açıldığında da geçerli.
-- Geometri adımı zaten seçiliyken yeniden tıklamak da editörü açıyor.
-- Sonuç alanı veya deformasyon değişimi kullanıcının yakınlaştırmasını sıfırlamıyor.
-- Model açıldıktan sonra durum çubuğunda “Boş proje” mesajı kalmıyor.
-- Izgara görünürlüğü, yakalama ve ızgara aralığı ayrı tutuluyor. Kapat/aç adımı silmiyor.
-- Taşan sayısal koordinatlar ve sonsuz kutupsal açılar çizimi bozmadan reddediliyor.
+- Menu, tool-button, and tab text on a light background is no longer affected by the
+  system dark palette. The Fusion style and the light colours are applied to every
+  relevant palette role from one shared entry point; they also apply when the CAD
+  window is opened on its own.
+- Clicking the geometry step again while it is already selected still opens the editor.
+- Changing the result field or the deformation does not reset the user’s zoom.
+- The status bar no longer keeps the “Empty project” message after a model is opened.
+- Grid visibility, snap, and grid spacing are kept separate. Closing and opening does not delete the step.
+- Overflowing numeric coordinates and infinite polar angles are rejected without corrupting the drawing.
 
-## Çizim çalışma alanı
+## Drawing workspace
 
-Nesne özellikleri ve kenar koşulları sol panelde ayrı sekmelerde; dar ekranda
-özellikler kaydırılabilir. Çizim alanı genişliğin kalanını kullanır. Sonuç
-penceresinin yakınsama/günlük paneli ayırıcıdan küçültülebilir veya kapatılabilir.
+Object properties and boundary conditions are separate tabs in the left panel; on a
+narrow screen the properties scroll. The drawing area uses the remaining width. The
+convergence/log panel of the results window can be shrunk from the splitter or closed.
 
-| İşlem | Kullanım |
+| Action | Use |
 |---|---|
-| Nesne seçimi | Çizimde sol tık; iç içe şekillerde en küçük kapsayan alan, kenarda en yakın kenar |
-| Çokgen / boşluk / çoklu çizgi | İlgili araç, noktalar, Enter veya sağ tık; Esc iptal |
-| Dikdörtgen | Karşılıklı iki köşe; sıfır genişlik/yükseklik reddedilir |
-| Kaydırma | Orta tuş basılı sürükle; devam eden çizimde de çalışır |
-| Yakınlaştırma | Fare tekerleği; tüm çizim için “Tümünü sığdır” |
-| Kesin koordinat | `x,y`, `@dx,dy`, `@uzunluk<açı`; boş Enter bitirir |
-| Izgara / dik çizim / yakalama | F7 / F8 / F9 |
-| Kenar adları | Gerektiğinde açılabilen etiketler |
-| Düzenleme | Seçilen nesnenin koordinatlarını değiştir, “Seçileni güncelle”; geri al/yinele |
+| Object selection | Left click on the drawing; the smallest containing area for nested shapes, the nearest edge on an edge |
+| Polygon / void / polyline | The matching tool, points, Enter or right click; Esc cancels |
+| Rectangle | Two opposite corners; zero width/height is rejected |
+| Pan | Drag with the middle button held; also works during an in-progress drawing |
+| Zoom | Mouse wheel; “Fit all” for the whole drawing |
+| Exact coordinate | `x,y`, `@dx,dy`, `@length<angle`; a blank Enter finishes |
+| Grid / ortho / snap | F7 / F8 / F9 |
+| Edge names | Labels that can be turned on when needed |
+| Editing | Change the coordinates of the selected object, “Update selected”; undo/redo |
 
-İmlece uzanan çizgi veya dikdörtgen önizlemesi ve imleç hedef işareti çizim
-sırasında görünür. Yeni araçlar çakışmayan nesne adları üretir. Mevcut yeniden ağ
-üretiminin yeni elastik model oluşturma davranışı korunur.
+A line or rectangle preview that reaches the cursor, and a cursor target mark, are
+visible while drawing. New tools produce non-colliding object names. The existing
+remesh behaviour of creating a new elastic model is preserved.
 
-## Doğrulama
+## Verification
 
-`tests/unit/test_cad_usability.py` gerçek Qt fare/klavye olaylarıyla dikdörtgen,
-seçim, silme/geri alma, iç içe şekil seçimi, çizim sırasında kaydırma, ızgara,
-palet, workflow ve yakınlaştırma regresyonlarını kapsar. Masaüstü CI işine eklendi.
+`tests/unit/test_cad_usability.py` covers rectangle, selection, delete/undo, nested-shape
+selection, pan while drawing, grid, palette, workflow, and zoom regressions with real
+Qt mouse/keyboard events. It was added to the desktop CI job.
 
-Yerel tam test: **483 geçti, 2 atlandı (PyVista yok), 1 bilinen xfail**;
-performans işaretli 2 test kapsam dışı. Son küçük durum mesajı/renk
-düzeltmesinden sonra ilgili 17 arayüz testi tekrar geçti. PyVista kurulduktan
-sonra görüntüleme, dışa aktarma ve yeni arayüz grubundaki 13 test de geçti;
-bağımlılık nedeniyle atlanan kontroller böylece ayrıca tamamlandı. Ruff temiz.
+Local full test: **483 passed, 2 skipped (no PyVista), 1 known xfail**;
+the 2 tests marked as performance are out of scope. After the last small status-message/colour
+fix, the related 17 interface tests passed again. After PyVista was installed, the 13 tests
+in viewing, export, and the new interface group also passed; checks that had been skipped
+because of the dependency were therefore completed as well. Ruff is clean.
 
-Aşağıdaki görüntüler Linux Qt offscreen ile gerçek widget'lardan alındı;
-koyu sistem temasının beyaz yazı paleti simüle edilerek açık tema kontrol edildi. Windows yerel
-masaüstü ve yüksek DPI kabulü ayrıca kullanıcı tarafından doğrulanmalıdır.
+The images below were taken from real widgets with Linux Qt offscreen; the dark system
+theme’s white text palette was simulated and the light theme was checked. A local Windows
+desktop and high-DPI acceptance still have to be confirmed by the user.
 
-![CAD çalışma alanı](images/cad-workspace-light.png)
+![CAD workspace](images/cad-workspace-light.png)
 
-![1100 × 760 çalışma alanı](images/cad-workspace-compact.png)
+![1100 × 760 workspace](images/cad-workspace-compact.png)
 
-![Ana pencere](images/cad-main-light.png)
+![Main window](images/cad-main-light.png)
 
-Bu editör 2B sonlu eleman geometrisi hazırlamak içindir. Tam AutoCAD eşdeğeri,
-DWG desteği, yay/spline düzenleme veya sürükleyerek taşıma iddiası yoktur.
+This editor is for preparing 2D finite-element geometry. There is no claim of a full
+AutoCAD equivalent, DWG support, arc/spline editing, or drag-to-move.

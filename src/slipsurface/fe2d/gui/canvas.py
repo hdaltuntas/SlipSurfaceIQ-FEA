@@ -72,7 +72,7 @@ class MeshCanvas(QGraphicsView):
         self.field_unit = "m"
         self.field_range = (0.0, 0.0)
         self.constant_field = True
-        self.legend = "Geometri · m"
+        self.legend = "Geometry · m"
         self._press_pos = None
 
     def show_model(
@@ -161,7 +161,8 @@ class MeshCanvas(QGraphicsView):
             item = self.scene().addPolygon(poly, ghost_pen, ghost_brush)
             item.setData(0, ("region", reg_id))
             item.setToolTip(
-                f"{region_label(model, reg_id)} · Kazıldı (boş) — sağ tık veya araçla geri doldurun"
+                f"{region_label(model, reg_id)} · Excavated (void) — "
+                "right-click or use a tool to restore"
             )
         pen = QPen(QColor("#42657b"), 0)
         if section:
@@ -177,8 +178,8 @@ class MeshCanvas(QGraphicsView):
             item = self.scene().addPolygon(poly, pen, color)
             item.setData(0, ("region", reg_id))
             if stage is None or field in SECTION_FIELDS:
-                mat = stage_region_material(model, stage_index, reg_id) or "Kazıldı"
-                item.setToolTip(f"{region_label(model, reg_id)} · Malzeme: {mat} · Eleman {e}")
+                mat = stage_region_material(model, stage_index, reg_id) or "Excavated"
+                item.setToolTip(f"{region_label(model, reg_id)} · Material: {mat} · Element {e}")
             else:
                 item.setToolTip(f"{block.tag} · {e} · {field}: {value:.8g}")
             self.cell_count += 1
@@ -188,7 +189,7 @@ class MeshCanvas(QGraphicsView):
                 mat = stage_region_material(model, stage_index, reg_id)
                 r_lbl = region_label(model, reg_id)
                 badge = self.scene().addSimpleText(
-                    f"⛏ KAZILDI · {r_lbl}" if mat is None else f"{r_lbl} · {mat}"
+                    f"⛏ EXCAVATED · {r_lbl}" if mat is None else f"{r_lbl} · {mat}"
                 )
                 badge.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
                 badge.setPos(float(center[0]), float(-center[1]))
@@ -210,7 +211,7 @@ class MeshCanvas(QGraphicsView):
                 )
                 p.setCosmetic(True)
                 s_lbl = structure_label(model, block.tag)
-                state_txt = "Aktif" if is_active else "Pasif (tıklayarak etkinleştirin)"
+                state_txt = "Active" if is_active else "Inactive (click to activate)"
                 for conn in block.conn:
                     a, b = coords[conn]
                     line_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
@@ -252,26 +253,26 @@ class MeshCanvas(QGraphicsView):
         self.field_unit = unit
         if stage is None:
             st_name = (
-                "Başlangıç"
+                "Initial"
                 if stage_index <= 0 or not model.stages
                 else model.stages[min(stage_index - 1, len(model.stages) - 1)].name
             )
             exc_count = len(mesh.regions() - active_regs)
             self.legend = (
-                f"Aşama önizleme: {st_name} · "
-                f"{len(active_regs)}/{len(mesh.regions())} bölge aktif"
-                + (f" ({exc_count} kazıldı)" if exc_count else "")
-                + f" · {len(active_structs)}/{len(model.structure_tags())} destek aktif"
-                + " · Bölgeye/desteğe tıklayarak veya sağ tıkla düzenleyin"
+                f"Stage preview: {st_name} · "
+                f"{len(active_regs)}/{len(mesh.regions())} regions active"
+                + (f" ({exc_count} excavated)" if exc_count else "")
+                + f" · {len(active_structs)}/{len(model.structure_tags())} supports active"
+                + " · Click a region/support or right-click to edit"
             )
         elif field in SECTION_FIELDS:
             self.legend = (
-                f"{field} · {unit} · kaplama / kazık / ankraj · deformasyon ×{deform:g}"
+                f"{field} · {unit} · lining / pile / anchor · deformation ×{deform:g}"
             )
         else:
             self.legend = (
-                f"{field} · {unit} · eleman ortalaması · {lo:.5g} … {hi:.5g}"
-                f" · deformasyon ×{deform:g}"
+                f"{field} · {unit} · element average · {lo:.5g} … {hi:.5g}"
+                f" · deformation ×{deform:g}"
             )
         if stage is not None and result is not None:
             if field not in SECTION_FIELDS:
@@ -307,9 +308,9 @@ class MeshCanvas(QGraphicsView):
                     QPen(QColor("#850f23"), 0),
                     QColor("#ef4444"),
                 )
-                item.setToolTip(f"Plastik Gauss noktası · bayrak {int(flag)}")
+                item.setToolTip(f"Plastic Gauss point · flag {int(flag)}")
                 self.plastic_count += 1
-            self.overlay_note += f" · plastik GP {self.plastic_count}/{len(selected)}"
+            self.overlay_note += f" · plastic GP {self.plastic_count}/{len(selected)}"
         if principal:
             stride = max(1, int(np.ceil(len(records) / 1200)))
             points = records[::stride]
@@ -336,11 +337,11 @@ class MeshCanvas(QGraphicsView):
                             item = self.scene().addLine(
                                 float(end[0]), float(-end[1]), float(tip[0]), float(-tip[1]), pen
                             )
-                            item.setToolTip(f"Düzlem içi asal gerilme {stress:.8g} kPa")
+                            item.setToolTip(f"In-plane principal stress {stress:.8g} kPa")
                     self.principal_count += 1
-            self.overlay_note += " · düzlem içi asal: mavi basınç / kırmızı çekme"
+            self.overlay_note += " · in-plane principals: blue compression / red tension"
             if stride > 1:
-                self.overlay_note += f" (her {stride}. GP)"
+                self.overlay_note += f" (every {stride}th GP)"
 
     @staticmethod
     def _seg_normal(mapped, seg_idx):
@@ -629,7 +630,7 @@ class MeshCanvas(QGraphicsView):
             ids = np.flatnonzero(valid)
             if ids.size:
                 node = ids[np.argmin(np.linalg.norm(self.display_coords[ids] - xy, axis=1))]
-                msg = f"Düğüm {node} · x={coords[node, 0]:.6g} m, y={coords[node, 1]:.6g} m"
+                msg = f"Node {node} · x={coords[node, 0]:.6g} m, y={coords[node, 1]:.6g} m"
                 if self.stage is not None:
                     msg += f" · ux={self.stage.u[node, 0]:.8g}, uy={self.stage.u[node, 1]:.8g} m"
                 self.queried.emit(msg)

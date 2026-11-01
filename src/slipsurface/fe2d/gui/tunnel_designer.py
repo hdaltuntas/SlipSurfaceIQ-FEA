@@ -82,11 +82,11 @@ class LibraryBar(QWidget):
         self.kind, self.getter, self.setter = kind, getter, setter
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(QLabel("Kütüphane"))
+        row.addWidget(QLabel("Library"))
         self.combo = QComboBox()
         self.combo.setMinimumWidth(180)
         row.addWidget(self.combo, 1)
-        for title, slot in [("Yükle", self.load), ("Kaydet…", self.save), ("Sil", self.remove)]:
+        for title, slot in [("Load", self.load), ("Save…", self.save), ("Delete", self.remove)]:
             button = QPushButton(title)
             button.setAutoDefault(False)
             button.clicked.connect(slot)
@@ -109,7 +109,7 @@ class LibraryBar(QWidget):
         if data is None:
             return
         name, ok = QInputDialog.getText(
-            self, "Kütüphaneye kaydet", "Ad:", text=data.get("name") or self.combo.currentText()
+            self, "Save to library", "Name:", text=data.get("name") or self.combo.currentText()
         )
         if ok and name.strip():
             library_store(self.kind, name.strip(), data)
@@ -131,13 +131,35 @@ def _spin(value, lo, hi, decimals=3, suffix=""):
     return w
 
 
+def _catalog_label(name: str) -> str:
+    """UI name for a lining catalogue entry. Legacy Yok/Özel display as None/Custom."""
+    return {"Yok": "None", "Özel": "Custom"}.get(name, name)
+
+
+def _catalog_key(label: str) -> str:
+    """Catalogue key. Legacy Yok/Özel files are read as None/Custom; new files stay English."""
+    return {"Yok": "None", "Özel": "Custom"}.get(label, label)
+
+
+def _is_custom_rib(name: str) -> bool:
+    return name in {"Custom", "Özel"}
+
+
+_PART_EN = {
+    "heading": "Top heading",
+    "bench": "Bench",
+    "invert": "Invert",
+    "full": "Full face",
+}
+
+
 # --------------------------------------------------------------------------- lining
 class LiningDesignerDialog(QDialog):
     """Shotcrete + wire mesh + steel sets → one equivalent liner per metre of tunnel."""
 
     def __init__(self, lining=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Püskürtme beton / hasır çelik / çelik iksa tasarımı")
+        self.setWindowTitle("Shotcrete / wire mesh / steel-set design")
         lining = lining or LiningSystem()
         layout = QVBoxLayout(self)
         self.library_bar = LibraryBar("linings", self._data, self._load)
@@ -145,45 +167,45 @@ class LiningDesignerDialog(QDialog):
         form = QFormLayout()
         self.thickness = _spin(lining.thickness * 100, 1, 200, 1, "cm")
         self.E = _spin(lining.E_shotcrete / 1e6, 0.1, 100, 2, "GPa")
-        self.E.setToolTip("Genç püskürtme beton ~5–15 GPa, sertleşmiş ~25–30 GPa")
+        self.E.setToolTip("Young shotcrete ~5–15 GPa, hardened ~25–30 GPa")
         self.nu = _spin(lining.nu, 0, 0.49, 3)
         self.gamma = _spin(lining.unit_weight, 0, 100, 2, "kN/m³")
         self.mesh = QComboBox()
-        self.mesh.addItems(list(WIRE_MESH))
-        self.mesh.setCurrentText(lining.mesh)
+        self.mesh.addItems([_catalog_label(name) for name in WIRE_MESH])
+        self.mesh.setCurrentText(_catalog_label(lining.mesh))
         self.layers = QSpinBox()
         self.layers.setRange(1, 2)
         self.layers.setValue(lining.mesh_layers)
         self.cover = _spin(lining.cover * 100, 0, 50, 1, "cm")
         self.rib = QComboBox()
-        self.rib.addItems([*STEEL_RIBS, "Özel"])
-        self.rib.setCurrentText(lining.rib)
+        self.rib.addItems([*(_catalog_label(name) for name in STEEL_RIBS), "Custom"])
+        self.rib.setCurrentText(_catalog_label(lining.rib))
         self.rib_area = _spin(lining.rib_area, 0, 1e4, 2, "cm²")
         self.rib_inertia = _spin(lining.rib_inertia, 0, 1e7, 1, "cm⁴")
         self.rib_spacing = _spin(lining.rib_spacing, 0.1, 10, 2, "m")
         self.Es = _spin(lining.E_steel / 1e6, 1, 300, 1, "GPa")
-        concrete = QGroupBox("Püskürtme beton")
+        concrete = QGroupBox("Shotcrete")
         f = QFormLayout(concrete)
-        f.addRow("Kalınlık", self.thickness)
+        f.addRow("Thickness", self.thickness)
         f.addRow("E", self.E)
         f.addRow("ν", self.nu)
         f.addRow("γ", self.gamma)
-        mesh = QGroupBox("Hasır çelik")
+        mesh = QGroupBox("Wire mesh")
         f = QFormLayout(mesh)
-        f.addRow("Tip", self.mesh)
-        f.addRow("Katman", self.layers)
-        f.addRow("Pas payı", self.cover)
-        rib = QGroupBox("Çelik iksa")
+        f.addRow("Type", self.mesh)
+        f.addRow("Layers", self.layers)
+        f.addRow("Cover", self.cover)
+        rib = QGroupBox("Steel set")
         f = QFormLayout(rib)
-        f.addRow("Profil", self.rib)
-        f.addRow("A (özel)", self.rib_area)
-        f.addRow("I (özel)", self.rib_inertia)
-        f.addRow("Aralık (tünel ekseni)", self.rib_spacing)
-        f.addRow("Çelik E", self.Es)
+        f.addRow("Profile", self.rib)
+        f.addRow("A (custom)", self.rib_area)
+        f.addRow("I (custom)", self.rib_inertia)
+        f.addRow("Spacing (tunnel axis)", self.rib_spacing)
+        f.addRow("Steel E", self.Es)
         self.name = QComboBox()
         self.name.setEditable(True)
         self.name.setCurrentText(lining.name)
-        form.addRow("Ad", self.name)
+        form.addRow("Name", self.name)
         layout.addLayout(form)
         groups = QHBoxLayout()
         for group in (concrete, mesh, rib):
@@ -209,15 +231,15 @@ class LiningDesignerDialog(QDialog):
 
     def lining(self):
         return LiningSystem(
-            name=self.name.currentText().strip() or "Kaplama",
+            name=self.name.currentText().strip() or "Lining",
             thickness=self.thickness.value() / 100,
             E_shotcrete=self.E.value() * 1e6,
             nu=self.nu.value(),
             unit_weight=self.gamma.value(),
-            mesh=self.mesh.currentText(),
+            mesh=_catalog_key(self.mesh.currentText()),
             mesh_layers=self.layers.value(),
             cover=self.cover.value() / 100,
-            rib=self.rib.currentText(),
+            rib=_catalog_key(self.rib.currentText()),
             rib_area=self.rib_area.value(),
             rib_inertia=self.rib_inertia.value(),
             rib_spacing=self.rib_spacing.value(),
@@ -238,17 +260,17 @@ class LiningDesignerDialog(QDialog):
         self.E.setValue(lining.E_shotcrete / 1e6)
         self.nu.setValue(lining.nu)
         self.gamma.setValue(lining.unit_weight)
-        self.mesh.setCurrentText(lining.mesh)
+        self.mesh.setCurrentText(_catalog_label(lining.mesh))
         self.layers.setValue(lining.mesh_layers)
         self.cover.setValue(lining.cover * 100)
-        self.rib.setCurrentText(lining.rib)
+        self.rib.setCurrentText(_catalog_label(lining.rib))
         self.rib_area.setValue(lining.rib_area)
         self.rib_inertia.setValue(lining.rib_inertia)
         self.rib_spacing.setValue(lining.rib_spacing)
         self.Es.setValue(lining.E_steel / 1e6)
 
     def update_summary(self, *_):
-        custom = self.rib.currentText() == "Özel"
+        custom = _is_custom_rib(self.rib.currentText())
         self.rib_area.setEnabled(custom)
         self.rib_inertia.setEnabled(custom)
         try:
@@ -260,9 +282,9 @@ class LiningDesignerDialog(QDialog):
         p = lining.liner_properties()
         d_eq = np.sqrt(12 * p["I"] / p["A"])
         self.summary.setText(
-            f"Eşdeğer kaplama (1 m tünel boyu): EA = {EA:,.0f} kN/m · EI = {EI:,.1f} kNm²/m\n"
-            f"Kiriş: E = {p['E'] / 1e6:.2f} GPa · A = {p['A']:.4f} m²/m · I = {p['I']:.3e} m⁴/m"
-            f" · eşdeğer kalınlık d = {d_eq * 100:.1f} cm"
+            f"Equivalent lining (1 m of tunnel): EA = {EA:,.0f} kN/m · EI = {EI:,.1f} kNm²/m\n"
+            f"Beam: E = {p['E'] / 1e6:.2f} GPa · A = {p['A']:.4f} m²/m · I = {p['I']:.3e} m⁴/m"
+            f" · equivalent thickness d = {d_eq * 100:.1f} cm"
         )
 
 
@@ -274,16 +296,16 @@ class PartBoltBox(QGroupBox):
         super().__init__(title, parent)
         enabled = pattern is not None
         source = pattern or BoltPattern()
-        self.use = QCheckBox("Bulon ekle")
+        self.use = QCheckBox("Add bolts")
         self.use.setChecked(enabled)
         self.spacing = _spin(source.spacing, 0.2, 20, 2, "m")
         self.length = _spin(source.length, 0.1, 50, 2, "m")
         self.count = QLabel()
         form = QFormLayout(self)
         form.addRow(self.use)
-        form.addRow("Aralık (çevre boyunca)", self.spacing)
-        form.addRow("Boy", self.length)
-        form.addRow("Adet", self.count)
+        form.addRow("Spacing (along the perimeter)", self.spacing)
+        form.addRow("Length", self.length)
+        form.addRow("Count", self.count)
         self.use.toggled.connect(self._toggle)
         self._toggle(self.use.isChecked())
 
@@ -292,7 +314,7 @@ class PartBoltBox(QGroupBox):
             w.setEnabled(on)
 
     def set_count(self, n):
-        self.count.setText("—" if not self.use.isChecked() else f"{n} (aralıktan)")
+        self.count.setText("—" if not self.use.isChecked() else f"{n} (from spacing)")
 
     def pattern(self, shared):
         if not self.use.isChecked():
@@ -328,7 +350,7 @@ class SectionPreview(QWidget):
         p.fillRect(self.rect(), QColor("#f7fafc"))
         if self.design is None:
             p.setPen(QColor("#a32d26"))
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.error or "Geçersiz kesit")
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.error or "Invalid section")
             return
         design, section = self.design, self.design.section
         parts = section.parts_at((0.0, 0.0))
@@ -381,8 +403,8 @@ class SectionPreview(QWidget):
         p.drawText(
             8,
             self.height() - 10,
-            f"Genişlik {np.ptp(ring[:, 0]):.2f} m · Yükseklik {np.ptp(ring[:, 1]):.2f} m · "
-            f"Alan {_area(ring):.1f} m² · Merkez: tepe yayı merkezi (üzengi seviyesi)",
+            f"Width {np.ptp(ring[:, 0]):.2f} m · Height {np.ptp(ring[:, 1]):.2f} m · "
+            f"Area {_area(ring):.1f} m² · Centre: crown-arc centre (springline)",
         )
 
 
@@ -398,16 +420,16 @@ class TunnelDesignerDialog(QDialog):
 
     def __init__(self, design=None, center=(0.0, 0.0), parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Eşdeğer kesit tünel")
+        self.setWindowTitle("Equivalent-section tunnel")
         self.resize(900, 640)
         design = design or TunnelDesign()
         self.lining_value = design.lining or LiningSystem()
         self.placement = 0
         root = QVBoxLayout(self)
         note = QLabel(
-            "Püskürtme beton, hasır ve çelik iksa tek Timoshenko kirişine toplanır. "
-            "Doğrulama kiriş teorisi ve kazık çevre sürtünmesinin kapalı formudur. "
-            "Bu pencere RS2/PLAXIS veya 3B NATM doğrulaması değildir."
+            "Shotcrete, wire mesh and steel sets are smeared into one Timoshenko beam. "
+            "The check is beam theory and the closed form of pile skin friction. "
+            "This window is not an RS2/PLAXIS or 3D NATM verification."
         )
         note.setWordWrap(True)
         root.addWidget(note)
@@ -428,17 +450,17 @@ class TunnelDesignerDialog(QDialog):
         self.name.setEditable(True)
         self.name.setCurrentText(sec.name)
         self.shape = QComboBox()
-        self.shape.addItem("NATM (at nalı)", "natm")
-        self.shape.addItem("Dairesel", "circle")
+        self.shape.addItem("NATM (horseshoe)", "natm")
+        self.shape.addItem("Circular", "circle")
         self.shape.setCurrentIndex(self.shape.findData(sec.shape))
         self.radius = _spin(sec.radius, 0.5, 50, 3, "m")
         self.wall_radius = _spin(sec.wall_radius, 0.5, 500, 3, "m")
         self.wall_height = _spin(sec.wall_height, 0, 50, 3, "m")
         self.invert_depth = _spin(sec.invert_depth, 0, 50, 3, "m")
         self.parts = QComboBox()
-        self.parts.addItem("Tam kesit", 1)
-        self.parts.addItem("Üst yarı + alt yarı", 2)
-        self.parts.addItem("Üst yarı + alt yarı + invert", 3)
+        self.parts.addItem("Full face", 1)
+        self.parts.addItem("Top heading + bench", 2)
+        self.parts.addItem("Top heading + bench + invert", 3)
         self.parts.setCurrentIndex(self.parts.findData(sec.parts))
         self.heading_level = _spin(sec.heading_level, -50, 50, 3, "m")
         self.invert_level = _spin(sec.invert_level, -50, 50, 3, "m")
@@ -446,47 +468,47 @@ class TunnelDesignerDialog(QDialog):
         self.segments.setRange(12, 400)
         self.segments.setValue(sec.segments)
         for label, w in [
-            ("Ad", self.name),
-            ("Kesit tipi", self.shape),
-            ("Tepe yarıçapı R", self.radius),
-            ("Yan duvar yarıçapı", self.wall_radius),
-            ("Yan duvar yüksekliği", self.wall_height),
-            ("İnvert derinliği", self.invert_depth),
-            ("Kazı bölümleri", self.parts),
-            ("Üst yarı tabanı (üzengiye göre)", self.heading_level),
-            ("İnvert üstü (üzengiye göre)", self.invert_level),
-            ("Çevre segment sayısı", self.segments),
+            ("Name", self.name),
+            ("Section type", self.shape),
+            ("Crown radius R", self.radius),
+            ("Side-wall radius", self.wall_radius),
+            ("Side-wall height", self.wall_height),
+            ("Invert depth", self.invert_depth),
+            ("Excavation parts", self.parts),
+            ("Top-heading base (from springline)", self.heading_level),
+            ("Invert top (from springline)", self.invert_level),
+            ("Perimeter segment count", self.segments),
         ]:
             f.addRow(label, w)
-        tabs.addTab(page, "Kesit")
+        tabs.addTab(page, "Section")
 
         # Lining
         page = QWidget()
         v = QVBoxLayout(page)
-        self.use_lining = QCheckBox("Her bölüme püskürtme beton kaplama ekle")
+        self.use_lining = QCheckBox("Add a shotcrete lining to every part")
         self.use_lining.setChecked(design.lining is not None)
         v.addWidget(self.use_lining)
         self.lining_label = QLabel()
         self.lining_label.setWordWrap(True)
         v.addWidget(self.lining_label)
-        edit = QPushButton("Püskürtme beton / hasır tasarla…")
+        edit = QPushButton("Design shotcrete / wire mesh…")
         edit.setAutoDefault(False)
         edit.clicked.connect(self.edit_lining)
         v.addWidget(edit)
         v.addStretch(1)
-        tabs.addTab(page, "Kaplama")
+        tabs.addTab(page, "Lining")
 
         # Bolts
         shared = design.bolts or design.bench_bolts or design.invert_bolts or BoltPattern()
         page = QWidget()
         v = QVBoxLayout(page)
-        self.heading_bolts = PartBoltBox("Üst yarı / tam kesit", design.bolts)
-        self.bench_bolts = PartBoltBox("Alt yarı", design.bench_bolts)
-        self.invert_bolts = PartBoltBox("İnvert", design.invert_bolts)
+        self.heading_bolts = PartBoltBox("Top heading / full face", design.bolts)
+        self.bench_bolts = PartBoltBox("Bench", design.bench_bolts)
+        self.invert_bolts = PartBoltBox("Invert", design.invert_bolts)
         v.addWidget(self.heading_bolts)
         v.addWidget(self.bench_bolts)
         v.addWidget(self.invert_bolts)
-        mech = QGroupBox("Kesit (tüm bölümler)")
+        mech = QGroupBox("Section (all parts)")
         f = QFormLayout(mech)
         self.bolt_EA = _spin(shared.EA, 1, 1e9, 0, "kN")
         self.bolt_T = _spin(shared.T_yield, 1, 1e6, 1, "kN")
@@ -494,22 +516,22 @@ class TunnelDesignerDialog(QDialog):
         self.bolt_pre = _spin(shared.pretension, 0, 1e5, 1, "kN")
         f.addRow("EA (tek bulon)", self.bolt_EA)
         f.addRow("Akma kuvveti", self.bolt_T)
-        f.addRow("Tünel ekseni boyunca aralık", self.bolt_spacing)
-        f.addRow("Öngerme", self.bolt_pre)
+        f.addRow("Spacing along the tunnel axis", self.bolt_spacing)
+        f.addRow("Pretension", self.bolt_pre)
         v.addWidget(mech)
         v.addStretch(1)
-        tabs.addTab(page, "Bulon")
+        tabs.addTab(page, "Bolts")
 
         # Steel sets
         steel = design.steel
         page = QWidget()
         f = QFormLayout(page)
-        self.use_steel = QCheckBox("Çelik iksa ekle (tünel ekseni boyunca aralık)")
+        self.use_steel = QCheckBox("Add steel sets (spacing along the tunnel axis)")
         self.use_steel.setChecked(steel is not None)
         steel = steel or SteelSet()
         self.rib = QComboBox()
-        self.rib.addItems([k for k in STEEL_RIBS if k != "Yok"] + ["Özel"])
-        self.rib.setCurrentText(steel.rib if steel.rib != "Yok" else "HEB 140")
+        self.rib.addItems([k for k in STEEL_RIBS if k != "None"] + ["Custom"])
+        self.rib.setCurrentText(steel.rib if steel.rib not in {"Yok", "None"} else "HEB 140")
         self.rib_area = _spin(steel.rib_area, 0, 1e4, 2, "cm²")
         self.rib_inertia = _spin(steel.rib_inertia, 0, 1e7, 1, "cm⁴")
         self.rib_spacing = _spin(steel.spacing, 0.1, 10, 2, "m")
@@ -518,57 +540,58 @@ class TunnelDesignerDialog(QDialog):
         self.steel_summary.setWordWrap(True)
         f.addRow(self.use_steel)
         f.addRow("Profil", self.rib)
-        f.addRow("A (özel)", self.rib_area)
-        f.addRow("I (özel)", self.rib_inertia)
-        f.addRow("Aralık (tünel ekseni)", self.rib_spacing)
-        f.addRow("Çelik E", self.rib_E)
+        f.addRow("A (custom)", self.rib_area)
+        f.addRow("I (custom)", self.rib_inertia)
+        f.addRow("Spacing (tunnel axis)", self.rib_spacing)
+        f.addRow("Steel E", self.rib_E)
         f.addRow(self.steel_summary)
-        tabs.addTab(page, "Çelik iksa")
+        tabs.addTab(page, "Steel sets")
 
         # Staging
         page = QWidget()
         f = QFormLayout(page)
         self.load_split = _spin(design.load_split, 0.05, 1.0, 2)
         self.load_split.setToolTip(
-            "Destek yerleştirilmeden önce serbest bırakılan kazı yükü oranı (β / ΣMstage). "
-            "Kalan kısım destek aşamasında taşınır."
+            "Fraction of the excavation load released before the support is installed "
+            "(β / ΣMstage). The remainder is carried in the support stage."
         )
-        self.separate = QCheckBox("Her bölüm için ayrı kazı ve püskürtme beton aşaması")
+        self.separate = QCheckBox("Separate excavation and shotcrete stage for each part")
         self.separate.setChecked(design.separate_support_stage)
         dist = design.disturbance
-        self.use_disturbance = QCheckBox("Patlatma örselenme zonu (kazıdan sonraki aşamada)")
+        self.use_disturbance = QCheckBox("Blast-disturbance zone (the stage after excavation)")
         self.use_disturbance.setChecked(dist is not None)
         dist = dist or BlastDisturbance()
         self.disturb_D = _spin(dist.D, 0.0, 1.0, 2)
         self.disturb_thickness = _spin(dist.thickness, 0.1, 50, 2, "m")
-        f.addRow("Destek öncesi yük oranı", self.load_split)
+        f.addRow("Load fraction before support", self.load_split)
         f.addRow(self.separate)
         f.addRow(self.use_disturbance)
-        f.addRow("Örselenme faktörü D", self.disturb_D)
-        f.addRow("Zon kalınlığı", self.disturb_thickness)
+        f.addRow("Disturbance factor D", self.disturb_D)
+        f.addRow("Zone thickness", self.disturb_thickness)
         note = QLabel(
-            "Aşamalar: üst yarı kazı → üst yarı destek (+ bulon / iksa) → alt yarı kazı → "
-            "alt yarı destek → invert kazı → invert kapanışı. Patlatma zonundaki kaya, "
-            "kazıdan sonraki aşamada örselenmiş malzemeye geçer. Ağ üretildikten sonra "
-            "Malzemeler'den Hoek-Brown kayaya D uygulayıp örselenmiş kopya oluşturun."
+            "Stages: top-heading excavation → top-heading support (+ bolts / steel sets) → "
+            "bench excavation → bench support → invert excavation → invert closure. Rock in "
+            "the blast zone switches to the disturbed material on the stage after excavation. "
+            "After the mesh is generated, apply D to the Hoek-Brown rock in Materials and "
+            "create a disturbed copy."
         )
         note.setWordWrap(True)
         f.addRow(note)
-        tabs.addTab(page, "Aşamalar")
+        tabs.addTab(page, "Stages")
 
         # Placement
         place = QHBoxLayout()
-        place.addWidget(QLabel("Merkez x, y (m)"))
+        place.addWidget(QLabel("Centre x, y (m)"))
         self.cx = _spin(center[0], -1e6, 1e6, 3)
         self.cy = _spin(center[1], -1e6, 1e6, 3)
         place.addWidget(self.cx)
         place.addWidget(self.cy)
         place.addStretch(1)
-        click = QPushButton("Kanvasta tıklayarak yerleştir")
+        click = QPushButton("Place by clicking the canvas")
         click.clicked.connect(lambda: self._finish(self.PLACE_CLICK))
-        coords = QPushButton("Koordinata yerleştir")
+        coords = QPushButton("Place at coordinates")
         coords.clicked.connect(lambda: self._finish(self.PLACE_COORDS))
-        cancel = QPushButton("İptal")
+        cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
         for b in (click, coords, cancel):
             b.setAutoDefault(False)
@@ -659,10 +682,10 @@ class TunnelDesignerDialog(QDialog):
         parts = self.parts.currentData()
         self.heading_level.setEnabled(parts >= 2)
         self.invert_level.setEnabled(parts == 3)
-        self.heading_bolts.setTitle("Tam kesit" if parts == 1 else "Üst yarı")
+        self.heading_bolts.setTitle("Full face" if parts == 1 else "Top heading")
         self.bench_bolts.setVisible(parts >= 2)
         self.invert_bolts.setVisible(parts == 3)
-        custom = self.rib.currentText() == "Özel"
+        custom = self.rib.currentText() == "Custom"
         self.rib_area.setEnabled(self.use_steel.isChecked() and custom)
         self.rib_inertia.setEnabled(self.use_steel.isChecked() and custom)
         for w in (self.rib, self.rib_spacing, self.rib_E, self.steel_summary):
@@ -673,7 +696,7 @@ class TunnelDesignerDialog(QDialog):
         EA, EI = self.lining_value.stiffness()
         self.lining_label.setText(
             f"<b>{self.lining_value.name}</b><br>t = {self.lining_value.thickness * 100:.0f} cm"
-            f" · hasır {self.lining_value.mesh}"
+            f" · mesh {self.lining_value.mesh}"
             f"<br>EA = {EA:,.0f} kN/m · EI = {EI:,.1f} kNm²/m · A = {p['A']:.4f} m²/m"
         )
         try:
@@ -681,7 +704,7 @@ class TunnelDesignerDialog(QDialog):
             if steel is not None:
                 props = steel.liner_properties()
                 self.steel_summary.setText(
-                    f"1 m tünel boyu: A = {props['A']:.4f} m²/m · I = {props['I']:.3e} m⁴/m · "
+                    f"1 m of tunnel: A = {props['A']:.4f} m²/m · I = {props['I']:.3e} m⁴/m · "
                     f"EA = {props['E'] * props['A']:,.0f} kN/m"
                 )
             else:
@@ -793,7 +816,7 @@ class BoltPatternDialog(QDialog):
 
     def __init__(self, host, parent=None, chain_length=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Bulon paterni · {host}")
+        self.setWindowTitle(f"Bolt pattern · {host}")
         self.chain_length = chain_length
         form = QFormLayout(self)
         default = BoltPattern()
@@ -801,22 +824,22 @@ class BoltPatternDialog(QDialog):
         self.count = QLabel()
         self.length = _spin(default.length, 0.1, 100, 2, "m")
         self.angle = _spin(90.0, -180, 180, 1, "°")
-        self.angle.setToolTip("Çizgi yönünden saat yönü tersine açı (90° = sol normal)")
+        self.angle.setToolTip("Angle counter-clockwise from the line direction (90° = left normal)")
         self.margin = _spin(0.5, 0, 1e4, 2, "m")
         self.EA = _spin(default.EA, 1, 1e9, 0, "kN")
         self.T = _spin(default.T_yield, 1, 1e6, 1, "kN")
         self.spacing = _spin(default.spacing_out_of_plane, 0.1, 20, 2, "m")
         self.pre = _spin(0.0, 0, 1e5, 1, "kN")
         for label, w in [
-            ("Aralık (çizgi boyunca)", self.spacing_along),
-            ("Adet", self.count),
-            ("Boy", self.length),
-            ("Çizgiye açı", self.angle),
-            ("Uçlardan kenar payı", self.margin),
+            ("Spacing (along the line)", self.spacing_along),
+            ("Count", self.count),
+            ("Length", self.length),
+            ("Angle to the line", self.angle),
+            ("End margin", self.margin),
             ("EA (tek bulon)", self.EA),
             ("Akma kuvveti", self.T),
-            ("Düzlem dışı aralık", self.spacing),
-            ("Öngerme", self.pre),
+            ("Out-of-plane spacing", self.spacing),
+            ("Pretension", self.pre),
         ]:
             form.addRow(label, w)
         buttons = QDialogButtonBox(
@@ -831,11 +854,11 @@ class BoltPatternDialog(QDialog):
 
     def _update_count(self, *_):
         if self.chain_length is None:
-            self.count.setText("aralıktan")
+            self.count.setText("from spacing")
             return
         usable = max(self.chain_length - 2 * self.margin.value(), 0.0)
         n = max(1, int(round(usable / self.spacing_along.value()))) if usable > 0 else 1
-        self.count.setText(f"{n} (aralıktan)")
+        self.count.setText(f"{n} (from spacing)")
 
     def pattern(self):
         return BoltPattern(

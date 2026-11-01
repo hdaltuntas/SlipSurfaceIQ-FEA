@@ -57,13 +57,13 @@ def test_rectangle_pointer_selection_delete_and_undo(qt_app):
     assert not dialog.canvas.drawing
     click_world(dialog.canvas, 4, 2)
     assert dialog.entities.currentRow() == 0
-    assert dialog.name.text() == "Bolge1"
+    assert dialog.name.text() == "Region1"
     dialog.delete_entity()
     assert not dialog.document.entities
     dialog.undo()
-    assert dialog.document.entities[0].name == "Bolge1"
+    assert dialog.document.entities[0].name == "Region1"
     dialog.start_tool("region", rectangle=True)
-    assert dialog.name.text() == "Bolge2"
+    assert dialog.name.text() == "Region2"
     click_world(dialog.canvas, 0, 0)
     click_world(dialog.canvas, 0, 2)
     assert len(dialog.document.entities) == 1  # degenerate rectangle remains editable
@@ -104,7 +104,7 @@ def test_grid_visibility_does_not_destroy_snap_spacing(qt_app):
 
 
 def test_active_workflow_step_still_opens_editor(qt_app):
-    workflow = WorkflowBar(["Geometri", "Malzemeler"])
+    workflow = WorkflowBar(["Geometry", "Materials"])
     workflow.show()
     qt_app.processEvents()
     events = []
@@ -123,7 +123,7 @@ def test_result_redraw_keeps_user_zoom(qt_app):
     transform = window.canvas.transform()
     window.draw()
     assert window.canvas.transform() == transform
-    assert "Boş proje" not in window.status.currentMessage()
+    assert "Empty project" not in window.status.currentMessage()
 
 
 def test_nonfinite_command_is_rejected_without_losing_draft(qt_app):

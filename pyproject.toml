@@ -42,7 +42,7 @@ packages = ["src/slipsurface"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-ra"
-markers = ["benchmark: performance acceptance tests (Kapı 1)"]
+markers = ["benchmark: performance acceptance tests (Gate 1)"]
 
 [tool.ruff]
 line-length = 100
