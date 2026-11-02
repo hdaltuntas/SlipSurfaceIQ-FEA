@@ -314,8 +314,9 @@ class MeshCanvas(QGraphicsView):
             else:
                 active = stage.active.get(block.tag, np.ones(block.ne, bool))
                 s_lbl = structure_label(model, block.tag)
-                if selection == ("structure", block.tag):
-                    pen = QPen(QColor("#94a3b8"), 0, Qt.PenStyle.DashLine)
+                if block.etype is ElemType.BAR2 or selection == ("structure", block.tag):
+                    pen = QPen(QColor("#64748b"), 1.8, Qt.PenStyle.DashLine)
+                    pen.setCosmetic(True)
                     for conn in block.conn[~active]:
                         a, b = mesh.coords[conn]
                         item = self.scene().addLine(a[0], -a[1], b[0], -b[1], pen)
@@ -324,7 +325,7 @@ class MeshCanvas(QGraphicsView):
                         item.setZValue(2.5)
                 for conn in block.conn[active]:
                     a, b = coords[conn]
-                    if field in DISPLACEMENT_FIELDS:
+                    if field in DISPLACEMENT_FIELDS and block.etype is not ElemType.BAR2:
                         v = stage.u[conn]
                         value = (
                             np.linalg.norm(v, axis=1).mean()
@@ -343,7 +344,7 @@ class MeshCanvas(QGraphicsView):
                         p.setColor(QColor("#b7c2cc"))
                         p.setWidthF(1.0)
                     line_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
-                    line_item.setZValue(2.5)
+                    line_item.setZValue(5 if block.etype is ElemType.BAR2 else 2.5)
                     line_item.setData(0, ("structure", block.tag))
                     ua, ub = stage.u[conn]
                     line_item.setToolTip(
