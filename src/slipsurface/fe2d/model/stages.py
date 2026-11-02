@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 from dataclasses import dataclass, field
 
 from .boundary import Displacement, EdgeLoad, PointLoad, WaterCondition
@@ -24,11 +25,15 @@ class Stage:
     # "ignore undrained behaviour": undrained (A/B) materials act drained in this stage and
     # the excess pore pressure built up so far dissipates (consolidated end state)
     drained: bool = False
+    seismic_kh: float = 0.0  # horizontal pseudo-static acceleration / g (+x)
+    seismic_kv: float = 0.0  # vertical pseudo-static acceleration / g (+y)
 
     def __post_init__(self) -> None:
         if self.active_regions is not None:
             object.__setattr__(self, "active_regions", frozenset(self.active_regions))
         object.__setattr__(self, "active_structures", frozenset(self.active_structures))
+        if not all(math.isfinite(v) and abs(v) <= 1.0 for v in (self.seismic_kh, self.seismic_kv)):
+            raise ValueError("Seismic coefficients kh and kv must be finite and within [-1, 1].")
         if not 0.0 < self.load_split <= 1.0:
             raise ValueError("load_split must be in (0, 1]")
 
