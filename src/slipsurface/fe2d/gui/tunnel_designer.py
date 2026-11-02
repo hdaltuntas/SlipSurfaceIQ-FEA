@@ -231,7 +231,8 @@ class LiningDesignerDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         for w in (self.thickness, self.E, self.nu, self.gamma, self.cover, self.rib_area,
-                  self.rib_inertia, self.rib_spacing, self.Es, self.capacity, self.fc28, self.ft28):  # fmt: skip
+                  self.rib_inertia, self.rib_spacing, self.Es, self.capacity,
+                  self.fc28, self.ft28):  # fmt: skip
             w.valueChanged.connect(self.update_summary)
         for w in (self.mesh, self.rib):
             w.currentTextChanged.connect(self.update_summary)
