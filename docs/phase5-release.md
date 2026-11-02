@@ -53,6 +53,11 @@ Linux/Windows, Python 3.10–3.13, and two native GUI jobs: **10/10 passed**
   Query-line stresses use the same in-element extrapolation; a region filter selects the
   side at a material boundary. The query is entered in undeformed coordinates and drawn
   on the deformed mesh.
+- The plastic contour is the element-wise fraction of Gauss points with a non-elastic
+  state (0–1). Shear, tension and apex flags all count as yielding; categorical codes
+  are not extrapolated. Query overlays break wherever samples have no active data.
+- Structure displacement charts and deformed N–V–M overlays retain element node IDs;
+  coincident nodes on opposite interface faces keep their own displacement values.
 - Principal arrows show the two in-plane stresses; the 3D principal values ordered with
   szz are separate contour fields. If the number of plastic points/arrows is thinned on a
   large model, that is shown on screen.

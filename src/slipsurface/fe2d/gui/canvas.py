@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
@@ -44,7 +46,10 @@ def _block_nodal(stage, block, field):
         gp = stage.plastic.get(block.tag)
         if gp is None:
             return None
-        return element_nodal_values(block, gp.astype(float)[..., None])[..., 0]
+        # Flags are categories (elastic/shear/tension/apex), not scalar nodal data.
+        # Keep the fraction of yielding Gauss points constant within each element.
+        fraction = (gp > 0).mean(axis=1)
+        return np.broadcast_to(fraction[:, None], (block.ne, block.etype.nen))
     if field in ("pore", "excess_pore"):
         data = getattr(stage, field).get(block.tag)
         if data is None:
@@ -289,8 +294,9 @@ class MeshCanvas(QGraphicsView):
                 f"{field} · {unit} · lining / pile / anchor · deformation ×{deform:g}"
             )
         else:
+            sampling = "yielding Gauss-point fraction" if field == "plastic" else "nodal"
             self.legend = (
-                f"{field} · {unit} · nodal · {lo:.5g} … {hi:.5g}"
+                f"{field} · {unit} · {sampling} · {lo:.5g} … {hi:.5g}"
                 f" · deformation ×{deform:g}"
             )
         if stage is not None and result is not None:
@@ -364,7 +370,7 @@ class MeshCanvas(QGraphicsView):
 
     @staticmethod
     def _seg_normal(mapped, seg_idx):
-        a, b = np.asarray(mapped[seg_idx][0], float), np.asarray(mapped[seg_idx][1], float)
+        a, b = mapped[seg_idx].a, mapped[seg_idx].b
         t = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
         return np.array([-t[1], t[0]])
 
@@ -382,7 +388,6 @@ class MeshCanvas(QGraphicsView):
         )
 
         mesh = result.model.mesh
-        X0 = mesh.coords
         finite = coords[np.isfinite(coords).all(1)]
         extent = max(float(np.ptp(finite, axis=0).max()) if len(finite) else 1.0, 1e-9)
         offset = 0.02 * extent
@@ -399,11 +404,10 @@ class MeshCanvas(QGraphicsView):
             if kind == "bar" and field != "N":
                 continue
             mapped, normals = [], {}
-            for a, b, station, f in segments:
-                ia = int(np.argmin(np.sum((X0 - a) ** 2, axis=1)))
-                ib = int(np.argmin(np.sum((X0 - b) ** 2, axis=1)))
+            for seg in segments:
+                ia, ib = seg.nodes
                 pa, pb = coords[ia], coords[ib]
-                mapped.append((pa, pb, station, f))
+                mapped.append(replace(seg, a=pa, b=pb))
                 tangent = (pb - pa) / max(float(np.linalg.norm(pb - pa)), 1e-30)
                 normal = np.array([-tangent[1], tangent[0]])
                 normals.setdefault(ia, []).append(normal)
@@ -447,10 +451,10 @@ class MeshCanvas(QGraphicsView):
                 item.setToolTip(f"{s_lbl} · {title} {unit}")
                 self.nvm_count += 1
             ext = [
-                (float(f[k, comp]), np.asarray(pt if k == 0 else other, float))
-                for pt, other, _, f in mapped
+                (float(seg.forces[k, comp]), seg.a if k == 0 else seg.b)
+                for seg in mapped
                 for k in (0, 1)
-                if np.isfinite(f[k, comp])
+                if np.isfinite(seg.forces[k, comp])
             ]
             if ext:
                 (vmin, pmin), (vmax, pmax) = min(ext, key=lambda v: v[0]), max(

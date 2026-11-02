@@ -137,7 +137,7 @@ def test_clicking_pile_and_anchor_opens_section_force_diagrams(qt_app):
     assert dialog.kind == "beam" and dialog.segments and dialog.component.count() == 3
     dialog.component.setCurrentIndex(2)
     assert dialog.status.text().startswith("M:")
-    values = np.array([f[:, 2] for *_, f in dialog.segments])
+    values = np.array([segment.forces[:, 2] for segment in dialog.segments])
     assert np.isfinite(values).all() and np.abs(values).max() > 0
     assert dialog.tabs.count() == 3 and dialog.disp_plots[0].y.size
     assert np.isfinite(dialog.disp_plots[0].y).any()
