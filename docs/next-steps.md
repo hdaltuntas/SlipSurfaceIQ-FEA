@@ -6,17 +6,21 @@ The results dock now lists every region and structural object. Select a member b
 choosing its N/V/M field; the plot scales to that member, preserves real force jumps,
 and separates disconnected paths. Region/interface displacement selections and element
 charts use the selected stage. Tunnel placement preserves the user's schedule and adds
-no automatic excavation/support stages. Manual bolt patterns can be placed on a selected
-line, closed boundary or clicked edge using exact adjacent-head spacing; split boundary
-rules are retained. See `tests/unit/test_selected_results.py` and the
+no automatic excavation/support stages. Manual bolt patterns now require a mouse-dragged interval on a line/lining or closed
+boundary, with an exact live preview and a confirmation dialog for spacing/length/side.
+There is no whole-boundary automatic GUI placement, and tunnel designer placement adds
+no bolts (including legacy saved designs). Split boundary rules are retained. Invalid
+corner moves are caught before any drawing/history mutation; this fixes the reported
+`Tunnel_Head` self-intersection traceback. See `tests/unit/test_drag_bolts.py`. See `tests/unit/test_selected_results.py` and the
 [model workflow](integrated-modeler.md#selected-element-results-and-manual-bolt-patterns).
 
 The model/CAD workspace now has bottom stage tabs synchronized with the mesh/results
 view and document viewer. **Model > Project properties** edits the number and names
 of construction stages, including in unmeshed drafts. Right-clicking a region on
 either canvas opens material/excavation assignment for the selected stage; applying
-to following stages is optional. Direct right-click actions also excavate only the
-selected stage or that stage and all later stages, without deleting the geometry.
+to following stages is optional. Region context menus now contain only **Assign materials**;
+the material list includes **Excavated (void)**. Mesh generation is still required for
+stage material assignments, and stale geometry is guarded.
 Existing softened/disturbed material definitions
 can be selected. These edits clear old results and survive project save/reopen and
 remeshing. Regression coverage: `tests/unit/test_stage_workspace.py` (desktop CI).

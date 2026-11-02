@@ -62,7 +62,7 @@ class ProjectPropertiesDialog(EditorDialog):
 
 class RegionStageDialog(EditorDialog):
     def __init__(self, model, stage_index, region, parent=None):
-        super().__init__("Stage material assignment", parent)
+        super().__init__("Assign materials", parent)
         self.model, self.stage_index, self.region = model, stage_index, region
         self.resize(510, 230)
         name = "Initial" if stage_index == 0 else model.stages[stage_index - 1].name

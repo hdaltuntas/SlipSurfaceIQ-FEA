@@ -69,17 +69,17 @@ draft names are stored in `.sscad.json` and used during mesh generation.
 
 After generating the mesh, define intact and softened/disturbed materials in
 **Model > Materials…**. Select a bottom stage tab, right-click the region on either
-canvas, and choose **Assign material in stage…**. Pick a material or
+canvas, and choose **Assign materials…**. It is the only region context-menu command. Pick a material or
 **Excavated (void)**. Only the selected stage changes unless **Apply to this and all
 following stages** is checked. This assigns an existing material definition; it does
 not introduce a new strain-softening constitutive law. Changing Initial alone preserves
 later stages' material definitions with explicit overrides.
 
-For direct excavation, right-click a region and choose **Excavate in this stage**.
-It immediately deactivates the region in the selected stage. **Excavate from this
-stage onward** also deactivates it in every later stage. Geometry and the material
-library are retained; use **Assign material in stage…** to reactivate the region.
-These shortcuts are available on both the CAD and mesh/results canvases after meshing.
+For excavation, choose **Excavated (void)** in that same material list. The optional
+following-stages checkbox controls its scope. Geometry and material definitions are
+retained; choosing a material reactivates the region. The dialog shows the selected
+stage and region. Before meshing, or after geometry changes, the assignment command is
+disabled with a tooltip explaining that mesh generation is required.
 
 ## Selected-element results and manual bolt patterns
 
@@ -97,16 +97,30 @@ the legend and values in tooltips. **Open element charts…** opens the selected
 force/displacement charts, including the along-length view, in the selected stage.
 An inactive member stays in that stage and reports no active result.
 
-To add bolts manually, select a line/lining or closed tunnel boundary in the model and
-choose **Support > Bolt pattern (selected line / boundary)…**. The same command is on
-right-click; **Bolt pattern on this edge…** limits the pattern to the clicked edge.
-Enter along-boundary spacing, length, direction, end margin and bolt properties.
-The spacing between adjacent heads is the entered value; leftover length is shared at
-the ends. Out-of-plane spacing is a separate property. Closed boundaries default to the
-outward normal; adjust the angle as needed. Bolts are initially inactive unless
-**Activate immediately in all stages** is checked. Assign their installation using
-**Model > Stages**. The drawing undo command removes the pattern in one operation.
-Splitting host edges to insert bolt heads retains their existing fixities and pressures.
+Tunnel designer placement adds no automatic bolts, including when loading older
+saved designs that contain bolt definitions. Existing bolts already in a project are
+preserved. Define bolts explicitly in the model workspace:
+
+1. Choose **Support > Bolt pattern (drag along boundary)…** or the matching toolbar icon.
+2. Press on a lining or boundary and hold the left mouse button while following the
+   desired interval. The blue line and dashed bolts preview the selection. Release
+   on the boundary to finish; a click alone inserts nothing. A coincident lining is
+   preferred to a region boundary, avoiding internal excavation divider edges.
+3. Set spacing, length, angle/side, end margin and properties in the dialog. Changes
+   update the canvas preview. **OK** inserts the previewed bolts; Cancel or Esc leaves
+   the drawing unchanged. Reversing the drag does not reverse the bolt directions.
+
+Only the selected interval receives bolts, including selections across a closed
+boundary's first vertex. Spacing between adjacent heads is exact; leftover length is
+shared at the interval ends. Out-of-plane spacing is separate. Bolts start inactive
+unless **Activate immediately in all stages** is checked; assign their installation
+using **Model > Stages**. One undo removes the entire pattern. Splitting host edges
+retains their fixities and pressures. Other geometry tools remain on the toolbar;
+double-click still opens object properties.
+
+A corner drag that would self-intersect/collapse a polygon or produce invalid topology
+is rejected with an inline message. Geometry, selection and undo/redo history remain
+unchanged; a valid subsequent move can still be undone normally.
 
 Applying project or material changes clears old results and keeps the selected stage
 and workspace. Save the meshed model as `.ssproj` to retain all material assignments.

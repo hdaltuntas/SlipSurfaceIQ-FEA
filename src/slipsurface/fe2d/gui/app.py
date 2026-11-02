@@ -533,7 +533,7 @@ class MainWindow(QMainWindow):
         support_menu.addSeparator()
         support_menu.addAction(
             action(
-                "Bolt pattern (selected line / boundary)…",
+                "Bolt pattern (drag along boundary)…",
                 lambda _=False: self.drawing_file_action("bolt_pattern"),
             )
         )
@@ -673,18 +673,7 @@ class MainWindow(QMainWindow):
             return
         stage_idx = max(0, self.stages.currentRow())
         menu = QMenu(self)
-        st_title = (
-            "0. Initial"
-            if stage_idx <= 0
-            else f"{stage_idx}. {self.model.stages[stage_idx - 1].name}"
-        )
-        header = menu.addAction(f"Stage: {st_title}")
-        header.setEnabled(False)
-        if region > 0:
-            cur_mat = stage_region_material(self.model, stage_idx, region)
-            state = cur_mat if cur_mat else "excavated"
-            label = menu.addAction(f"{region_label(self.model, region)} · {state}")
-            label.setEnabled(False)
+        if region > 0 and not struct_tag:
             self._add_region_stage_action(menu, region)
         if struct_tag:
             s_lbl = structure_label(self.model, struct_tag)
@@ -701,9 +690,7 @@ class MainWindow(QMainWindow):
         menu.exec(global_pos)
 
     def _add_region_stage_action(self, menu, region):
-        row = max(0, self.stages.currentRow())
-        name = self.stages.item(row).text() if self.stages.count() else "Initial"
-        action = menu.addAction(f"Assign material in stage {row}: {name}…")
+        action = menu.addAction("Assign materials…")
         ready = (
             self.model is not None
             and not self.cad.mesh_outdated
@@ -711,23 +698,12 @@ class MainWindow(QMainWindow):
             and not self.busy
         )
         action.setEnabled(ready)
-        action.triggered.connect(lambda _=False: self.edit_region_stage(region))
-        excavate = menu.addAction("Excavate in this stage")
-        excavate.setEnabled(ready and stage_region_material(self.model, row, region) is not None)
-        excavate.triggered.connect(lambda _=False: self.excavate_region(region))
-        onward = menu.addAction("Excavate from this stage onward")
-        onward.setEnabled(
-            ready
-            and any(
-                stage_region_material(self.model, i, region) is not None
-                for i in range(row, len(self.model.stages) + 1)
-            )
+        action.setToolTip(
+            "Choose a material or Excavated (void) for the selected stage."
+            if ready else "Generate the mesh before assigning stage materials."
         )
-        onward.triggered.connect(lambda _=False: self.excavate_region(region, propagate=True))
-        if not ready:
-            hint = menu.addAction("Generate the mesh before assigning stage materials")
-            hint.setEnabled(False)
-        menu.addSeparator()
+        menu.setToolTipsVisible(True)
+        action.triggered.connect(lambda _=False: self.edit_region_stage(region))
 
     def excavate_region(self, region, *, propagate=False):
         """Deactivate the picked region without deleting its geometry or material."""

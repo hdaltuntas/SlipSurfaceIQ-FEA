@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 pytest.importorskip("shapely")
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QMessageBox
 
 from slipsurface.fe2d import api
 from slipsurface.fe2d.cad.geometry import ConstructionStep, Drawing, Entity
@@ -27,7 +27,7 @@ from slipsurface.fe2d.gui.result_tools import (
     force_trace,
     structure_chains,
 )
-from slipsurface.fe2d.gui.tunnel_designer import BoltPatternDialog, TunnelDesignerDialog
+from slipsurface.fe2d.gui.tunnel_designer import TunnelDesignerDialog
 
 
 @pytest.fixture(autouse=True)
@@ -255,32 +255,3 @@ def test_manual_bolt_spacing_and_boundary_rules_are_preserved():
     assert len(meshed.stages) == 1 and not meshed.stages[0].active_structures
     with pytest.raises(ValueError, match="positive"):
         bolt_stations(10, 0)
-
-
-def test_bolt_dialog_and_canvas_accept_closed_tunnel_boundary(qt_app, monkeypatch):
-    base = Drawing.example()
-    drawing = replace(
-        base,
-        entities=(*base.entities, Entity("Opening", "region", ((4, 2), (8, 2), (8, 4), (4, 4)), 2)),
-    )
-    window = MainWindow()
-    window.cad.commit(drawing)
-    window.cad.entities.setCurrentRow(1)
-
-    def accept(dialog):
-        assert dialog.closed and dialog.angle.value() == -90
-        assert not dialog.active.isChecked()
-        dialog.spacing_along.setValue(2)
-        dialog.length.setValue(1)
-        assert dialog.count.text().startswith("6 ")
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(BoltPatternDialog, "exec", accept)
-    window.cad.bolt_pattern()
-    added = window.cad.document
-    assert len(added.supports) == 6
-    assert all(not s.active for s in added.supports)
-    assert not added.sequence
-    assert len({e.points[0] for e in added.entities if e.name.startswith("Bolt_")}) == 6
-    window.cad.undo()
-    assert window.cad.document == drawing

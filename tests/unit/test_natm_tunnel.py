@@ -292,14 +292,13 @@ def test_designer_dialogs_round_trip(qt_app):
     tunnel = TunnelDesignerDialog()
     design = tunnel.design()
     assert isinstance(design, TunnelDesign) and design.section.parts == 3
-    assert design.bolts is not None and design.bolts.count == 0
-    tunnel.bench_bolts.use.setChecked(True)
-    tunnel.invert_bolts.use.setChecked(True)
+    assert design.bolts is None
+    assert not hasattr(tunnel, "heading_bolts")
     tunnel.use_steel.setChecked(True)
     tunnel.rib_spacing.setValue(0.75)
     tunnel.use_disturbance.setChecked(True)
     design = tunnel.design()
-    assert design.bench_bolts is not None and design.invert_bolts is not None
+    assert design.bench_bolts is None and design.invert_bolts is None
     assert design.steel is not None and design.steel.spacing == pytest.approx(0.75)
     assert design.disturbance is not None and design.disturbance.D == pytest.approx(0.8)
     lining = LiningDesignerDialog()
