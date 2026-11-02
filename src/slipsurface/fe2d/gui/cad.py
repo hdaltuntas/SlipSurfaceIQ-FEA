@@ -998,7 +998,9 @@ class CadDialog(QDialog):
             item = menu.addAction(title)
             item.setCheckable(True)
             item.setChecked(getattr(rule, field))
-            item.triggered.connect(lambda checked, key=field: self.set_edge_rule(edge, **{key: checked}))
+            item.triggered.connect(
+                lambda checked, key=field: self.set_edge_rule(edge, **{key: checked})
+            )
         menu.exec(global_pos)
 
     def show_inspector(self, tab=None):
