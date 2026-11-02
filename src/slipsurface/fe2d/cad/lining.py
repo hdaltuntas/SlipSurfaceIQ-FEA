@@ -87,6 +87,8 @@ class LiningSystem:
             raise ValueError("Steel rib section is invalid.")
         if not np.isfinite(self.initial_capacity_percent) or not 0 < self.initial_capacity_percent <= 100:
             raise ValueError("Initial shotcrete percentage must be in (0, 100].")
+        if not np.isfinite([self.fc28, self.ft28]).all() or self.fc28 <= 0 or self.ft28 <= 0:
+            raise ValueError("28-day shotcrete compressive/tensile strengths must be positive.")
 
     def rib_section(self):
         """Steel set area [m2] and inertia [m4]."""
@@ -115,6 +117,13 @@ class LiningSystem:
         ei_c = self.E_shotcrete * self.thickness**3 / 12
         factor = percent / 100
         return ea28 - (1 - factor) * ea_c, ei28 - (1 - factor) * ei_c
+
+    def strengths_at_capacity(self, percent):
+        """Reference compressive/tensile strengths; not yet enforced by elastic beam."""
+        if not np.isfinite(percent) or not 0 < percent <= 100:
+            raise ValueError("Capacity percent must be in (0, 100].")
+        factor = percent / 100.0
+        return self.fc28 * factor, self.ft28 * factor
 
     def liner_properties(self):
         EA, EI = self.stiffness()
