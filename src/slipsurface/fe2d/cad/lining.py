@@ -85,7 +85,8 @@ class LiningSystem:
             raise ValueError("Wire mesh type or layer count is invalid.")
         if self.rib != "Custom" and self.rib not in STEEL_RIBS:
             raise ValueError("Steel rib section is invalid.")
-        if not np.isfinite(self.initial_capacity_percent) or not 0 < self.initial_capacity_percent <= 100:
+        if (not np.isfinite(self.initial_capacity_percent)
+                or not 0 < self.initial_capacity_percent <= 100):
             raise ValueError("Initial shotcrete percentage must be in (0, 100].")
         if not np.isfinite([self.fc28, self.ft28]).all() or self.fc28 <= 0 or self.ft28 <= 0:
             raise ValueError("28-day shotcrete compressive/tensile strengths must be positive.")
