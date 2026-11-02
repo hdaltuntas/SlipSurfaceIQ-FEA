@@ -212,7 +212,7 @@ def test_context_menu_assignment_preserves_stage_view_and_invalidates_results(
     window.cad.commit(replace(window.cad.current_drawing(), h=2))
     stale_menu = QMenu()
     window._add_region_stage_action(stale_menu, 1)
-    assert not stale_menu.actions()[0].isEnabled()
+    assert stale_menu.actions()[0].isEnabled()
 
 
 def test_project_properties_apply_from_main_window(qt_app, staged_model, monkeypatch):
@@ -318,8 +318,7 @@ def test_assignment_only_menu_and_stale_mesh_guard(qt_app, staged_model):
     window.cad.commit(replace(window.cad.current_drawing(), h=2))
     stale_menu = QMenu()
     window._add_region_stage_action(stale_menu, 2)
-    assert len(stale_menu.actions()) == 1 and not stale_menu.actions()[0].isEnabled()
-    assert "mesh" in stale_menu.actions()[0].toolTip()
+    assert len(stale_menu.actions()) == 1 and stale_menu.actions()[0].isEnabled()
     before = window.model
     window.excavate_region(2)
     assert window.model is before

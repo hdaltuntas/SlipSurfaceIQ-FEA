@@ -101,3 +101,120 @@ class RegionStageDialog(EditorDialog):
             self.error(exc)
             return
         self.accept()
+
+
+class DraftRegionStageDialog(EditorDialog):
+    """Assign directly to a geometry region without generating a mesh."""
+
+    def __init__(self, drawing, row, entity, model=None, parent=None):
+        from PySide6.QtWidgets import QPushButton
+
+        from ..cad.material_assignment import material_specs, region_state, stage_names
+
+        super().__init__("Assign materials", parent)
+        self.drawing, self.row, self.entity, self.model = drawing, row, entity, model
+        self.materials = material_specs(drawing, model)
+        form = QFormLayout()
+        form.addRow("Stage", QLabel(stage_names(drawing)[row]))
+        form.addRow("Region", QLabel(entity.name))
+        self.material = QComboBox()
+        self.populate(region_state(drawing, row, entity, model))
+        form.addRow("Material", self.material)
+        manage = QPushButton("Materials…")
+        manage.clicked.connect(self.manage_materials)
+        form.addRow(manage)
+        self.root.addLayout(form)
+        self.propagate = QCheckBox("Apply to this and all following stages")
+        self.root.addWidget(self.propagate)
+        note = QLabel(
+            "Assignments are saved with the drawing and applied when the mesh is generated."
+        )
+        note.setWordWrap(True)
+        self.root.addWidget(note)
+        self.finish_layout(self.apply)
+
+    def populate(self, selected):
+        self.material.clear()
+        self.material.addItem("Excavated (void)", None)
+        for name in self.materials:
+            self.material.addItem(name, name)
+        self.material.setCurrentIndex(max(0, self.material.findData(selected)))
+
+    def manage_materials(self):
+        dialog = DraftMaterialDialog(self.materials, self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            selected = self.material.currentData()
+            self.materials = dialog.updated
+            self.populate(selected)
+
+    def apply(self):
+        from dataclasses import replace
+
+        from ..cad.material_assignment import assign_region, serialize_materials
+
+        try:
+            drawing = replace(self.drawing, material_library=serialize_materials(self.materials))
+            self.updated = assign_region(
+                drawing,
+                self.row,
+                self.entity,
+                self.material.currentData(),
+                self.propagate.isChecked(),
+                self.model,
+            )
+        except Exception as exc:
+            self.error(exc)
+            return
+        self.accept()
+
+
+class DraftMaterialDialog(EditorDialog):
+    """The same constitutive-material form used after meshing, with a draft catalogue."""
+
+    def __init__(self, materials, parent=None):
+        from PySide6.QtWidgets import QListWidget
+
+        from .form_helpers import toolbar
+
+        super().__init__("Materials", parent)
+        self.materials = dict(materials)
+        self.list = QListWidget()
+        self.list.addItems(self.materials)
+        self.root.addWidget(self.list)
+        toolbar(self.root, [("New", self.add), ("Edit", self.edit)])
+        self.finish_layout(self.apply)
+
+    def add(self):
+        self.edit_spec(None)
+
+    def edit(self):
+        item = self.list.currentItem()
+        if item is not None:
+            self.edit_spec(self.materials[item.text()])
+
+    def edit_spec(self, spec):
+        from ..fem.materials import build
+        from .material_editor import MaterialSpecDialog
+
+        dialog = MaterialSpecDialog(spec, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        updated = dialog.updated
+        try:
+            build(updated)
+            if spec is not None and updated.name != spec.name:
+                raise ValueError(
+                    "Keep the material name when editing; use New for another material."
+                )
+            if spec is None and updated.name in self.materials:
+                raise ValueError("This material name already exists.")
+        except Exception as exc:
+            self.error(exc)
+            return
+        self.materials[updated.name] = updated
+        self.list.clear()
+        self.list.addItems(self.materials)
+
+    def apply(self):
+        self.updated = dict(self.materials)
+        self.accept()

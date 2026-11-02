@@ -67,7 +67,7 @@ removes stages from the end. The existing **Model > Stages…** editor still con
 complete stage definitions. Project properties also works on an unmeshed drawing;
 draft names are stored in `.sscad.json` and used during mesh generation.
 
-After generating the mesh, define intact and softened/disturbed materials in
+Before or after generating the mesh, define intact and softened/disturbed materials in
 **Model > Materials…**. Select a bottom stage tab, right-click the region on either
 canvas, and choose **Assign materials…**. It is the only region context-menu command. Pick a material or
 **Excavated (void)**. Only the selected stage changes unless **Apply to this and all
@@ -78,8 +78,11 @@ later stages' material definitions with explicit overrides.
 For excavation, choose **Excavated (void)** in that same material list. The optional
 following-stages checkbox controls its scope. Geometry and material definitions are
 retained; choosing a material reactivates the region. The dialog shows the selected
-stage and region. Before meshing, or after geometry changes, the assignment command is
-disabled with a tooltip explaining that mesh generation is required.
+stage and region. Before meshing, and after geometry changes, the same command edits drawing-backed
+assignments. The dialog also provides **Materials…** to create/edit constitutive material
+definitions without a mesh. Assignments are stored by region and stage name in the
+drawing, previewed immediately, and applied during mesh generation/remeshing. Draft
+changes support undo and `.sscad.json` save/reopen.
 
 ## Selected-element results and manual bolt patterns
 
@@ -125,8 +128,9 @@ unchanged; a valid subsequent move can still be undone normally.
 Applying project or material changes clears old results and keeps the selected stage
 and workspace. Save the meshed model as `.ssproj` to retain all material assignments.
 Remeshing preserves those assignments and does not restore deleted/renamed stages.
-If the drawing has changed since meshing, regenerate it before editing model stage
-definitions or assigning materials; this prevents editing against stale region IDs.
+If the drawing has changed since meshing, material assignments target the current
+drawing and are applied on remeshing. Advanced solver-stage settings still require
+a current mesh.
 
 ## Save, undo, and remeshing
 

@@ -119,6 +119,8 @@ class Drawing:
     disturbance: dict | None = None  # {D, thickness, regions, material?}
     disturbed_material: str = ""
     loading_name: str = "CAD loading"
+    material_library: tuple[dict, ...] = ()
+    material_assignments: tuple[dict, ...] = ()
 
     def __post_init__(self):
         if not np.isfinite([self.h, self.E, self.nu, self.gamma]).all():
@@ -148,6 +150,8 @@ class Drawing:
             data.get("disturbance"),
             str(data.get("disturbed_material") or ""),
             str(data.get("loading_name", "CAD loading")),
+            tuple(data.get("material_library", ())),
+            tuple(data.get("material_assignments", ())),
         )
 
     def with_stage_names(self, names):
@@ -160,7 +164,12 @@ class Drawing:
             else ConstructionStep(name)
             for i, name in enumerate(names[1:])
         )
-        return replace(self, loading_name=names[0], sequence=sequence)
+        old_names = ["Initial", self.loading_name, *[s.name for s in self.sequence]]
+        renamed = dict(zip(old_names, ["Initial", *names]))
+        assignments = tuple({**a, "stage": renamed[a["stage"]]}
+                            for a in self.material_assignments if a["stage"] in renamed)
+        return replace(self, loading_name=names[0], sequence=sequence,
+                       material_assignments=assignments)
 
     def without_entity(self, name):
         """Drop an entity with its edge rules, support and construction-step references."""
@@ -181,12 +190,16 @@ class Drawing:
             rules=tuple(r for r in self.rules if r.edge not in old.edge_names()),
             supports=tuple(s for s in self.supports if s.entity != name),
             sequence=tuple(steps),
+            material_assignments=tuple(a for a in self.material_assignments
+                                       if a["region"] != name),
         )
 
     def renamed(self, old, new):
         """Follow an entity rename in the construction sequence."""
         return replace(
             self,
+            material_assignments=tuple({**a, "region": new if a["region"] == old
+                                        else a["region"]} for a in self.material_assignments),
             sequence=tuple(
                 replace(
                     step,
@@ -426,6 +439,9 @@ class Drawing:
         )
         model = compile_supports(model, self)
         model = replace(model, stages=[*model.stages, *self.sequence_stages(model)])
+        from .material_assignment import apply_assignments
+
+        model = apply_assignments(model, self)
         model.validate()
         return model
 
