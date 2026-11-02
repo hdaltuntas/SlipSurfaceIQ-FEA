@@ -1041,6 +1041,36 @@ class StaticSolver:
         )
         return state, sysm, f_ext, hist
 
+    def _set_stage_shotcrete_sections(self, index: int) -> None:
+        """First active user stage uses the user's maturity; later stages use 100%.
+
+        Existing beam end-force state is retained at the transition. Changes affect
+        subsequent incremental tangent stiffness, not previously committed forces.
+        """
+        changed = False
+        for group in self.groups:
+            if not isinstance(group, BeamGroup):
+                continue
+            base = self.model.liners.get(group.tag)
+            if base is None or not base.shotcrete_EA:
+                continue
+            first = next(
+                (i for i, st in enumerate(self.model.stages, start=1)
+                 if group.tag in st.active_structures),
+                None,
+            )
+            percentage = (
+                base.initial_capacity_percent if first == index else 100.0
+            )
+            spec = base.at_shotcrete_capacity(percentage)
+            if (group.spec.A, group.spec.I) != (spec.A, spec.I):
+                group.__init__(group.block, self.mesh.coords, spec, self.model.analysis)
+                changed = True
+        if changed:
+            self._sys_cache.clear()
+            self._elastic_fact.clear()
+            self._D_committed = None
+
     def run(self, stop_after: int | None = None) -> SolveResult:
         """Initial state + stages ``0..stop_after`` (all stages by default)."""
         model = self.model
@@ -1067,6 +1097,7 @@ class StaticSolver:
                 assert prev is not None
                 proj_sys = self.build_system(lay, state.active, prev.water, prev.displacements)
                 self.project(state, proj_sys, lay)
+            self._set_stage_shotcrete_sections(index)
             ctx = self.stage_context(st, override)
             state, sysm, f_ext, hist = self.solve_stage_ctx(state, ctx, lay)
             timings = {"solve": time.perf_counter() - t1}
