@@ -36,8 +36,10 @@ material region. Excavate it by deactivating that region in the stage editor; al
 the liner’s activation in the relevant stage. If it is not selected, the tunnel is a void
 from the start.
 
-New supports are active by default in the **CAD installation** stage; they can be created
-passive from the panel. The pile default section is D = 0.8 m and the out-of-plane spacing
+Individually drawn supports are active by default in **CAD loading**; they can be created
+passive from the panel. Designer tunnel supports and manual bolt patterns start inactive
+so their installation can be assigned in the stage editor. The pile default section is
+D = 0.8 m and the out-of-plane spacing
 is 2 m; the liner thickness is t = 0.3 m. Edit these starting values for your own project.
 
 Drawn supports are fully bonded to the soil. Slip/separation interfaces and end-anchored
@@ -46,6 +48,12 @@ approximates a circular section with a polygon; other sections are made with the
 polygon/coordinate editor.
 
 ## Stage tabs and project properties
+
+Placing a tunnel from the designer now adds its regions and inactive supports without
+creating excavation/support stages. Your existing stage count and names stay unchanged.
+Use project properties and the stage editor to define excavation, relaxation and support
+installation. The designer's **Disturbance** tab defines the halo geometry; choose its
+disturbed material in the required stage yourself. Existing saved schedules are retained.
 
 The model/CAD canvas and the mesh/results canvas both have bottom stage tabs. Selecting
 a tab also selects the same stage in the document viewer. CAD region labels and fills
@@ -72,6 +80,33 @@ It immediately deactivates the region in the selected stage. **Excavate from thi
 stage onward** also deactivates it in every later stage. Geometry and the material
 library are retained; use **Assign material in stage…** to reactivate the region.
 These shortcuts are available on both the CAD and mesh/results canvases after meshing.
+
+## Selected-element results and manual bolt patterns
+
+Under **Display options > Model element**, select a soil region, lining/pile, bolt or
+interface. The list covers all model regions and structural objects, including inactive
+ones. **Field** then offers results supported by that object: beams have N/V/M; bolts
+have axial N; interfaces have nodal displacement. Soil regions have the continuum fields.
+**Whole model** returns to the overall contour view.
+
+N/V/M displays one selected member at a time against a subdued model background. Its
+diagram is scaled to that member's dimensions, with **Diagram ×** for adjustment. At
+curved joints the drawing normals are shared; actual end-force jumps are preserved.
+Disconnected chains, branches and inactive gaps are never bridged. Extremes appear in
+the legend and values in tooltips. **Open element charts…** opens the selected member's
+force/displacement charts, including the along-length view, in the selected stage.
+An inactive member stays in that stage and reports no active result.
+
+To add bolts manually, select a line/lining or closed tunnel boundary in the model and
+choose **Support > Bolt pattern (selected line / boundary)…**. The same command is on
+right-click; **Bolt pattern on this edge…** limits the pattern to the clicked edge.
+Enter along-boundary spacing, length, direction, end margin and bolt properties.
+The spacing between adjacent heads is the entered value; leftover length is shared at
+the ends. Out-of-plane spacing is a separate property. Closed boundaries default to the
+outward normal; adjust the angle as needed. Bolts are initially inactive unless
+**Activate immediately in all stages** is checked. Assign their installation using
+**Model > Stages**. The drawing undo command removes the pattern in one operation.
+Splitting host edges to insert bolt heads retains their existing fixities and pressures.
 
 Applying project or material changes clears old results and keeps the selected stage
 and workspace. Save the meshed model as `.ssproj` to retain all material assignments.

@@ -113,9 +113,7 @@ def test_tunnel_bolts_are_equally_spaced_along_the_lining():
     assert all(tuple(np.round(h, 6)) in liner_pts for h in heads)
     for liner in liners:
         pts = np.asarray(liner.points, float)
-        station = np.concatenate(
-            [[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))]
-        )
+        station = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
         on_this = []
         for h in heads:
             dist = np.linalg.norm(pts - h, axis=1)
@@ -171,7 +169,7 @@ def test_blast_disturbance_halo_is_applied_on_the_stage_after_the_blast():
         None,
         disturbance=BlastDisturbance(0.8, 2.0),
     )
-    drawing = place_tunnel(ground(), design, (20.0, 15.0))
+    drawing = place_tunnel(ground(), design, (20.0, 15.0), generate_stages=True)
     halo = next(e for e in drawing.entities if e.name.endswith("_Disturbance"))
     assert drawing.sequence[0].excavate and not drawing.sequence[0].disturb
     assert drawing.sequence[1].disturb == (halo.name,)
@@ -215,7 +213,7 @@ def test_place_tunnel_builds_staged_natm_sequence():
         BoltPattern(count=5, length=3.0),
         load_split=0.4,
     )
-    drawing = place_tunnel(ground(), design, (20.0, 15.0))
+    drawing = place_tunnel(ground(), design, (20.0, 15.0), generate_stages=True)
     names = {e.name for e in drawing.entities}
     assert {"Tunnel_Head", "Tunnel_Bench", "Tunnel_Inv", "Tunnel_SC_Head", "Tunnel_SC_Inv"} <= names
     assert {"Tunnel_SC_Bench_Left", "Tunnel_SC_Bench_Right"} <= names
@@ -230,7 +228,7 @@ def test_place_tunnel_builds_staged_natm_sequence():
     assert steps[0].load_split == 0.4 and steps[0].excavate == ("Tunnel_Head",)
     assert "Tunnel_SC_Head" in steps[1].install
     # A second tunnel gets unique names and appends its own steps.
-    twin = place_tunnel(drawing, replace(design, bolts=None), (20.0, 5.0))
+    twin = place_tunnel(drawing, replace(design, bolts=None), (20.0, 5.0), generate_stages=True)
     assert {"Tunnel2_Head", "Tunnel2_SC_Head"} <= {e.name for e in twin.entities}
     assert len(twin.sequence) == 12
     assert TunnelDesign.from_dict(design.to_dict()) == design
@@ -242,7 +240,7 @@ def test_tunnel_sequence_becomes_cumulative_fe_stages():
         LiningSystem(),
         BoltPattern(count=3, length=2.5),
     )
-    model = place_tunnel(ground(30, 24), design, (15.0, 12.0)).build_model()
+    model = place_tunnel(ground(30, 24), design, (15.0, 12.0), generate_stages=True).build_model()
     assert len(model.stages) == 1 + 6
     regions = model.mesh.regions()
     active = [s.active_regions for s in model.stages[1:]]

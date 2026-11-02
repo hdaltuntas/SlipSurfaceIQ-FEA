@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self.stage_tabs.currentChanged.connect(self._on_stage_tab_changed)
         right.addWidget(self.stage_tabs)
         self.legend = QLabel("")
+        self.legend.setWordWrap(True)
         self.legend.setStyleSheet("padding:8px;color:#526677")
         right.addWidget(self.legend)
         split.addWidget(view)
@@ -229,6 +230,20 @@ class MainWindow(QMainWindow):
             ]
         )
         self.fields.currentTextChanged.connect(self.draw)
+        self.result_objects = QComboBox()
+        self.result_objects.setMinimumContentsLength(18)
+        self.result_objects.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.result_objects.addItem("Whole model", None)
+        self.result_objects.currentIndexChanged.connect(self._on_result_object_changed)
+        self.diagram_scale = QDoubleSpinBox()
+        self.diagram_scale.setRange(0.05, 10.0)
+        self.diagram_scale.setSingleStep(0.25)
+        self.diagram_scale.setValue(1.0)
+        self.diagram_scale.valueChanged.connect(self.draw)
+        self.chart_button = QPushButton("Open element charts…")
+        self.chart_button.clicked.connect(self.open_selected_charts)
         self.deform = QDoubleSpinBox()
         self.deform.setRange(0, 1e6)
         self.deform.setValue(1.0)
@@ -248,9 +263,16 @@ class MainWindow(QMainWindow):
         viewer.setLayout(left)
         right = QVBoxLayout()
         right.addWidget(QLabel("DISPLAY OPTIONS"))
+        right.addWidget(QLabel("Model element"))
+        right.addWidget(self.result_objects)
         row = QHBoxLayout()
         row.addWidget(QLabel("Field"))
         row.addWidget(self.fields, 1)
+        right.addLayout(row)
+        right.addWidget(self.chart_button)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Diagram ×"))
+        row.addWidget(self.diagram_scale)
         right.addLayout(row)
         row = QHBoxLayout()
         row.addWidget(QLabel("Deformation ×"))
@@ -274,6 +296,8 @@ class MainWindow(QMainWindow):
         self.resizeDocks([dock], [290], Qt.Orientation.Horizontal)
 
     def _reset_display(self):
+        self.result_objects.setCurrentIndex(0)
+        self.diagram_scale.setValue(1.0)
         self.deform.setValue(1.0)
         self.principal.setChecked(False)
         self.plastic_points.setChecked(False)
@@ -509,7 +533,7 @@ class MainWindow(QMainWindow):
         support_menu.addSeparator()
         support_menu.addAction(
             action(
-                "Bolt pattern (selected line)…",
+                "Bolt pattern (selected line / boundary)…",
                 lambda _=False: self.drawing_file_action("bolt_pattern"),
             )
         )
@@ -666,10 +690,13 @@ class MainWindow(QMainWindow):
             s_lbl = structure_label(self.model, struct_tag)
             active = struct_tag in stage_active_structures(self.model, stage_idx)
             forces = menu.addAction(f"Section forces (N–V–M): {s_lbl}")
-            forces.setEnabled(self.result is not None)
+            forces.setEnabled(
+                self.result is not None
+                and self.model.structure_tags().get(struct_tag) in {"beam", "bar"}
+            )
             forces.triggered.connect(lambda _=False, t=struct_tag: self.show_structure_forces(t))
             if not active:
-                note = menu.addAction("Not active in this stage; the window opens the loaded stage")
+                note = menu.addAction("Not active in this stage; choose a stage after installation")
                 note.setEnabled(False)
         menu.exec(global_pos)
 
@@ -773,8 +800,9 @@ class MainWindow(QMainWindow):
             return
         model.validate()
         self.cad.load_model(model)
-        self.show_results()
         self.model, self.result, self.path, self.dirty = model, result, path, dirty
+        self.show_results()
+        self._sync_result_objects()
         selected_row = len(model.stages) if result else (1 if model.stages else 0)
         self.stages.blockSignals(True)
         self.stages.clear()
@@ -808,6 +836,7 @@ class MainWindow(QMainWindow):
     def _set_empty_state(self, path=None, dirty=False):
         """No model yet: blank scene, clear stage list, hint at first steps."""
         self.model = self.result = None
+        self._sync_result_objects()
         self.cad.load_model(None)
         self.edit_geometry()
         self.path = path
@@ -854,6 +883,63 @@ class MainWindow(QMainWindow):
         index = self.stages.currentRow()
         return self.result.initial if index <= 0 else self.result.stages[index - 1]
 
+    def _sync_result_objects(self):
+        previous = self.result_objects.currentData()
+        self.result_objects.blockSignals(True)
+        self.result_objects.clear()
+        self.result_objects.addItem("Whole model", None)
+        if self.model is not None:
+            for region in sorted(self.model.mesh.regions()):
+                self.result_objects.addItem(region_label(self.model, region), f"region:{region}")
+            for tag in self.model.structure_tags():
+                self.result_objects.addItem(structure_label(self.model, tag), f"structure:{tag}")
+        self.result_objects.setCurrentIndex(max(0, self.result_objects.findData(previous)))
+        self.result_objects.blockSignals(False)
+        self._update_result_controls()
+
+    def result_selection(self):
+        key = self.result_objects.currentData()
+        if key is None:
+            return None
+        kind, value = key.split(":", 1)
+        return kind, int(value) if kind == "region" else value
+
+    def _update_result_controls(self):
+        selection = self.result_selection()
+        kind = (
+            self.model.structure_tags().get(selection[1])
+            if self.model is not None and selection and selection[0] == "structure"
+            else None
+        )
+        allowed = (
+            {"|u|", "ux", "uy", "N", "V", "M"}
+            if kind == "beam"
+            else {"|u|", "ux", "uy", "N"}
+            if kind == "bar"
+            else {"|u|", "ux", "uy"}
+            if kind == "interface"
+            else None
+        )
+        self.fields.blockSignals(True)
+        for i in range(self.fields.count()):
+            name = self.fields.itemText(i)
+            enabled = name in allowed if allowed is not None else name not in {"N", "V", "M"}
+            self.fields.model().item(i).setEnabled(enabled)
+        if not self.fields.model().item(self.fields.currentIndex()).isEnabled():
+            self.fields.setCurrentText("|u|")
+        self.fields.blockSignals(False)
+        self.chart_button.setEnabled(self.result is not None and kind in {"beam", "bar"})
+        self.diagram_scale.setEnabled(self.fields.currentText() in {"N", "V", "M"})
+
+    def _on_result_object_changed(self, *_):
+        self._update_result_controls()
+        self.draw()
+
+    def open_selected_charts(self):
+        selection = self.result_selection()
+        if selection and selection[0] == "structure":
+            self.show_structure_forces(selection[1])
+
     def draw(self, *_):
         if self.model is None:
             return
@@ -861,17 +947,37 @@ class MainWindow(QMainWindow):
         stage_idx = max(0, self.stages.currentRow())
         field = self.fields.currentText()
         section = field in ("N", "V", "M")
-        self.principal.setEnabled(not section)
-        self.plastic_points.setEnabled(not section)
+        selection = self.result_selection()
+        if section and (not selection or selection[0] != "structure"):
+            # Programmatic field changes also select a single compatible member.
+            tags = self.model.structure_tags()
+            tag = next(
+                (t for t, k in tags.items() if k == "beam" or (k == "bar" and field == "N")), None
+            )
+            if tag is not None:
+                self.result_objects.blockSignals(True)
+                self.result_objects.setCurrentIndex(
+                    self.result_objects.findData(f"structure:{tag}")
+                )
+                self.result_objects.blockSignals(False)
+                selection = ("structure", tag)
+        self._update_result_controls()
+        field = self.fields.currentText()
+        section = field in {"N", "V", "M"}
+        soil = selection is None or selection[0] == "region"
+        self.principal.setEnabled(not section and soil)
+        self.plastic_points.setEnabled(not section and soil)
         self.canvas.show_model(
             self.model,
             st,
             field,
             self.deform.value(),
             result=self.result,
-            principal=self.principal.isChecked() and not section,
-            plastic_points=self.plastic_points.isChecked() and not section,
+            principal=self.principal.isChecked() and not section and soil,
+            plastic_points=self.plastic_points.isChecked() and not section and soil,
             stage_index=stage_idx,
+            selection=selection,
+            diagram_scale=self.diagram_scale.value(),
         )
         self.legend.setText(self.canvas.legend)
         if st is not None:
@@ -900,6 +1006,10 @@ class MainWindow(QMainWindow):
                 f"{tag} was not found as a structure in the mesh; regenerate the mesh."
             )
             return
+        if self.result.model.structure_tags()[tag] not in {"beam", "bar"}:
+            self.result_objects.setCurrentIndex(self.result_objects.findData(f"structure:{tag}"))
+            self.fields.setCurrentText("|u|")
+            return
         from .result_tools import StructureForceDialog
 
         if getattr(self, "force_dialog", None) is not None:
@@ -907,6 +1017,13 @@ class MainWindow(QMainWindow):
         self.force_dialog = StructureForceDialog(
             self.result, max(0, self.stages.currentRow()), tag, self
         )
+        field = self.fields.currentText()
+        if field in {"N", "V", "M"}:
+            index = {"N": 0, "V": 1, "M": 2}[field]
+            if index < self.force_dialog.component.count():
+                self.force_dialog.component.setCurrentIndex(index)
+        elif field in {"|u|", "ux", "uy"}:
+            self.force_dialog.tabs.setCurrentIndex(2)
         self.force_dialog.show()
 
     def beam_diagrams(self):

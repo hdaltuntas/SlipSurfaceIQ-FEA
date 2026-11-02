@@ -10,7 +10,8 @@ A section is drawn about its springline centre ``(0, 0)``:
 A circular section is the special case ``wall_height = 0`` with a half-circle invert.
 The section is split into top heading / bench / invert at ``heading_level`` and
 ``invert_level``; each part becomes its own excavation region with its own shotcrete
-liner and bolts, and :func:`place_tunnel` writes the matching construction sequence.
+liner and bolts. Placement preserves the user's construction schedule unless the API
+caller explicitly requests the legacy generated sequence.
 """
 
 from __future__ import annotations
@@ -163,9 +164,7 @@ class BoltPattern:
 
     def __post_init__(self):
         if self.count < 0 or self.length <= 0 or self.EA <= 0 or self.T_yield <= 0:
-            raise ValueError(
-                "Bolt count must be ≥ 0; length, EA and yield force must be positive."
-            )
+            raise ValueError("Bolt count must be ≥ 0; length, EA and yield force must be positive.")
         if self.spacing_out_of_plane <= 0 or self.spacing <= 0 or self.pretension < 0:
             raise ValueError("Bolt spacing must be positive and pretension cannot be negative.")
 
@@ -459,8 +458,14 @@ def _halo_polygon(ring, thickness, ground):
     return _clean(_rounded(np.asarray(outer.exterior.coords[:-1])))
 
 
-def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunnel") -> Drawing:
-    """Add the tunnel parts, liners, bolts and the NATM construction sequence to ``drawing``."""
+def place_tunnel(
+    drawing: Drawing, design: TunnelDesign, center, name="Tunnel", *, generate_stages=False
+) -> Drawing:
+    """Place geometry/supports, preserving the user schedule by default.
+
+    ``generate_stages=True`` explicitly requests the legacy NATM sequence for API cases.
+    The desktop designer always leaves staging to project properties / the stage editor.
+    """
     section = design.section
     center = (float(center[0]), float(center[1]))
     names = {e.name for e in drawing.entities}
@@ -491,9 +496,7 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunnel") 
     bolt_index = 0
     for key, points in parts.items():
         pattern = design.pattern_for(key)
-        bolt_heads = _part_bolt_heads(
-            pattern, points, cut_levels, center, ring, section.radius
-        )
+        bolt_heads = _part_bolt_heads(pattern, points, cut_levels, center, ring, section.radius)
         pts = list(map(tuple, points))
         for head, _direction in bolt_heads:
             pts = _insert_point_on_polyline(pts, head, closed=True)
@@ -552,20 +555,45 @@ def place_tunnel(drawing: Drawing, design: TunnelDesign, center, name="Tunnel") 
         drawing,
         entities=(*drawing.entities, *entities),
         supports=(*drawing.supports, *supports),
-        sequence=(*drawing.sequence, *steps),
+        sequence=(*drawing.sequence, *steps) if generate_stages else drawing.sequence,
         disturbance=disturbance,
     )
     updated.validate()
     return updated
 
 
+def bolt_stations(total, spacing, count=0, margin=0.0, *, closed=False):
+    """Manual pattern: exact spacing, centred within the available chain length."""
+    if not np.isfinite([total, spacing, margin]).all() or total <= 0 or spacing <= 0:
+        raise ValueError("Chain length and bolt spacing must be finite and positive.")
+    if not 0 <= margin < total / 2:
+        raise ValueError("End margin must be less than half the chain length.")
+    usable = total - 2 * margin
+    n = int(count) if count > 0 else max(1, int(round(usable / spacing)))
+    if n > 10000:
+        raise ValueError("A pattern can contain at most 10000 bolts; increase the spacing.")
+    if count > 0:
+        if closed and margin == 0:
+            return np.linspace(0, total, n, endpoint=False)
+        return _stations(total, spacing, n, margin)
+    start = (total - (n - 1) * spacing) / 2
+    return start + np.arange(n) * spacing
+
+
 def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angle=90.0,
-                       pattern=None, prefix="Bolt", margin=0.0, spacing=None):  # fmt: skip
+                       pattern=None, prefix="Bolt", margin=0.0, spacing=None, *,
+                       edge_index=None, active=True):  # fmt: skip
     """Bolts along a line/edge chain, turned ``angle`` degrees (counter-clockwise) from its
     direction. ``spacing`` (or ``pattern.spacing``) sets the count when ``count`` is 0;
     ``margin`` keeps them off the ends."""
     entity = next(e for e in drawing.entities if e.name == entity_name)
     pts = np.asarray(entity.points if entity.kind == "line" else (*entity.points, entity.points[0]))
+    closed = np.allclose(pts[0], pts[-1])
+    if edge_index is not None:
+        if not 0 <= edge_index < len(pts) - 1:
+            raise ValueError("Selected edge is outside the host boundary.")
+        pts = pts[edge_index : edge_index + 2]
+        closed = False
     seg = np.diff(pts, axis=0)
     seg_len = np.linalg.norm(seg, axis=1)
     station = np.concatenate([[0.0], np.cumsum(seg_len)])
@@ -573,14 +601,9 @@ def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angl
     pattern = pattern or BoltPattern()
     length = pattern.length if length is None else length
     space = spacing if spacing is not None else pattern.spacing
-    if length <= 0 or not 0 <= margin < total / 2:
-        raise ValueError(
-            "Bolt length must be positive and the end margin less than half the length."
-        )
-    n = count if count > 0 else max(1, int(round((total - 2 * margin) / space)))
-    if n < 1:
-        raise ValueError("Bolt count must be at least 1.")
-    s_values = _stations(total, space, n, margin)
+    if not np.isfinite([length, angle]).all() or length <= 0:
+        raise ValueError("Bolt length must be positive and length/angle finite.")
+    s_values = bolt_stations(total, space, count, margin, closed=closed)
     names = {e.name for e in drawing.entities}
     entities, supports = [], []
     vertices = {tuple(p) for p in map(tuple, _rounded(pts))}
@@ -599,10 +622,10 @@ def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angl
         bolt = f"{prefix}_{entity_name}_{n}"
         names.add(bolt)
         entities.append(Entity(bolt, "line", (tuple(head), tuple(tail))))
-        supports.append(SupportAssignment(bolt, "bolt", pattern.properties()))
+        supports.append(SupportAssignment(bolt, "bolt", pattern.properties(), active))
         if tuple(head) not in vertices:
             vertices.add(tuple(head))
-            new_points.append((k, t, tuple(head)))
+            new_points.append((k if edge_index is None else edge_index, t, tuple(head)))
     # Insert the bolt heads as vertices of the host so the mesh stays conforming.
     base = list(map(tuple, entity.points))
     inserts = sorted((p for p in new_points if len(p) == 3), key=lambda p: (p[0], p[1]))
@@ -618,9 +641,23 @@ def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angl
         supports=(*drawing.supports, *supports),
     )
     if len(out) != len(base):
-        # The host's edge numbering changed: drop its stale edge rules.
-        updated = replace(
-            updated, rules=tuple(r for r in updated.rules if r.edge not in entity.edge_names())
-        )
+        # Split rules onto the new subedges; adding bolts must not erase supports/loads.
+        rules = {r.edge: r for r in drawing.rules}
+        mapped = [r for r in drawing.rules if r.edge not in entity.edge_names()]
+        for old_name, (a, b) in zip(entity.edge_names(), entity.segments()):
+            if old_name not in rules:
+                continue
+            a, b = np.asarray(a), np.asarray(b)
+            d = b - a
+            for new_name, (c, e) in zip(host.edge_names(), host.segments()):
+                points = np.asarray([c, e])
+                t = (points - a) @ d / np.dot(d, d)
+                if (
+                    np.all(t >= -1e-9)
+                    and np.all(t <= 1 + 1e-9)
+                    and np.allclose(points, a + t[:, None] * d, rtol=0, atol=1e-7)
+                ):
+                    mapped.append(replace(rules[old_name], edge=new_name))
+        updated = replace(updated, rules=tuple(mapped))
     updated.validate()
     return updated

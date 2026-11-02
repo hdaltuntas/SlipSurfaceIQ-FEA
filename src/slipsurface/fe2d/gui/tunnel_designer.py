@@ -547,37 +547,29 @@ class TunnelDesignerDialog(QDialog):
         f.addRow(self.steel_summary)
         tabs.addTab(page, "Steel sets")
 
-        # Staging
+        # Disturbance geometry; construction stages are authored in the main window.
         page = QWidget()
         f = QFormLayout(page)
-        self.load_split = _spin(design.load_split, 0.05, 1.0, 2)
-        self.load_split.setToolTip(
-            "Fraction of the excavation load released before the support is installed "
-            "(β / ΣMstage). The remainder is carried in the support stage."
-        )
-        self.separate = QCheckBox("Separate excavation and shotcrete stage for each part")
-        self.separate.setChecked(design.separate_support_stage)
+        self._load_split = design.load_split
+        self._separate_support_stage = design.separate_support_stage
         dist = design.disturbance
-        self.use_disturbance = QCheckBox("Blast-disturbance zone (the stage after excavation)")
+        self.use_disturbance = QCheckBox("Blast-disturbance zone")
         self.use_disturbance.setChecked(dist is not None)
         dist = dist or BlastDisturbance()
         self.disturb_D = _spin(dist.D, 0.0, 1.0, 2)
         self.disturb_thickness = _spin(dist.thickness, 0.1, 50, 2, "m")
-        f.addRow("Load fraction before support", self.load_split)
-        f.addRow(self.separate)
         f.addRow(self.use_disturbance)
         f.addRow("Disturbance factor D", self.disturb_D)
         f.addRow("Zone thickness", self.disturb_thickness)
         note = QLabel(
-            "Stages: top-heading excavation → top-heading support (+ bolts / steel sets) → "
-            "bench excavation → bench support → invert excavation → invert closure. Rock in "
-            "the blast zone switches to the disturbed material on the stage after excavation. "
-            "After the mesh is generated, apply D to the Hoek-Brown rock in Materials and "
-            "create a disturbed copy."
+            "Placing a tunnel adds geometry and inactive supports; it does not add stages. "
+            "Define your schedule under Model > Project properties / Stages. After meshing, "
+            "create a disturbed rock copy in Materials and assign it to this zone by "
+            "right-clicking in the stage you choose."
         )
         note.setWordWrap(True)
         f.addRow(note)
-        tabs.addTab(page, "Stages")
+        tabs.addTab(page, "Disturbance")
 
         # Placement
         place = QHBoxLayout()
@@ -606,7 +598,6 @@ class TunnelDesignerDialog(QDialog):
             self.use_lining,
             self.use_steel,
             self.use_disturbance,
-            self.separate,
             self.heading_bolts.use,
             self.bench_bolts.use,
             self.invert_bolts.use,
@@ -664,8 +655,8 @@ class TunnelDesignerDialog(QDialog):
             self.section(),
             self.lining_value if self.use_lining.isChecked() else None,
             self.heading_bolts.pattern(shared),
-            self.load_split.value(),
-            self.separate.isChecked(),
+            self._load_split,
+            self._separate_support_stage,
             self.bench_bolts.pattern(shared) if parts >= 2 else None,
             self.invert_bolts.pattern(shared) if parts == 3 else None,
             self.steel(),
@@ -763,7 +754,6 @@ class TunnelDesignerDialog(QDialog):
             (self.invert_depth, sec.invert_depth),
             (self.heading_level, sec.heading_level),
             (self.invert_level, sec.invert_level),
-            (self.load_split, design.load_split),
         ]:
             w.setValue(value)
         self.segments.setValue(sec.segments)
@@ -779,7 +769,8 @@ class TunnelDesignerDialog(QDialog):
             self.rib_inertia.setValue(steel.rib_inertia)
             self.rib_spacing.setValue(steel.spacing)
             self.rib_E.setValue(steel.E_steel / 1e6)
-        self.separate.setChecked(design.separate_support_stage)
+        self._load_split = design.load_split
+        self._separate_support_stage = design.separate_support_stage
         self.use_disturbance.setChecked(design.disturbance is not None)
         if design.disturbance is not None:
             self.disturb_D.setValue(design.disturbance.D)
@@ -814,24 +805,26 @@ class TunnelDesignerDialog(QDialog):
 class BoltPatternDialog(QDialog):
     """Bolt pattern along a selected line: spacing, length, angle to the line and margins."""
 
-    def __init__(self, host, parent=None, chain_length=None):
+    def __init__(self, host, parent=None, chain_length=None, *, closed=False, default_angle=90.0):
         super().__init__(parent)
         self.setWindowTitle(f"Bolt pattern · {host}")
         self.chain_length = chain_length
+        self.closed = closed
         form = QFormLayout(self)
         default = BoltPattern()
         self.spacing_along = _spin(default.spacing, 0.2, 50, 2, "m")
         self.count = QLabel()
         self.length = _spin(default.length, 0.1, 100, 2, "m")
-        self.angle = _spin(90.0, -180, 180, 1, "°")
+        self.angle = _spin(default_angle, -180, 180, 1, "°")
         self.angle.setToolTip("Angle counter-clockwise from the line direction (90° = left normal)")
-        self.margin = _spin(0.5, 0, 1e4, 2, "m")
+        self.margin = _spin(0.0 if closed else min(0.5, (chain_length or 2) / 4), 0, 1e4, 2, "m")
+        self.active = QCheckBox("Activate immediately in all stages")
         self.EA = _spin(default.EA, 1, 1e9, 0, "kN")
         self.T = _spin(default.T_yield, 1, 1e6, 1, "kN")
         self.spacing = _spin(default.spacing_out_of_plane, 0.1, 20, 2, "m")
         self.pre = _spin(0.0, 0, 1e5, 1, "kN")
         for label, w in [
-            ("Spacing (along the line)", self.spacing_along),
+            ("Spacing (along the line / boundary)", self.spacing_along),
             ("Count", self.count),
             ("Length", self.length),
             ("Angle to the line", self.angle),
@@ -842,6 +835,13 @@ class BoltPatternDialog(QDialog):
             ("Pretension", self.pre),
         ]:
             form.addRow(label, w)
+        form.addRow(self.active)
+        note = QLabel(
+            "Bolts use the entered spacing; leftover distance is shared at the ends. "
+            "Leave activation off to install them in stages you define."
+        )
+        note.setWordWrap(True)
+        form.addRow(note)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -853,12 +853,23 @@ class BoltPatternDialog(QDialog):
         self._update_count()
 
     def _update_count(self, *_):
+        from ..cad.tunnel import bolt_stations
+
         if self.chain_length is None:
             self.count.setText("from spacing")
             return
-        usable = max(self.chain_length - 2 * self.margin.value(), 0.0)
-        n = max(1, int(round(usable / self.spacing_along.value()))) if usable > 0 else 1
-        self.count.setText(f"{n} (from spacing)")
+        try:
+            n = len(
+                bolt_stations(
+                    self.chain_length,
+                    self.spacing_along.value(),
+                    margin=self.margin.value(),
+                    closed=self.closed,
+                )
+            )
+            self.count.setText(f"{n} (from spacing)")
+        except ValueError as exc:
+            self.count.setText(str(exc))
 
     def pattern(self):
         return BoltPattern(

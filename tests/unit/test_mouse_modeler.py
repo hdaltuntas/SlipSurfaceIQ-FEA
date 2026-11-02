@@ -195,6 +195,8 @@ def test_results_show_only_the_selected_field(qt_app):
     assert canvas.colorbar_visible
     assert canvas.disp_label_count == 0
     assert canvas.nvm_count == 0
+    tag = next(t for t, k in model.structure_tags().items() if k == "beam")
+    window.result_objects.setCurrentIndex(window.result_objects.findData(f"structure:{tag}"))
     window.fields.setCurrentText("N")
     qt_app.processEvents()
     assert window.canvas.nvm_count > 0
@@ -204,6 +206,7 @@ def test_results_show_only_the_selected_field(qt_app):
     qt_app.processEvents()
     assert window.canvas.nvm_count > 0
     assert window.canvas.disp_label_count == 0
+    window.result_objects.setCurrentIndex(0)
     window.fields.setCurrentText("syy")
     qt_app.processEvents()
     assert window.canvas.nvm_count == 0
