@@ -63,6 +63,7 @@ class LiningSystem:
     rib_inertia: float = 0.0  # cm4
     rib_spacing: float = 1.0  # m along the tunnel axis
     E_steel: float = 2.1e8  # kPa
+    initial_capacity_percent: float = 50.0
 
     def __post_init__(self):
         # Legacy catalogue tokens from files saved before the English rename.
@@ -84,6 +85,8 @@ class LiningSystem:
             raise ValueError("Wire mesh type or layer count is invalid.")
         if self.rib != "Custom" and self.rib not in STEEL_RIBS:
             raise ValueError("Steel rib section is invalid.")
+        if not np.isfinite(self.initial_capacity_percent) or not 0 < self.initial_capacity_percent <= 100:
+            raise ValueError("Initial shotcrete percentage must be in (0, 100].")
 
     def rib_section(self):
         """Steel set area [m2] and inertia [m4]."""
@@ -103,11 +106,24 @@ class LiningSystem:
             EI += Es * As * max(t / 2 - self.cover, 0.0) ** 2
         return EA, EI
 
+    def stiffness_at_capacity(self, percent):
+        """User-defined shotcrete maturity; steel mesh and sets remain unchanged."""
+        if not np.isfinite(percent) or not 0 < percent <= 100:
+            raise ValueError("Capacity percent must be in (0, 100].")
+        ea28, ei28 = self.stiffness()
+        ea_c = self.E_shotcrete * self.thickness
+        ei_c = self.E_shotcrete * self.thickness**3 / 12
+        factor = percent / 100
+        return ea28 - (1 - factor) * ea_c, ei28 - (1 - factor) * ei_c
+
     def liner_properties(self):
         EA, EI = self.stiffness()
         A, I = EA / self.E_shotcrete, EI / self.E_shotcrete  # noqa: E741
         return dict(E=self.E_shotcrete, nu=self.nu, A=A, I=I, As=A * 5 / 6,
-                    unit_weight=self.unit_weight)  # fmt: skip
+                    unit_weight=self.unit_weight,
+                    shotcrete_EA=self.E_shotcrete * self.thickness,
+                    shotcrete_EI=self.E_shotcrete * self.thickness**3 / 12,
+                    initial_capacity_percent=self.initial_capacity_percent)  # fmt: skip
 
     def to_dict(self):
         return asdict(self)
