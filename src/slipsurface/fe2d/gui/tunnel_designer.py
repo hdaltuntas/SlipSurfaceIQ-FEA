@@ -168,6 +168,8 @@ class LiningDesignerDialog(QDialog):
         self.E = _spin(lining.E_shotcrete / 1e6, 0.1, 100, 2, "GPa")
         self.E.setToolTip("Enter 28-day reference modulus (100%).")
         self.capacity = _spin(lining.initial_capacity_percent, 1, 100, 1, "%")
+        self.fc28 = _spin(lining.fc28 / 1000, 0.01, 200, 2, "MPa")
+        self.ft28 = _spin(lining.ft28 / 1000, 0.01, 30, 2, "MPa")
         self.capacity.setToolTip(
             "First active stage: percentage of shotcrete 28-day reference values. "
             "The next construction stage uses 100%; steel mesh and steel ribs stay unchanged."
@@ -192,6 +194,8 @@ class LiningDesignerDialog(QDialog):
         f = QFormLayout(concrete)
         f.addRow("Thickness", self.thickness)
         f.addRow("28-day E", self.E)
+        f.addRow("28-day compression strength", self.fc28)
+        f.addRow("28-day tensile strength", self.ft28)
         f.addRow("First active stage / 28-day (%)", self.capacity)
         f.addRow("ν", self.nu)
         f.addRow("γ", self.gamma)
@@ -227,7 +231,7 @@ class LiningDesignerDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         for w in (self.thickness, self.E, self.nu, self.gamma, self.cover, self.rib_area,
-                  self.rib_inertia, self.rib_spacing, self.Es, self.capacity):  # fmt: skip
+                  self.rib_inertia, self.rib_spacing, self.Es, self.capacity, self.fc28, self.ft28):  # fmt: skip
             w.valueChanged.connect(self.update_summary)
         for w in (self.mesh, self.rib):
             w.currentTextChanged.connect(self.update_summary)
@@ -240,6 +244,8 @@ class LiningDesignerDialog(QDialog):
             thickness=self.thickness.value() / 100,
             E_shotcrete=self.E.value() * 1e6,
             initial_capacity_percent=self.capacity.value(),
+            fc28=self.fc28.value() * 1000,
+            ft28=self.ft28.value() * 1000,
             nu=self.nu.value(),
             unit_weight=self.gamma.value(),
             mesh=_catalog_key(self.mesh.currentText()),
@@ -265,6 +271,8 @@ class LiningDesignerDialog(QDialog):
         self.thickness.setValue(lining.thickness * 100)
         self.E.setValue(lining.E_shotcrete / 1e6)
         self.capacity.setValue(lining.initial_capacity_percent)
+        self.fc28.setValue(lining.fc28 / 1000)
+        self.ft28.setValue(lining.ft28 / 1000)
         self.nu.setValue(lining.nu)
         self.gamma.setValue(lining.unit_weight)
         self.mesh.setCurrentText(_catalog_label(lining.mesh))
@@ -287,12 +295,15 @@ class LiningDesignerDialog(QDialog):
             return
         EA, EI = lining.stiffness()
         early_ea, early_ei = lining.stiffness_at_capacity(lining.initial_capacity_percent)
+        fc, ft = lining.strengths_at_capacity(lining.initial_capacity_percent)
         p = lining.liner_properties()
         d_eq = np.sqrt(12 * p["I"] / p["A"])
         self.summary.setText(
             f"At 28d: EA = {EA:,.0f} kN/m · EI = {EI:,.1f} kNm²/m\n"
             f"First installed stage ({lining.initial_capacity_percent:g}% shotcrete): "
             f"EA = {early_ea:,.0f} kN/m · EI = {early_ei:,.1f} kNm²/m\n"
+            f"Concrete reference strengths: fc={fc / 1000:.2f} MPa, "
+            f"ft={ft / 1000:.2f} MPa (next stage: 100%; not an elastic-beam failure check)\n"
             f"Beam: E = {p['E'] / 1e6:.2f} GPa · A = {p['A']:.4f} m²/m · I = {p['I']:.3e} m⁴/m"
             f" · equivalent thickness d = {d_eq * 100:.1f} cm"
         )
