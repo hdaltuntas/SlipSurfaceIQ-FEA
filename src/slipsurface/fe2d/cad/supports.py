@@ -43,6 +43,9 @@ def bolt_section(diameter_mm, grade_code):
 
 def default_properties(kind, legacy=False):
     if kind == "bolt":
+        if legacy:
+            return dict(EA=200000.0, T_yield=200.0, pretension=0.0,
+                        spacing_out_of_plane=1.0)
         ea, fy = bolt_section(25.0, 0)
         return dict(EA=ea, T_yield=fy, pretension=0.0, spacing_out_of_plane=1.0,
                     diameter_mm=25.0, grade_code=0)
@@ -93,7 +96,9 @@ class SupportAssignment:
             raise ValueError("Support kind must be pile, liner or bolt.")
         if not self.entity or "," in self.entity or not isinstance(self.active, bool):
             raise ValueError("Support name or active flag is invalid.")
-        legacy = self.kind == "pile" and "A" in self.properties and "D" not in self.properties
+        legacy = ((self.kind == "pile" and "A" in self.properties and "D" not in self.properties)
+                  or (self.kind == "bolt" and "EA" in self.properties
+                      and "diameter_mm" not in self.properties))
         props = {**default_properties(self.kind, legacy), **self.properties}
         object.__setattr__(self, "properties", props)
         self.spec()  # reject invalid stiffness/section values before changing a drawing
