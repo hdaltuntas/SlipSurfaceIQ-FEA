@@ -542,19 +542,10 @@ class MainWindow(QMainWindow):
             action("Structure properties on the current mesh…", self.edit_mesh_structures)
         )
         tunnel_menu = self.menuBar().addMenu("Tunnel")
-        tunnel_menu.addAction(
-            action(
-                "Draw tunnel (centre + radius)",
-                lambda _=False: self.draft_tool("tunnel"),
-            )
-        )
-        for title, method in [
-            ("Equivalent-section tunnel…", "open_tunnel_designer"),
-            ("Lining / shotcrete / steel-set designer…", "open_lining_designer"),
-        ]:
-            tunnel_menu.addAction(
-                action(title, lambda _=False, m=method: self.drawing_file_action(m))
-            )
+        tunnel_menu.addAction(action(
+            "Tunnel Designer…",
+            lambda _=False: self.drawing_file_action("open_tunnel_designer"),
+        ))
         result_menu = self.menuBar().addMenu("Inspect results")
         for title, slot in [
             ("Query line", self.query_line),
@@ -1300,6 +1291,7 @@ class MainWindow(QMainWindow):
             self.show_error(str(exc))
             return
         self.worker = worker
+        self._open_analysis_progress()
         for a in [*self.edit_actions, self.run_action]:
             a.setEnabled(False)
         self.stop_action.setEnabled(True)
@@ -1311,6 +1303,28 @@ class MainWindow(QMainWindow):
         worker.start()
         self.workflow.set_current(6, emit=False)
         self._update_guidance()
+
+    def _open_analysis_progress(self):
+        """Non-modal stage/iteration monitor; computation remains in SolveWorker."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Analysis progress · stages and iterations")
+        dlg.resize(660, 420)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        layout = QVBoxLayout(dlg)
+        self.analysis_stage_label = QLabel("Preparing analysis…")
+        layout.addWidget(self.analysis_stage_label)
+        self.analysis_progress = QProgressBar()
+        self.analysis_progress.setRange(0, 100)
+        layout.addWidget(self.analysis_progress)
+        self.analysis_log = QPlainTextEdit()
+        self.analysis_log.setReadOnly(True)
+        layout.addWidget(self.analysis_log, 1)
+        stop = QPushButton("Stop analysis")
+        stop.clicked.connect(self.cancel_solve)
+        layout.addWidget(stop)
+        self.analysis_stop_button = stop
+        self.analysis_dialog = dlg
+        dlg.show()
 
     @Slot(object)
     def on_progress(self, event):
@@ -1325,6 +1339,18 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"{event.stage} · λ={event.lam:.5g} · iteration {event.iteration}"
         )
+        if hasattr(self, "analysis_dialog") and self.analysis_dialog is not None:
+            pct = round(100 * (event.stage_index + (1 if event.completed else 0)) / max(1, event.stage_count))
+            self.analysis_progress.setValue(pct)
+            self.analysis_stage_label.setText(
+                f"Stage {event.stage_index + 1}/{event.stage_count}: {event.stage} · "
+                f"{pct}% · load factor λ={event.lam:.5g}"
+            )
+            self.analysis_log.appendPlainText(
+                f"{event.stage} | λ={event.lam:.6g} | iteration {event.iteration} | "
+                f"residual {event.residual:.3g} | "
+                + ("completed" if event.completed else "accepted" if event.accepted else "iterating")
+            )
 
     @Slot(object)
     def on_success(self, result):
@@ -1332,15 +1358,25 @@ class MainWindow(QMainWindow):
         self.workflow.set_current(7, emit=False)
         self.progress.setValue(100)
         self.log.appendPlainText("Analysis completed. Results are ready to save.")
+        if hasattr(self, "analysis_dialog") and self.analysis_dialog is not None:
+            self.analysis_progress.setValue(100)
+            self.analysis_stage_label.setText("100% · Analysis completed")
+            self.analysis_stop_button.setEnabled(False)
 
     @Slot(str)
     def on_failure(self, message):
         self.log.appendPlainText(message)
+        if hasattr(self, "analysis_log"):
+            self.analysis_log.appendPlainText("FAILED: " + message)
+            self.analysis_stop_button.setEnabled(False)
         self.statusBar().showMessage("Solve failed; no result was produced. Inspect the log.")
 
     @Slot()
     def on_cancelled(self):
         self.log.appendPlainText("Analysis cancelled. No result was produced.")
+        if hasattr(self, "analysis_log"):
+            self.analysis_log.appendPlainText("Analysis cancelled.")
+            self.analysis_stop_button.setEnabled(False)
         self.statusBar().showMessage("Cancelled")
 
     @Slot()
