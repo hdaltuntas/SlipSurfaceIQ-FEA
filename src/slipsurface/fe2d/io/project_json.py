@@ -195,6 +195,8 @@ def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
             reset_displacements=s["reset_displacements"],
             displacements=tuple(Displacement(**d) for d in s.get("displacements", [])),
             drained=bool(s.get("drained", False)),
+            seismic_kh=float(s.get("seismic_kh", 0.0)),
+            seismic_kv=float(s.get("seismic_kv", 0.0)),
         )
         for s in doc["stages"]
     ]
