@@ -509,7 +509,7 @@ class MainWindow(QMainWindow):
         add_icon(self.stop_action)
         self.mesh_view_action = action("Mesh", self.show_results, "F6", "mesh_view")
         self.mesh_view_action.setToolTip("Mesh (F6)")
-        self.results_action = action("Interpret results", self.open_interpret, ic="results")
+        self.results_action = action("Results", self.open_interpret, ic="results")
         self.results_action.setToolTip("Results")
         add_icon(self.mesh_view_action)
         add_icon(self.results_action)
