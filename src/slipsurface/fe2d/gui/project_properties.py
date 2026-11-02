@@ -7,6 +7,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QSpinBox,
     QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from .editing import region_label, set_region_stage_state, stage_region_material
@@ -14,26 +17,42 @@ from .form_helpers import EditorDialog, table
 
 
 class ProjectPropertiesDialog(EditorDialog):
-    def __init__(self, names, parent=None):
+    def __init__(self, names, parent=None, model=None):
         super().__init__("Project properties", parent)
-        self.resize(540, 460)
+        self.resize(1050 if model is not None else 540, 690 if model is not None else 460)
+        self.stage_editor = None
+        tabs = QTabWidget()
+        properties_page = QWidget()
+        properties_layout = QVBoxLayout(properties_page)
         self._names = list(names) or ["Stage 1"]
         self.count = QSpinBox()
         self.count.setRange(1, max(1000, len(self._names)))
         self.count.setValue(len(self._names))
         form = QFormLayout()
         form.addRow("Construction stages (excluding Initial)", self.count)
-        self.root.addLayout(form)
+        properties_layout.addLayout(form)
         self.names = table(["Stage name"])
         self.names.verticalHeader().setMinimumWidth(32)
-        self.root.addWidget(self.names)
+        properties_layout.addWidget(self.names)
         note = QLabel(
             "0. Initial is always present. Reducing the count removes stages from the end. "
             "Existing stage settings are kept; added stages copy the preceding stage "
             "with full load release. Use Stages for loads, supports and relaxation."
         )
         note.setWordWrap(True)
-        self.root.addWidget(note)
+        properties_layout.addWidget(note)
+        tabs.addTab(properties_page, "Model properties")
+        if model is not None:
+            from .stage_editor import StageDialog
+            self.stage_editor = StageDialog(model, self)
+            # The stage editor is an embedded widget; the parent dialog owns Apply/Cancel.
+            self.stage_editor.setWindowFlags(__import__("PySide6.QtCore", fromlist=["Qt"]).Qt.WindowType.Widget)
+            for i in range(self.stage_editor.root.count() - 2, self.stage_editor.root.count()):
+                item = self.stage_editor.root.itemAt(i)
+                if item and item.widget():
+                    item.widget().hide()
+            tabs.addTab(self.stage_editor, "Stages")
+        self.root.addWidget(tabs, 1)
         self._resize_names(len(self._names))
         self.count.valueChanged.connect(self._resize_names)
         self.finish_layout(self.apply)
@@ -56,6 +75,12 @@ class ProjectPropertiesDialog(EditorDialog):
         if any(not name for name in names) or len(set(names)) != len(names):
             self.error("Stage names must be non-empty and unique.")
             return
+        if self.stage_editor is not None:
+            if not self.stage_editor.sync():
+                self.error("Check the values on the Stages tab before applying.")
+                return
+            from dataclasses import replace
+            self.updated_model = replace(self.stage_editor.model, stages=list(self.stage_editor.items))
         self.updated = names
         self.accept()
 
