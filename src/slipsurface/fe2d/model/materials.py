@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import math
 import dataclasses
+import math
 from dataclasses import dataclass, field
 
 from ..core.enums import Drainage
@@ -265,9 +265,11 @@ class LinerSpec:
                 or self.shotcrete_EI > self.E * self.I * (1 + 1e-9)
                 or not math.isfinite(self.initial_capacity_percent)
                 or not 0 < self.initial_capacity_percent <= 100):
-            raise ModelError(f"liner '{self.name}': invalid 28-day shotcrete section or initial percentage")
+            raise ModelError(
+                f"liner '{self.name}': invalid 28-day shotcrete section or initial percentage"
+            )
 
-    def at_shotcrete_capacity(self, percent: float) -> "LinerSpec":
+    def at_shotcrete_capacity(self, percent: float) -> LinerSpec:
         """Return stage section; steel mesh/set remain at full 28-day contribution."""
         if not math.isfinite(percent) or not 0 < percent <= 100:
             raise ModelError("Shotcrete percentage must be in (0, 100].")
