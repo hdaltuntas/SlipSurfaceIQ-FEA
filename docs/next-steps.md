@@ -6,7 +6,9 @@ The model/CAD workspace now has bottom stage tabs synchronized with the mesh/res
 view and document viewer. **Model > Project properties** edits the number and names
 of construction stages, including in unmeshed drafts. Right-clicking a region on
 either canvas opens material/excavation assignment for the selected stage; applying
-to following stages is optional. Existing softened/disturbed material definitions
+to following stages is optional. Direct right-click actions also excavate only the
+selected stage or that stage and all later stages, without deleting the geometry.
+Existing softened/disturbed material definitions
 can be selected. These edits clear old results and survive project save/reopen and
 remeshing. Regression coverage: `tests/unit/test_stage_workspace.py` (desktop CI).
 See [the workflow](integrated-modeler.md#stage-tabs-and-project-properties).

@@ -54,6 +54,7 @@ from .dialogs import MaterialDialog, NewModelDialog, StageDialog
 from .editing import (
     region_label,
     set_project_stages,
+    set_region_stage_state,
     stage_active_structures,
     stage_region_material,
     structure_label,
@@ -675,7 +676,7 @@ class MainWindow(QMainWindow):
     def _add_region_stage_action(self, menu, region):
         row = max(0, self.stages.currentRow())
         name = self.stages.item(row).text() if self.stages.count() else "Initial"
-        action = menu.addAction(f"Assign material / excavate in stage {row}: {name}…")
+        action = menu.addAction(f"Assign material in stage {row}: {name}…")
         ready = (
             self.model is not None
             and not self.cad.mesh_outdated
@@ -684,10 +685,35 @@ class MainWindow(QMainWindow):
         )
         action.setEnabled(ready)
         action.triggered.connect(lambda _=False: self.edit_region_stage(region))
+        excavate = menu.addAction("Excavate in this stage")
+        excavate.setEnabled(ready and stage_region_material(self.model, row, region) is not None)
+        excavate.triggered.connect(lambda _=False: self.excavate_region(region))
+        onward = menu.addAction("Excavate from this stage onward")
+        onward.setEnabled(
+            ready
+            and any(
+                stage_region_material(self.model, i, region) is not None
+                for i in range(row, len(self.model.stages) + 1)
+            )
+        )
+        onward.triggered.connect(lambda _=False: self.excavate_region(region, propagate=True))
         if not ready:
             hint = menu.addAction("Generate the mesh before assigning stage materials")
             hint.setEnabled(False)
         menu.addSeparator()
+
+    def excavate_region(self, region, *, propagate=False):
+        """Deactivate the picked region without deleting its geometry or material."""
+        if self.busy or not self._require_model():
+            return
+        try:
+            updated = set_region_stage_state(
+                self.model, max(0, self.stages.currentRow()), region, None, propagate=propagate
+            )
+        except (ValueError, ModelError) as exc:
+            QMessageBox.warning(self, "Excavation", str(exc))
+            return
+        self._apply_stage_edit(updated)
 
     def edit_region_stage(self, region):
         from .project_properties import RegionStageDialog

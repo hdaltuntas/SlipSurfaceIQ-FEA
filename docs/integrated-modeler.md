@@ -61,11 +61,17 @@ draft names are stored in `.sscad.json` and used during mesh generation.
 
 After generating the mesh, define intact and softened/disturbed materials in
 **Model > Materials…**. Select a bottom stage tab, right-click the region on either
-canvas, and choose **Assign material / excavate in stage…**. Pick a material or
+canvas, and choose **Assign material in stage…**. Pick a material or
 **Excavated (void)**. Only the selected stage changes unless **Apply to this and all
 following stages** is checked. This assigns an existing material definition; it does
 not introduce a new strain-softening constitutive law. Changing Initial alone preserves
 later stages' material definitions with explicit overrides.
+
+For direct excavation, right-click a region and choose **Excavate in this stage**.
+It immediately deactivates the region in the selected stage. **Excavate from this
+stage onward** also deactivates it in every later stage. Geometry and the material
+library are retained; use **Assign material in stage…** to reactivate the region.
+These shortcuts are available on both the CAD and mesh/results canvases after meshing.
 
 Applying project or material changes clears old results and keeps the selected stage
 and workspace. Save the meshed model as `.ssproj` to retain all material assignments.

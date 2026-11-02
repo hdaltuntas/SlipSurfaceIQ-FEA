@@ -248,3 +248,78 @@ def test_void_reactivation_and_cancel_do_not_modify_other_stages(qt_app, staged_
     cancelled.reject()
     assert cancelled.updated is None
     assert stage_region_material(staged_model, 1, 2) == "soil"
+
+
+@pytest.mark.parametrize("view", ["cad", "mesh"])
+@pytest.mark.parametrize("stage_index", [0, 1])
+@pytest.mark.parametrize("propagate", [False, True])
+def test_direct_right_click_excavation_scope_and_geometry(
+    qt_app, staged_model, view, stage_index, propagate
+):
+    model = replace(
+        staged_model, stages=[replace(s, active_regions=None) for s in staged_model.stages]
+    )
+    window = MainWindow()
+    window.set_model(model)
+    if view == "cad":
+        window.edit_geometry()
+    window.model_stage_tabs.setCurrentIndex(stage_index)
+    title = "Excavate from this stage onward" if propagate else "Excavate in this stage"
+    selected = []
+
+    def choose():
+        menu = qt_app.activePopupWidget()
+        try:
+            action = next(a for a in menu.actions() if a.text() == title)
+            selected.append(action.isEnabled())
+            action.trigger()
+        finally:
+            menu.close()
+
+    QTimer.singleShot(0, choose)
+    window.result = object()
+    if view == "cad":
+        window.cad.canvas_menu(1, "", QPoint())
+    else:
+        window._on_canvas_context_menu(2, "", QPoint())
+    assert selected == [True]
+    assert window.result is None and window.dirty
+    assert window.stages.currentRow() == stage_index
+    assert window.workspace.currentWidget() is (window.cad if view == "cad" else window.result_page)
+    assert window.model.mesh is model.mesh
+    assert window.model.geometry == model.geometry
+    assert window.model.materials == model.materials
+    assert window.model.region_material == model.region_material
+    for i in range(4):
+        excavated = i == stage_index or (propagate and i >= stage_index)
+        assert stage_region_material(window.model, i, 2) == (None if excavated else "soil")
+        assert stage_region_material(model, i, 2) == "soil"
+    assert window.cad.canvas.stage_materials[2] is None
+    assert not window.cad.mesh_outdated
+
+
+def test_excavation_shortcuts_respect_inactive_regions_and_stale_mesh(qt_app, staged_model):
+    model = replace(
+        staged_model,
+        stages=[
+            *staged_model.stages[:-1],
+            replace(staged_model.stages[-1], active_regions=None),
+        ],
+    )
+    window = MainWindow()
+    window.set_model(model)
+    window.stages.setCurrentRow(2)
+    menu = QMenu()
+    window._add_region_stage_action(menu, 2)
+    actions = {a.text(): a for a in menu.actions()}
+    assert not actions["Excavate in this stage"].isEnabled()
+    assert actions["Excavate from this stage onward"].isEnabled()
+    actions["Excavate from this stage onward"].trigger()
+    assert stage_region_material(window.model, 3, 2) is None
+    window.cad.commit(replace(window.cad.current_drawing(), h=2))
+    stale_menu = QMenu()
+    window._add_region_stage_action(stale_menu, 2)
+    assert all(not a.isEnabled() for a in stale_menu.actions() if a.text().startswith("Excavate"))
+    before = window.model
+    window.excavate_region(2)
+    assert window.model is before
