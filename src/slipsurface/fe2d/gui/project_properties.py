@@ -1,5 +1,6 @@
 """Project schedule and picked-region assignment forms."""
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -46,7 +47,7 @@ class ProjectPropertiesDialog(EditorDialog):
             from .stage_editor import StageDialog
             self.stage_editor = StageDialog(model, self)
             # The stage editor is an embedded widget; the parent dialog owns Apply/Cancel.
-            self.stage_editor.setWindowFlags(__import__("PySide6.QtCore", fromlist=["Qt"]).Qt.WindowType.Widget)
+            self.stage_editor.setWindowFlags(Qt.WindowType.Widget)
             for i in range(self.stage_editor.root.count() - 2, self.stage_editor.root.count()):
                 item = self.stage_editor.root.itemAt(i)
                 if item and item.widget():
