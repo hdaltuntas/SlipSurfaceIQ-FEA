@@ -166,7 +166,12 @@ class LiningDesignerDialog(QDialog):
         form = QFormLayout()
         self.thickness = _spin(lining.thickness * 100, 1, 200, 1, "cm")
         self.E = _spin(lining.E_shotcrete / 1e6, 0.1, 100, 2, "GPa")
-        self.E.setToolTip("Young shotcrete ~5–15 GPa, hardened ~25–30 GPa")
+        self.E.setToolTip("Enter 28-day reference modulus (100%).")
+        self.capacity = _spin(lining.initial_capacity_percent, 1, 100, 1, "%")
+        self.capacity.setToolTip(
+            "First active stage: percentage of shotcrete 28-day reference values. "
+            "The next construction stage uses 100%; steel mesh and steel ribs stay unchanged."
+        )
         self.nu = _spin(lining.nu, 0, 0.49, 3)
         self.gamma = _spin(lining.unit_weight, 0, 100, 2, "kN/m³")
         self.mesh = QComboBox()
@@ -186,7 +191,8 @@ class LiningDesignerDialog(QDialog):
         concrete = QGroupBox("Shotcrete")
         f = QFormLayout(concrete)
         f.addRow("Thickness", self.thickness)
-        f.addRow("E", self.E)
+        f.addRow("28-day E", self.E)
+        f.addRow("First active stage / 28-day (%)", self.capacity)
         f.addRow("ν", self.nu)
         f.addRow("γ", self.gamma)
         mesh = QGroupBox("Wire mesh")
@@ -221,7 +227,7 @@ class LiningDesignerDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         for w in (self.thickness, self.E, self.nu, self.gamma, self.cover, self.rib_area,
-                  self.rib_inertia, self.rib_spacing, self.Es):  # fmt: skip
+                  self.rib_inertia, self.rib_spacing, self.Es, self.capacity):  # fmt: skip
             w.valueChanged.connect(self.update_summary)
         for w in (self.mesh, self.rib):
             w.currentTextChanged.connect(self.update_summary)
@@ -233,6 +239,7 @@ class LiningDesignerDialog(QDialog):
             name=self.name.currentText().strip() or "Lining",
             thickness=self.thickness.value() / 100,
             E_shotcrete=self.E.value() * 1e6,
+            initial_capacity_percent=self.capacity.value(),
             nu=self.nu.value(),
             unit_weight=self.gamma.value(),
             mesh=_catalog_key(self.mesh.currentText()),
@@ -257,6 +264,7 @@ class LiningDesignerDialog(QDialog):
         self.name.setCurrentText(lining.name)
         self.thickness.setValue(lining.thickness * 100)
         self.E.setValue(lining.E_shotcrete / 1e6)
+        self.capacity.setValue(lining.initial_capacity_percent)
         self.nu.setValue(lining.nu)
         self.gamma.setValue(lining.unit_weight)
         self.mesh.setCurrentText(_catalog_label(lining.mesh))
@@ -278,10 +286,13 @@ class LiningDesignerDialog(QDialog):
             self.summary.setText(str(exc))
             return
         EA, EI = lining.stiffness()
+        early_ea, early_ei = lining.stiffness_at_capacity(lining.initial_capacity_percent)
         p = lining.liner_properties()
         d_eq = np.sqrt(12 * p["I"] / p["A"])
         self.summary.setText(
-            f"Equivalent lining (1 m of tunnel): EA = {EA:,.0f} kN/m · EI = {EI:,.1f} kNm²/m\n"
+            f"At 28d: EA = {EA:,.0f} kN/m · EI = {EI:,.1f} kNm²/m\n"
+            f"First installed stage ({lining.initial_capacity_percent:g}% shotcrete): "
+            f"EA = {early_ea:,.0f} kN/m · EI = {early_ei:,.1f} kNm²/m\n"
             f"Beam: E = {p['E'] / 1e6:.2f} GPa · A = {p['A']:.4f} m²/m · I = {p['I']:.3e} m⁴/m"
             f" · equivalent thickness d = {d_eq * 100:.1f} cm"
         )
