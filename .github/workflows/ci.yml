@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install -r requirements-core.txt pytest ruff mypy
       - run: ruff check src tests
       - run: pytest -m "not benchmark" -rf --durations=10 --junitxml=test-results.xml
       - name: Verification report
@@ -56,6 +56,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libopengl0 libxkbcommon0
-      - run: python -m pip install -e ".[dev,gui]"
+      - run: python -m pip install -r requirements.txt pytest ruff mypy pyvista
+      - run: python main.py --check
+      - run: python main.py --help
       - name: Native worker, persistence, cancellation and active result exports
         run: pytest -q tests/unit/test_desktop.py tests/unit/test_progress_exports.py tests/unit/test_viewer.py tests/unit/test_cad_geometry.py tests/unit/test_cad_desktop.py tests/unit/test_cad_usability.py tests/unit/test_integrated_modeler.py tests/unit/test_remesh_transfer.py tests/unit/test_workflow_layout.py tests/unit/test_model_editors.py tests/unit/test_phase5_tools.py tests/unit/test_phase5_acceptance.py tests/unit/test_result_display_regressions.py tests/unit/test_mouse_modeler.py

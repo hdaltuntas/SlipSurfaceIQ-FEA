@@ -4,6 +4,8 @@
 
 The user cancelled the theme change at this stage. Theme PRs #14 and #15 were closed
 without merging; the current main-branch appearance is retained.
+The user also requested source-only operation: use `python main.py` after installing
+`requirements.txt`. Package-build/publish workflows and the console entry point are removed.
 
 The result-display fixes retain node IDs through beam/bar charts and deformed N–V–M
 overlays, so coincident interface faces cannot substitute one another's displacement.
@@ -60,7 +62,7 @@ This repository is the Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** project
 Mechanical boundary conditions, stage displacements, the interface library, the timeline,
 plastic Gauss points / principal arrows, the query line, and liner N–V–M were added. The
 four-stage tunnel acceptance built from an empty GUI matched the API exactly. The portable
-package was removed; the wheel/sdist and PyPI Trusted Publisher workflow are in place.
+package and wheel/sdist build workflows were removed; use `python main.py`.
 Linux/Windows CI was 10/10 and the independent Windows portable test passed. Test evidence,
 publication status, and the preserved exceptions are in
 [phase5-release.md](phase5-release.md).

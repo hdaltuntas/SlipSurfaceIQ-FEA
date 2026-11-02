@@ -11,8 +11,8 @@ PR #3 was merged to `main` as `de1f12a`. This delivery is built on top of that.
 ## Use
 
 ```bash
-python -m pip install -e ".[dev,gui]"
-python -m slipsurface.fe2d.gui
+python -m pip install -r requirements.txt
+python main.py
 ```
 
 1. Open **Geometry / CAD**. Load the rectangle that already has fixities and a load with

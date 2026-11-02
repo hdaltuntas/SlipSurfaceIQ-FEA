@@ -9,10 +9,10 @@ Follow-on deliveries: [Phase 5.2 CAD, DXF, and mesh-from-drawing](phase5-cad.md)
 ## Install and run
 
 ```bash
-python -m pip install -e ".[dev,gui]"
-python -m slipsurface.fe2d.gui
-# or
-slipsurface-fe2d model.ssproj
+python -m pip install -r requirements.txt
+python main.py
+# Open an existing project:
+python main.py model.ssproj
 ```
 
 ![Native desktop interface](images/phase5-desktop.png)
@@ -67,8 +67,8 @@ technical features below do not mean a finished user experience. [Open work](nex
 displacement forms, interface create/property/delete, principal arrows and plastic Gauss
 points, query lines, liner N–V–M plots, and GUI/API equality acceptance of the four-stage
 tunnel built from an empty GUI were added. The portable (PyInstaller) package was removed:
-the application now runs only with `python main.py`. The wheel/sdist workflow and the real
-CI result are kept in the version record.
+the application now runs only with `python main.py`. Package-build workflows are also removed. Historical
+CI evidence is kept separately in the version record.
 
 Further CAD (DWG, curve/block DXF, a void that cuts a layer boundary, carrying existing FE
 assignments across a remesh) is outside the supported linear CAD scope of v1.

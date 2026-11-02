@@ -71,19 +71,16 @@ Linux/Windows, Python 3.10–3.13, and two native GUI jobs: **10/10 passed**
 
 ## Package and publication
 
-The portable (PyInstaller onedir) package was removed: `packaging/` and
-`.github/workflows/portable.yml` were deleted. The application runs only with
-`python main.py`. A wheel and an sdist are still built and checked with
-`scripts/check_distributions.py`.
+**2 November 2026: source-only operation requested by the user.**
 
-The first independent Windows package test **passed**:
-[`39674915048`](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/actions/runs/39674915048),
-`5c4dcb8`; `frozen=true`, `numba_enabled=true`, 2141 nodes, four states,
-maximum displacement 0.02792259577890792 m. The NumPy inside the package was used.
-A pre-release review removed the build environment from the sdist; the source package
-was limited to an allow-list. Every build checks file contents and the 20 MB size limit.
+Run `python -m pip install -r requirements.txt`, then `python main.py`.
+There is no native installer/portable build, wheel/sdist build workflow or publishing
+workflow. The remaining manual `publish.yml` package check and its helper were removed.
+The installed console entry point and `python -m slipsurface.fe2d.gui` launcher were
+also removed. CI installs dependencies and tests the source checkout directly.
 
-The PyPI attempt failed with `invalid-publisher`; there is no successful PyPI publication.
-`publish.yml` is now only a manually invoked package check: the PyPI upload job, the
-OIDC permission, and the release trigger were removed, and `portable.yml` was removed too.
-No GitHub release is created and no files are uploaded.
+The following is historical evidence only: the first independent Windows portable
+test passed ([39674915048](https://github.com/hdaltuntas/SlipSurfaceIQ-FEA/actions/runs/39674915048),
+`5c4dcb8`; 2141 nodes, four states). The earlier PyPI attempt failed with
+`invalid-publisher`; there was no successful PyPI publication.
+No new release or package is produced by this change.
