@@ -248,6 +248,9 @@ class LinerSpec:
     I: float  # noqa: E741
     As: float
     unit_weight: float = 0.0
+    shotcrete_EA: float = 0.0
+    shotcrete_EI: float = 0.0
+    initial_capacity_percent: float = 100.0
 
     def __post_init__(self) -> None:
         if not all(math.isfinite(v) and v > 0 for v in (self.E, self.A, self.I)):
@@ -256,6 +259,26 @@ class LinerSpec:
             raise ModelError(f"liner '{self.name}': As must be finite and nonnegative")
         if not -1 < self.nu < 0.5 or not math.isfinite(self.unit_weight) or self.unit_weight < 0:
             raise ModelError(f"liner '{self.name}': invalid nu or unit weight")
+        if (not all(math.isfinite(v) and v >= 0 for v in (self.shotcrete_EA, self.shotcrete_EI))
+                or self.shotcrete_EA > self.E * self.A * (1 + 1e-9)
+                or self.shotcrete_EI > self.E * self.I * (1 + 1e-9)
+                or not math.isfinite(self.initial_capacity_percent)
+                or not 0 < self.initial_capacity_percent <= 100):
+            raise ModelError(f"liner '{self.name}': invalid 28-day shotcrete section or initial percentage")
+
+    def at_shotcrete_capacity(self, percent: float) -> "LinerSpec":
+        """Return stage section; steel mesh/set remain at full 28-day contribution."""
+        if not math.isfinite(percent) or not 0 < percent <= 100:
+            raise ModelError("Shotcrete percentage must be in (0, 100].")
+        factor = percent / 100.0
+        ea = self.E * self.A - (1 - factor) * self.shotcrete_EA
+        ei = self.E * self.I - (1 - factor) * self.shotcrete_EI
+        return dataclasses.replace(
+            self, A=ea / self.E, I=ei / self.E,
+            As=self.As * ea / (self.E * self.A),
+            shotcrete_EA=0.0, shotcrete_EI=0.0,
+            initial_capacity_percent=100.0,
+        )
 
 
 @dataclass(frozen=True)
