@@ -509,7 +509,7 @@ class MainWindow(QMainWindow):
         add_icon(self.stop_action)
         self.mesh_view_action = action("Mesh", self.show_results, "F6", "mesh_view")
         self.mesh_view_action.setToolTip("Mesh (F6)")
-        self.results_action = action("Results", self.show_results, ic="results")
+        self.results_action = action("Interpret results", self.open_interpret, ic="results")
         self.results_action.setToolTip("Results")
         add_icon(self.mesh_view_action)
         add_icon(self.results_action)
@@ -547,6 +547,7 @@ class MainWindow(QMainWindow):
             lambda _=False: self.drawing_file_action("open_tunnel_designer"),
         ))
         result_menu = self.menuBar().addMenu("Inspect results")
+        result_menu.addAction(action("Open Interpret window…", self.open_interpret))
         for title, slot in [
             ("Query line", self.query_line),
             ("Liner N–V–M", self.beam_diagrams),
@@ -1187,6 +1188,62 @@ class MainWindow(QMainWindow):
             "Modeler · Pick points / enter coordinates · F2: whole drawing · F6: mesh"
         )
         self.cad.canvas.viewport().update()
+
+    def open_interpret(self):
+        """Independent read-only result viewer, preserving the CAD workspace."""
+        if self.model is None:
+            self.status.showMessage("Generate a mesh before opening Interpret.", 5000)
+            return
+        dialog = getattr(self, "_interpret_window", None)
+        if dialog is None:
+            dialog = QDialog(self)
+            dialog.setWindowTitle("SlipSurfaceIQ-FEA · Interpret")
+            dialog.resize(1100, 760)
+            layout = QVBoxLayout(dialog)
+            controls = QHBoxLayout()
+            stages = QComboBox()
+            stages.addItems(["Initial", *[stage.name for stage in self.model.stages]])
+            fields = QComboBox()
+            fields.addItems(["|u|", "ux", "uy"])
+            controls.addWidget(QLabel("Stage"))
+            controls.addWidget(stages)
+            controls.addWidget(QLabel("Field"))
+            controls.addWidget(fields)
+            controls.addStretch(1)
+            layout.addLayout(controls)
+            canvas = MeshCanvas()
+            layout.addWidget(canvas, 1)
+            legend = QLabel()
+            layout.addWidget(legend)
+            dialog._viewer = (stages, fields, canvas, legend)
+            stages.currentIndexChanged.connect(self._refresh_interpret)
+            fields.currentIndexChanged.connect(self._refresh_interpret)
+            dialog.finished.connect(lambda _code: setattr(self, "_interpret_window", None))
+            self._interpret_window = dialog
+        else:
+            stages, _, _, _ = dialog._viewer
+            stages.blockSignals(True)
+            stages.clear()
+            stages.addItems(["Initial", *[stage.name for stage in self.model.stages]])
+            stages.blockSignals(False)
+        stages = dialog._viewer[0]
+        stages.setCurrentIndex(min(max(0, self.stages.currentRow()), stages.count() - 1))
+        self._refresh_interpret()
+        dialog.show()
+        dialog.raise_()
+
+    def _refresh_interpret(self, *_):
+        dialog = getattr(self, "_interpret_window", None)
+        if dialog is None or self.model is None:
+            return
+        stages, fields, canvas, legend = dialog._viewer
+        idx = stages.currentIndex()
+        stage = None if self.result is None else (
+            self.result.initial if idx == 0 else self.result.stages[idx - 1]
+        )
+        canvas.show_model(self.model, stage, fields.currentText(), 1.0,
+                          result=self.result, stage_index=idx)
+        legend.setText(canvas.legend)
 
     def show_results(self):
         self.workspace.setCurrentWidget(self.result_page)
