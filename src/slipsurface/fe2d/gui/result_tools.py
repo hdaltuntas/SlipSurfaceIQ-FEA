@@ -1,6 +1,7 @@
 """Native, stage-aware query-line and liner N/V/M charts."""
 
 import csv
+from dataclasses import dataclass
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
@@ -318,9 +319,20 @@ FORCE_COMPONENTS = {
 }
 
 
+@dataclass(frozen=True)
+class StructureSegment:
+    """An oriented element segment, retaining FE identity at coincident interface nodes."""
+
+    a: np.ndarray
+    b: np.ndarray
+    station: np.ndarray
+    forces: np.ndarray
+    nodes: tuple[int, int]
+
+
 def structure_segments(result, stage, tag):
     """``(kind, segments)`` of one structure: per element its end points (traversal order),
-    distance stations and end forces ``(2, ncomp)``; inactive elements are left out."""
+    distance stations, end forces ``(2, ncomp)`` and node IDs; inactive elements are left out."""
     from ..core.enums import ElemType
 
     mesh = result.model.mesh
@@ -330,7 +342,8 @@ def structure_segments(result, stage, tag):
     if block.etype is ElemType.BEAM2:
         for path in beam_paths(result, tag, stage):
             for (a, b), s, f in zip(path.nodes, path.distance, path.forces):
-                segments.append((X[a], X[b], s, np.asarray(f, float)))
+                segments.append(StructureSegment(X[a], X[b], s, np.asarray(f, float),
+                                                 (int(a), int(b))))
         return "beam", segments
     if block.etype is ElemType.BAR2:
         forces = stage.bars.get(tag)
@@ -342,7 +355,8 @@ def structure_segments(result, stage, tag):
             a, b = block.conn[e]
             length = float(np.linalg.norm(X[b] - X[a]))
             n = float(np.ravel(forces[e])[0])
-            segments.append((X[a], X[b], (distance, distance + length), np.array([[n], [n]])))
+            segments.append(StructureSegment(X[a], X[b], np.array([distance, distance + length]),
+                                             np.array([[n], [n]]), (int(a), int(b))))
             distance += length
         return "bar", segments
     raise ValueError(f"'{tag}' is not a beam/pile or an anchor.")
@@ -351,7 +365,7 @@ def structure_segments(result, stage, tag):
 def diagram_amplitude(segments, component, extent, fraction=0.22):
     """World-unit scale so the largest ordinate is ``fraction`` of ``extent``."""
     peak = max(
-        (abs(float(v)) for *_, f in segments for v in np.asarray(f)[:, component]),
+        (abs(float(v)) for seg in segments for v in seg.forces[:, component]),
         default=0.0,
     )
     return fraction * extent / max(peak, 1e-30)
@@ -360,8 +374,8 @@ def diagram_amplitude(segments, component, extent, fraction=0.22):
 def force_diagram_line(segments, component, amplitude):
     """Offset polyline vertices ``(xy, value)`` of the section-force diagram."""
     pts = []
-    for a, b, _, f in segments:
-        a, b = np.asarray(a, float), np.asarray(b, float)
+    for seg in segments:
+        a, b, f = seg.a, seg.b, seg.forces
         tangent = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
         normal = np.array([-tangent[1], tangent[0]])
         fa, fb = float(f[0, component]), float(f[1, component])
@@ -372,12 +386,9 @@ def force_diagram_line(segments, component, amplitude):
 
 def segment_end_displacements(result, stage, segments):
     """``s, |u|, ux, uy`` at each segment end, in traversal order."""
-    X = result.model.mesh.coords
     s_vals, ux, uy = [], [], []
-    for a, b, station, _f in segments:
-        station = np.asarray(station, float).reshape(-1)
-        for pt, st in ((a, station[0]), (b, station[-1])):
-            i = int(np.argmin(np.sum((X - pt) ** 2, axis=1)))
+    for seg in segments:
+        for i, st in zip(seg.nodes, seg.station):
             u = stage.u[i]
             s_vals.append(float(st))
             ux.append(float(u[0]) if np.isfinite(u[0]) else np.nan)
@@ -413,8 +424,8 @@ class StructureDiagram(QWidget):
 
     def extremes(self):
         values = [
-            (float(f[k, self.component]), np.asarray(a if k == 0 else b, float))
-            for a, b, _, f in self.segments
+            (float(seg.forces[k, self.component]), seg.a if k == 0 else seg.b)
+            for seg in self.segments
             for k in (0, 1)
         ]
         if not values:
@@ -429,7 +440,7 @@ class StructureDiagram(QWidget):
             p.setPen(QColor("#526677"))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No active element in this stage")
             return
-        pts = np.array([pt for a, b, _, _ in self.segments for pt in (a, b)], float)
+        pts = np.array([pt for seg in self.segments for pt in (seg.a, seg.b)], float)
         lo, hi = pts.min(0), pts.max(0)
         extent = max(float(np.ptp(pts, axis=0).max()), 1e-9)
         amplitude = diagram_amplitude(self.segments, self.component, extent)
@@ -448,8 +459,8 @@ class StructureDiagram(QWidget):
             )
 
         p.setPen(QPen(QColor("#213547"), 3))
-        for a, b, _, _ in self.segments:
-            p.drawLine(screen(a), screen(b))
+        for seg in self.segments:
+            p.drawLine(screen(seg.a), screen(seg.b))
         line = force_diagram_line(self.segments, self.component, amplitude)
         path = QPainterPath()
         for i, (xy, _value) in enumerate(line):
@@ -531,7 +542,7 @@ class StructureForceDialog(QDialog):
             _, segments = structure_segments(self.result, snapshots[index], self.tag)
         except Exception:
             return False
-        return any(np.isfinite(f).any() for *_, f in segments)
+        return any(np.isfinite(seg.forces).any() for seg in segments)
 
     def refresh(self, *_):
         i = self.stage.currentData() or 0
@@ -555,8 +566,8 @@ class StructureForceDialog(QDialog):
         k = max(0, min(self.component.currentIndex(), len(items) - 1))
         key, title, unit = items[k]
         self.diagram.set_data(self.segments, k, unit)
-        s = np.array([st for *_, st, _ in self.segments], float).reshape(-1)
-        values = np.array([f[:, k] for *_, f in self.segments], float).reshape(-1)
+        s = np.array([seg.station for seg in self.segments], float).reshape(-1)
+        values = np.array([seg.forces[:, k] for seg in self.segments], float).reshape(-1)
         self.trace.set_data(s, values, title, unit)
         i = self.stage.currentData() or 0
         st = self.result.initial if i == 0 else self.result.stages[i - 1]
@@ -570,7 +581,7 @@ class StructureForceDialog(QDialog):
         (vmin, pmin), (vmax, pmax) = ext
         ranges = []
         for j, (name, _, unit) in enumerate(FORCE_COMPONENTS[self.kind]):
-            col = np.array([f[:, j] for *_, f in self.segments], float)
+            col = np.array([seg.forces[:, j] for seg in self.segments], float)
             ranges.append(f"{name} [{np.nanmin(col):.4g}, {np.nanmax(col):.4g}] {unit}")
         self.status.setText(
             f"{key}: min {vmin:.5g} {unit} @ ({pmin[0]:.3g}, {pmin[1]:.3g}) m · "

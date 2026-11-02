@@ -18,7 +18,7 @@ class LineProfile:
     regions: np.ndarray
     field: str
     unit: str
-    display_xy: np.ndarray  # sample points on the deformed mesh (equals xy when deform=0)
+    display_xy: np.ndarray  # active samples on the deformed mesh; NaN in gaps
 
 
 def field_unit(field):
@@ -87,7 +87,7 @@ def line_profile(
     st = stage_result(result, stage)
     mesh = result.model.mesh
     xy = np.linspace(a, b, count)
-    display = xy.copy()
+    display = np.full_like(xy, np.nan)
     values, regions = np.full(count, np.nan), np.full(count, -1, dtype=int)
     for block in mesh.continuum_blocks():
         active = st.active.get(block.tag, np.ones(block.ne, bool)).copy()
@@ -114,6 +114,7 @@ def line_profile(
                 if weights is None:
                     continue
                 u = weights @ st.u[block.conn[e]]
+                display[i] = xy[i]
                 if deform:
                     display[i] = xy[i] + deform * np.nan_to_num(u)
                 if nodal is None:

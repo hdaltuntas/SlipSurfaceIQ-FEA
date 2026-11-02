@@ -47,9 +47,11 @@ def test_query_constant_stress_and_linear_displacement_patch(etype):
     stage = replace(result.last, active={block.tag: ~gap})
     broken = line_profile(result, (0, 0.5), (3, 0.5), "syy", 13, stage)
     assert np.isnan(broken.values[5:8]).all()
+    assert np.isnan(broken.display_xy[5:8]).all()
     assert np.isfinite(broken.values[[0, -1]]).all()
     outside = line_profile(result, (4, 0), (4, 1), "uy")
     assert np.isnan(outside.values).all()
+    assert np.isnan(outside.display_xy).all()
 
 
 def test_beam_diagram_is_independent_of_element_order_and_direction():

@@ -1,6 +1,23 @@
 # Current status and remaining work
 
-Latest user instruction (22 October 2026): **The interface is not usable; the release
+## 2 November 2026 review follow-up
+
+The user cancelled the theme change at this stage. Theme PRs #14 and #15 were closed
+without merging; the current main-branch appearance is retained.
+
+The result-display fixes retain node IDs through beam/bar charts and deformed N–V–M
+overlays, so coincident interface faces cannot substitute one another's displacement.
+The plastic contour is the fraction of yielding Gauss points (0–1), not extrapolated
+state codes. Query overlays break at missing samples in excavations, inactive regions
+and outside the model, both before and after deformation.
+
+Regression coverage is in `tests/unit/test_result_display_regressions.py` and
+`tests/unit/test_inspection.py`. The dedicated desktop CI job includes the new cases.
+These corrections do not close Phase 5 or the S4 external-validation gap.
+
+## Release acceptance
+
+Release instruction (22 October 2026): **The interface is not usable; the release
 is not ready, withdraw the publication.** Phase 5 is open again; a new release and the
 PyPI publication were stopped.
 This repository is the Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** project.
