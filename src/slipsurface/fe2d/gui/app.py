@@ -548,6 +548,7 @@ class MainWindow(QMainWindow):
         ))
         result_menu = self.menuBar().addMenu("Inspect results")
         result_menu.addAction(action("Open Interpret window…", self.open_interpret))
+        result_menu.addAction(action("Open Interpret window…", self.open_interpret))
         for title, slot in [
             ("Query line", self.query_line),
             ("Liner N–V–M", self.beam_diagrams),
@@ -1237,6 +1238,57 @@ class MainWindow(QMainWindow):
         if dialog is None or self.model is None:
             return
         stages, fields, canvas, legend = dialog._viewer
+        idx = stages.currentIndex()
+        stage = None if self.result is None else (
+            self.result.initial if idx == 0 else self.result.stages[idx - 1]
+        )
+        canvas.show_model(self.model, stage, fields.currentText(), 1.0,
+                          result=self.result, stage_index=idx)
+        legend.setText(canvas.legend)
+
+    def open_interpret(self):
+        """Open an independent results window without replacing the CAD workspace."""
+        if self.model is None:
+            return
+        dlg = getattr(self, "_interpret_window", None)
+        if dlg is None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("SlipSurfaceIQ-FEA · Interpret")
+            dlg.resize(1100, 760)
+            layout = QVBoxLayout(dlg)
+            controls = QHBoxLayout()
+            stages = QComboBox()
+            fields = QComboBox()
+            fields.addItems(["|u|", "ux", "uy"])
+            controls.addWidget(QLabel("Stage"))
+            controls.addWidget(stages)
+            controls.addWidget(QLabel("Field"))
+            controls.addWidget(fields)
+            layout.addLayout(controls)
+            canvas = MeshCanvas()
+            layout.addWidget(canvas, 1)
+            legend = QLabel()
+            layout.addWidget(legend)
+            dlg.viewer = (stages, fields, canvas, legend)
+            stages.currentIndexChanged.connect(self._refresh_interpret)
+            fields.currentIndexChanged.connect(self._refresh_interpret)
+            dlg.finished.connect(lambda _code: setattr(self, "_interpret_window", None))
+            self._interpret_window = dlg
+        stages = dlg.viewer[0]
+        stages.blockSignals(True)
+        stages.clear()
+        stages.addItems(["Initial", *[stage.name for stage in self.model.stages]])
+        stages.setCurrentIndex(min(max(0, self.stages.currentRow()), stages.count() - 1))
+        stages.blockSignals(False)
+        self._refresh_interpret()
+        dlg.show()
+        dlg.raise_()
+
+    def _refresh_interpret(self, *_):
+        dlg = getattr(self, "_interpret_window", None)
+        if dlg is None or self.model is None:
+            return
+        stages, fields, canvas, legend = dlg.viewer
         idx = stages.currentIndex()
         stage = None if self.result is None else (
             self.result.initial if idx == 0 else self.result.stages[idx - 1]
