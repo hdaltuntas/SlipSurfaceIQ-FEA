@@ -40,3 +40,35 @@ def test_strength_reference_scales_for_display():
 def test_invalid_percentage(percent):
     with pytest.raises(ValueError):
         LiningSystem(initial_capacity_percent=percent)
+
+
+def test_steel_contribution_is_not_reduced_at_early_capacity():
+    """Capacity scales only the concrete delta, regardless of installed steel."""
+    plain = LiningSystem(mesh="None", rib="None", mesh_layers=1,
+                         initial_capacity_percent=30)
+    reinforced = LiningSystem(mesh="Q335", mesh_layers=2, rib="HEB 160",
+                              initial_capacity_percent=30)
+    plain_early = plain.stiffness_at_capacity(30)
+    reinforced_early = reinforced.stiffness_at_capacity(30)
+    plain_full = plain.stiffness_at_capacity(100)
+    reinforced_full = reinforced.stiffness_at_capacity(100)
+    for i in (0, 1):
+        steel_full = reinforced_full[i] - plain_full[i]
+        steel_early = reinforced_early[i] - plain_early[i]
+        assert steel_early == pytest.approx(steel_full)
+
+
+def test_zero_shotcrete_metadata_does_not_modify_legacy_liner():
+    """Legacy beam specifications retain their original mechanical stiffness."""
+    liner = LinerSpec("legacy", E=2e7, nu=0.2, A=0.15, I=0.0003,
+                      As=0.125, unit_weight=24)
+    reduced = liner.at_shotcrete_capacity(30)
+    assert reduced.E * reduced.A == pytest.approx(liner.E * liner.A)
+    assert reduced.E * reduced.I == pytest.approx(liner.E * liner.I)
+
+
+def test_early_strength_scaling_does_not_mutate_28_day_reference():
+    liner = LiningSystem(fc28=35000, ft28=3000, initial_capacity_percent=25)
+    assert liner.strengths_at_capacity(25) == pytest.approx((8750, 750))
+    assert liner.fc28 == 35000
+    assert liner.ft28 == 3000
