@@ -625,6 +625,19 @@ class StaticSolver:
                 f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
             for s in sysm.struct:
                 f += np.bincount(s.edofs.ravel(), s.group.body_force(s.ids).ravel(), minlength=nd)
+        # Pseudo-static inertia uses the same effective unit-weight distribution
+        # as gravity, but acts independently of the initial-stress mode.
+        kh, kv = ctx.stage.seismic_kh, ctx.stage.seismic_kv
+        if kh or kv:
+            for c in sysm.cont:
+                if c.ids.size == 0:
+                    continue
+                fe = np.zeros((c.ids.size, c.edofs.shape[1]))
+                nodal_weight = np.einsum("eg,eg,gn->en", c.gamma, c.geom.wdet, c.geom.N)
+                fe[:, 0::2] = kh * nodal_weight
+                fe[:, 1::2] = kv * nodal_weight
+                f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
+            # Structural self-inertia is not included in this initial pseudo-static model.
         if ctx.water.mode != "none":
             f += self._water_forces(sysm, ctx.water)
         loads = ctx.stage.loads
