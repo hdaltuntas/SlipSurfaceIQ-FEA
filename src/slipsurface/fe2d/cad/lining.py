@@ -63,7 +63,7 @@ class LiningSystem:
     rib_inertia: float = 0.0  # cm4
     rib_spacing: float = 1.0  # m along the tunnel axis
     E_steel: float = 2.1e8  # kPa
-    initial_capacity_percent: float = 50.0
+    initial_capacity_percent: float = 100.0
     fc28: float = 30000.0  # 28-day compressive strength, kPa
     ft28: float = 2500.0  # 28-day tensile strength, kPa
 
