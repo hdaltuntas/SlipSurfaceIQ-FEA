@@ -196,7 +196,8 @@ def transfer_model(previous, fresh):
     else:
         # Construction steps added to the drawing since the last mesh (e.g. a new tunnel).
         names = {s.name for s in stages}
-        stages.extend(s for s in fresh.stages[1:] if s.name not in names)
+        old_steps = {s["name"] for s in (previous.geometry or {}).get("sequence", [])}
+        stages.extend(s for s in fresh.stages[1:] if s.name not in names | old_steps)
     extra = [api.EdgeLoad(e, qn=q) for e, q in cad_loads.items() if e not in placed]
     if extra:
         stages[0] = replace(stages[0], loads=(*stages[0].loads, *extra))

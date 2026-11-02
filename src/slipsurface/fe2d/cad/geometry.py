@@ -118,12 +118,16 @@ class Drawing:
     sequence: tuple[ConstructionStep, ...] = ()
     disturbance: dict | None = None  # {D, thickness, regions, material?}
     disturbed_material: str = ""
+    loading_name: str = "CAD loading"
 
     def __post_init__(self):
         if not np.isfinite([self.h, self.E, self.nu, self.gamma]).all():
             raise ValueError("Mesh and material values must be finite.")
         if self.h <= 0 or self.E <= 0 or self.gamma < 0 or not 0 <= self.nu < 0.5:
             raise ValueError("h and E must be positive, γ ≥ 0 and 0 ≤ ν < 0.5.")
+        names = [self.loading_name, *(step.name for step in self.sequence)]
+        if any(not n.strip() for n in names) or len({n.strip() for n in names}) != len(names):
+            raise ValueError("Construction stage names must be non-empty and unique.")
 
     def to_dict(self):
         return {"version": 2, **asdict(self)}
@@ -143,7 +147,20 @@ class Drawing:
             tuple(ConstructionStep(**c) for c in data.get("sequence", [])),
             data.get("disturbance"),
             str(data.get("disturbed_material") or ""),
+            str(data.get("loading_name", "CAD loading")),
         )
+
+    def with_stage_names(self, names):
+        """Resize the draft schedule, retaining operations on surviving steps."""
+        if not names:
+            raise ValueError("At least one construction stage is required.")
+        sequence = tuple(
+            replace(self.sequence[i], name=name)
+            if i < len(self.sequence)
+            else ConstructionStep(name)
+            for i, name in enumerate(names[1:])
+        )
+        return replace(self, loading_name=names[0], sequence=sequence)
 
     def without_entity(self, name):
         """Drop an entity with its edge rules, support and construction-step references."""
@@ -404,7 +421,7 @@ class Drawing:
             # No structures in the initial state: pile skin interfaces stay tied (continuous).
             # K0 from self-weight is what loads a lining when the opening is excavated.
             initial=api.InitialStress("k0_field", active_structures=frozenset()),
-            stages=[api.Stage("CAD loading", loads=tuple(loads))],
+            stages=[api.Stage(self.loading_name, loads=tuple(loads))],
             geometry=self.to_dict(),
         )
         model = compile_supports(model, self)

@@ -45,6 +45,40 @@ bolts are defined from the advanced structure editor on the existing mesh. The t
 approximates a circular section with a polygon; other sections are made with the
 polygon/coordinate editor.
 
+## Stage tabs and project properties
+
+The model/CAD canvas and the mesh/results canvas both have bottom stage tabs. Selecting
+a tab also selects the same stage in the document viewer. CAD region labels and fills
+show the selected stage's material or excavation state; selecting a stage does not edit it.
+
+Use **Model > Project properties…** to set construction-stage count and names. The fixed
+**0. Initial** state is additional to that count. Renaming keeps loads, water, support
+activation, material overrides and relaxation factors. Increasing the count copies the
+last stage, with full load release and displacement reset off. Decreasing the count
+removes stages from the end. The existing **Model > Stages…** editor still controls the
+complete stage definitions. Project properties also works on an unmeshed drawing;
+draft names are stored in `.sscad.json` and used during mesh generation.
+
+After generating the mesh, define intact and softened/disturbed materials in
+**Model > Materials…**. Select a bottom stage tab, right-click the region on either
+canvas, and choose **Assign material in stage…**. Pick a material or
+**Excavated (void)**. Only the selected stage changes unless **Apply to this and all
+following stages** is checked. This assigns an existing material definition; it does
+not introduce a new strain-softening constitutive law. Changing Initial alone preserves
+later stages' material definitions with explicit overrides.
+
+For direct excavation, right-click a region and choose **Excavate in this stage**.
+It immediately deactivates the region in the selected stage. **Excavate from this
+stage onward** also deactivates it in every later stage. Geometry and the material
+library are retained; use **Assign material in stage…** to reactivate the region.
+These shortcuts are available on both the CAD and mesh/results canvases after meshing.
+
+Applying project or material changes clears old results and keeps the selected stage
+and workspace. Save the meshed model as `.ssproj` to retain all material assignments.
+Remeshing preserves those assignments and does not restore deleted/renamed stages.
+If the drawing has changed since meshing, regenerate it before editing model stage
+definitions or assigning materials; this prevents editing against stale region IDs.
+
 ## Save, undo, and remeshing
 
 - `.sscad.json` stores the drawing, the fixities/loads, and the support definitions. The

@@ -126,9 +126,7 @@ def remove_material(model, name):
     used = set(model.region_material.values())
     used.update(n for s in model.stages for n in s.material_override.values())
     if name in used:
-        raise ValueError(
-            "Material is used by a region or stage; change those assignments first."
-        )
+        raise ValueError("Material is used by a region or stage; change those assignments first.")
     return validate_edit(
         replace(model, materials={k: v for k, v in model.materials.items() if k != name})
     )
@@ -291,11 +289,7 @@ def set_region_stage_state(
     all_regions = frozenset(model.mesh.regions())
     if region not in all_regions:
         raise ValueError(f"Unknown region: {region}")
-    mat_name = (
-        model.region_material[region]
-        if material == "__active__"
-        else material
-    )
+    mat_name = model.region_material[region] if material == "__active__" else material
     if mat_name is not None and mat_name not in model.materials:
         raise ValueError(f"Unknown material: {mat_name}")
 
@@ -310,6 +304,19 @@ def set_region_stage_state(
         else:
             cur.add(region)
             region_material[region] = mat_name
+            if not propagate:
+                # Initial uses the base assignment. Preserve the total material
+                # definition of every later stage when only Initial is edited.
+                stages = [
+                    replace(
+                        s,
+                        material_override={
+                            **s.material_override,
+                            region: s.material_override.get(region, model.region_material[region]),
+                        },
+                    )
+                    for s in stages
+                ]
         active_val = None if cur == all_regions else frozenset(cur)
         initial = replace(initial, active_regions=active_val)
         target_indices: Iterable[int] = range(1, len(stages) + 1) if propagate else ()
@@ -330,13 +337,50 @@ def set_region_stage_state(
             else:
                 overrides[region] = mat_name
         active_val = None if cur == all_regions else frozenset(cur)
-        stages[idx - 1] = replace(
-            st, active_regions=active_val, material_override=overrides
-        )
+        stages[idx - 1] = replace(st, active_regions=active_val, material_override=overrides)
 
     return validate_edit(
         replace(model, initial=initial, region_material=region_material, stages=stages)
     )
+
+
+def set_project_stages(model, names):
+    """Rename/resize the schedule without losing retained stage definitions."""
+    from ..cad.geometry import Drawing
+
+    names = [n.strip() for n in names]
+    if not names or any(not n for n in names) or len(set(names)) != len(names):
+        raise ValueError("Stage names must be non-empty and unique; keep at least one stage.")
+    stages = [replace(s, name=n) for s, n in zip(model.stages, names)]
+    for name in names[len(stages) :]:
+        previous = (
+            stages[-1]
+            if stages
+            else api.Stage(
+                name,
+                active_regions=model.initial.active_regions,
+                active_structures=stage_active_structures(model, 0),
+                water=model.initial.water,
+            )
+        )
+        stages.append(replace(previous, name=name, load_split=1.0, reset_displacements=False))
+    geometry = model.geometry
+    if geometry:
+        drawing = Drawing.from_dict(geometry)
+        renames = {s.name: n for s, n in zip(model.stages, names)}
+        removed = {s.name for s in model.stages[len(names) :]}
+        drawing = replace(
+            drawing,
+            loading_name=renames.get(drawing.loading_name, drawing.loading_name),
+            sequence=tuple(
+                replace(s, name=renames.get(s.name, s.name))
+                for s in drawing.sequence
+                if s.name not in removed
+            ),
+        )
+        # Preserve remesh metadata (mesh_edits etc.) outside the Drawing schema.
+        geometry = {**geometry, **drawing.to_dict()}
+    return validate_edit(replace(model, stages=stages, geometry=geometry))
 
 
 def set_structure_stage_state(

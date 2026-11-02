@@ -105,6 +105,9 @@ class CadCanvas(QGraphicsView):
         self.rectangle = False
         self.circle = False
         self.supports = {}
+        self.stage_materials = {}
+        self.material_colors = {}
+        self._region_labels = []
         self.setSceneRect(-4, -12, 28, 18)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
@@ -121,6 +124,8 @@ class CadCanvas(QGraphicsView):
     def redraw(self, entities, pending=(), selected=None):
         self.entities, self.pending = entities, list(pending)
         self.scene().clear()
+        self._region_labels = []
+        shapes = {e.name: e.shape() for e in entities if e.kind != "line"}
         region_palette = ("#65b4c8", "#e2b878", "#82c39b", "#b39ddb", "#e5989b", "#80cbc4")
         for e in entities:
             path = QPainterPath(QPointF(e.points[0][0], -e.points[0][1]))
@@ -140,19 +145,33 @@ class CadCanvas(QGraphicsView):
                 if e.kind == "hole"
                 else region_palette[(max(int(e.region), 1) - 1) % len(region_palette)]
             )
+            if e.kind == "region" and e.region in self.stage_materials:
+                material = self.stage_materials[e.region]
+                fill_hex = self.material_colors.get(material, "#ffffff")
             brush = QColor(fill_hex)
-            brush.setAlpha(85 if e.kind == "region" else 255)
+            excavated = e.region in self.stage_materials and self.stage_materials[e.region] is None
+            brush.setAlpha(85 if e.kind == "region" and not excavated else 255)
             item = self.scene().addPath(path, pen)
             if e.kind != "line":
                 item.setBrush(brush)
             item.setZValue(-e.shape().area if e.kind != "line" else 1)
             if e.kind == "region":
-                rep = e.shape().representative_point()
-                tag_lbl = self.scene().addSimpleText(f"{e.name} (B{e.region})")
+                visible = shapes[e.name]
+                # A tunnel/halo must not put every containing region's label at
+                # the same centre. Place the label in the remaining material.
+                for name, shape in shapes.items():
+                    if name != e.name and shapes[e.name].contains(shape):
+                        visible = visible.difference(shape)
+                rep = (visible if not visible.is_empty else shapes[e.name]).representative_point()
+                label = f"{e.name} (B{e.region})"
+                if e.region in self.stage_materials:
+                    label += "\n" + (self.stage_materials[e.region] or "Excavated")
+                tag_lbl = self.scene().addSimpleText(label)
                 tag_lbl.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
                 tag_lbl.setPos(float(rep.x), float(-rep.y))
                 tag_lbl.setBrush(QColor("#1e3a4c"))
                 tag_lbl.setZValue(1.5)
+                self._region_labels.append((tag_lbl, QPointF(float(rep.x), float(-rep.y))))
             for name, (a, b) in zip(e.edge_names(), e.segments()) if self.edge_labels else []:
                 mid = (np.asarray(a) + b) / 2
                 label = self.scene().addSimpleText(name)
@@ -176,6 +195,17 @@ class CadCanvas(QGraphicsView):
         rect = self.scene().itemsBoundingRect()
         size = max(rect.width(), rect.height(), 10.0)
         self.setSceneRect(self.sceneRect().united(rect.adjusted(-size, -size, size, size)))
+        self._layout_region_labels()
+
+    def _layout_region_labels(self):
+        """Keep fixed-size material labels legible at the current zoom."""
+        occupied = []
+        for label, anchor in self._region_labels:
+            rect = QRectF(QPointF(self.mapFromScene(anchor)), label.boundingRect().size())
+            while any(rect.adjusted(-3, -2, 3, 2).intersects(other) for other in occupied):
+                rect.translate(0, rect.height() + 4)
+            label.setPos(self.mapToScene(round(rect.x()), round(rect.y())))
+            occupied.append(rect)
 
     def drawBackground(self, painter, rect):
         super().drawBackground(painter, rect)
@@ -214,6 +244,7 @@ class CadCanvas(QGraphicsView):
         self.setSceneRect(rect.adjusted(-room, -room, room, room))
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
         self.centerOn(rect.center())
+        self._layout_region_labels()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -224,6 +255,8 @@ class CadCanvas(QGraphicsView):
         super().resizeEvent(event)
         if self._auto_fit and self.isVisible():
             self._apply_fit()
+        else:
+            self._layout_region_labels()
 
     def _tolerance(self, pixels):
         return pixels / max(abs(self.transform().m11()), 1e-12)
@@ -486,6 +519,7 @@ class CadCanvas(QGraphicsView):
         self._auto_fit = False
         if 1e-4 < abs(self.transform().m11()) * factor < 1e6:
             self.scale(factor, factor)
+            self._layout_region_labels()
 
 
 class MeshWorker(QThread):
@@ -519,6 +553,7 @@ class CadDialog(QDialog):
     worker_stopped = Signal()
     drawing_changed = Signal()
     structure_requested = Signal(str)
+    stage_menu_requested = Signal(object, int)
 
     def __init__(self, model=None, parent=None, *, embedded=False):
         super().__init__(parent)
@@ -941,6 +976,8 @@ class CadDialog(QDialog):
             support = next((s for s in self.document.supports if s.entity == entity.name), None)
             header = menu.addAction(entity.name)
             header.setEnabled(False)
+            if entity.kind == "region":
+                self.stage_menu_requested.emit(menu, entity.region)
             menu.addAction("Properties…", lambda: self.show_inspector(0))
             menu.addAction("Assign / edit support…", lambda: self.show_inspector(2))
             if entity.kind == "line":

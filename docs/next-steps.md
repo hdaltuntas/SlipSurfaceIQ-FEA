@@ -2,6 +2,17 @@
 
 ## 2 November 2026 review follow-up
 
+The model/CAD workspace now has bottom stage tabs synchronized with the mesh/results
+view and document viewer. **Model > Project properties** edits the number and names
+of construction stages, including in unmeshed drafts. Right-clicking a region on
+either canvas opens material/excavation assignment for the selected stage; applying
+to following stages is optional. Direct right-click actions also excavate only the
+selected stage or that stage and all later stages, without deleting the geometry.
+Existing softened/disturbed material definitions
+can be selected. These edits clear old results and survive project save/reopen and
+remeshing. Regression coverage: `tests/unit/test_stage_workspace.py` (desktop CI).
+See [the workflow](integrated-modeler.md#stage-tabs-and-project-properties).
+
 The user cancelled the theme change at this stage. Theme PRs #14 and #15 were closed
 without merging; the current main-branch appearance is retained.
 The user also requested source-only operation: use `python main.py` after installing

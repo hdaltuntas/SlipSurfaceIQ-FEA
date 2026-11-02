@@ -188,11 +188,14 @@ class MeshCanvas(QGraphicsView):
         if section:
             pen = QPen(Qt.PenStyle.NoPen)  # N-V-M view: mesh edges off, filled diagrams only
         region_colors = ("#c5dfe8", "#dfd4b8", "#cbdcc4", "#d7cce5", "#f2d0c4", "#bfe3dc")
+        material_colors = {
+            name: region_colors[i % len(region_colors)] for i, name in enumerate(model.materials)
+        }
         for block, e, reg_id, xy, outline in cells:
             if outline is None:
                 value = float(reg_id)
-                color = QColor(region_colors[(reg_id - 1) % len(region_colors)])
                 tip_mat = stage_region_material(model, stage_index, reg_id) or "Excavated"
+                color = QColor(material_colors.get(tip_mat, "#ffffff"))
                 tip = f"{region_label(model, reg_id)} · Material: {tip_mat} · Element {e}"
             else:
                 finite_n = outline[np.isfinite(outline)]

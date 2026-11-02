@@ -53,6 +53,8 @@ from .canvas import MeshCanvas
 from .dialogs import MaterialDialog, NewModelDialog, StageDialog
 from .editing import (
     region_label,
+    set_project_stages,
+    set_region_stage_state,
     stage_active_structures,
     stage_region_material,
     structure_label,
@@ -158,8 +160,14 @@ class MainWindow(QMainWindow):
         self.cad = CadDialog(parent=self, embedded=True)
         self.cad.model_ready.connect(self._accept_cad_model)
         self.cad.worker_stopped.connect(self._cad_worker_stopped)
-        self.cad.drawing_changed.connect(self._update_guidance)
+        self.cad.drawing_changed.connect(self._on_drawing_changed)
         self.cad.structure_requested.connect(self.show_structure_forces)
+        self.cad.stage_menu_requested.connect(self._add_region_stage_action)
+        self.model_stage_tabs = QTabBar()
+        self.model_stage_tabs.setExpanding(False)
+        self.model_stage_tabs.currentChanged.connect(self._on_stage_tab_changed)
+        # Keep the schedule immediately beneath the model canvas/editor.
+        self.cad.layout().insertWidget(2, self.model_stage_tabs)
         self.workspace.addWidget(self.cad)
         self.status.attach(self.cad.canvas)
         self.cad.canvas.mouse_world.connect(self.status.show_coords)
@@ -453,6 +461,7 @@ class MainWindow(QMainWindow):
         # Modelling steps live in the numbered workflow bar; the toolbar keeps file/run.
         model_menu = self.menuBar().addMenu("Model")
         for title, slot in [
+            ("Project properties…", self.edit_project_properties),
             ("Geometry / CAD", self.edit_geometry),
             ("Materials…", self.edit_materials),
             ("Structures (drawing)", self.edit_structures),
@@ -543,24 +552,73 @@ class MainWindow(QMainWindow):
             self.export_actions.append(a)
 
     def _sync_stage_tabs(self, selected_row: int):
-        self.stage_tabs.blockSignals(True)
-        while self.stage_tabs.count():
-            self.stage_tabs.removeTab(0)
-        if self.model is not None:
-            names = [
-                "0. Initial",
-                *[f"{i + 1}. {s.name}" for i, s in enumerate(self.model.stages)],
-            ]
-            for name in names:
-                self.stage_tabs.addTab(name)
-            self.stage_tabs.setCurrentIndex(max(0, min(selected_row, self.stage_tabs.count() - 1)))
-        self.stage_tabs.blockSignals(False)
+        names = [self.stages.item(i).text() for i in range(self.stages.count())]
+        for tabs in (self.stage_tabs, self.model_stage_tabs):
+            tabs.blockSignals(True)
+            while tabs.count():
+                tabs.removeTab(0)
+            for i, name in enumerate(names):
+                tabs.addTab(f"{i}. {name}")
+                tabs.setTabToolTip(i, name)
+            tabs.setCurrentIndex(max(0, min(selected_row, tabs.count() - 1)))
+            tabs.blockSignals(False)
+        self._refresh_cad_stage()
+
+    def _on_drawing_changed(self):
+        if self.model is None and hasattr(self, "model_stage_tabs"):
+            drawing = self.cad.current_drawing()
+            names = (
+                ["Initial", drawing.loading_name, *[s.name for s in drawing.sequence]]
+                if drawing.entities or drawing.sequence or drawing.loading_name != "CAD loading"
+                else []
+            )
+            row = max(0, min(self.stages.currentRow(), len(names) - 1))
+            self.stages.blockSignals(True)
+            self.stages.clear()
+            self.stages.addItems(names)
+            self.stages.setCurrentRow(row)
+            self.stages.blockSignals(False)
+            self._sync_stage_tabs(row)
+        elif hasattr(self, "model_stage_tabs"):
+            self._refresh_cad_stage()
+        self._update_guidance()
+
+    def _refresh_cad_stage(self):
+        row = max(0, self.stages.currentRow())
+        drawing = self.cad.current_drawing()
+        materials = {}
+        if self.model is not None and not self.cad.mesh_outdated:
+            materials = {
+                r: stage_region_material(self.model, row, r) for r in self.model.mesh.regions()
+            }
+            names = list(self.model.materials)
+        elif self.model is None:
+            materials = {e.region: "soil" for e in drawing.entities if e.kind == "region"}
+            by_name = {e.name: e.region for e in drawing.entities if e.kind == "region"}
+            for step in drawing.sequence[: max(0, row - 1)]:
+                for name in step.disturb:
+                    if name in by_name and drawing.disturbed_material:
+                        materials[by_name[name]] = drawing.disturbed_material
+                for name in step.excavate:
+                    if name in by_name:
+                        materials[by_name[name]] = None
+            names = ["soil", drawing.disturbed_material]
+        else:
+            names = []  # Outdated geometry has no reliable stage-to-region mapping yet.
+        colors = ("#65b4c8", "#e2b878", "#82c39b", "#b39ddb", "#e5989b", "#80cbc4")
+        self.cad.canvas.stage_materials = materials
+        self.cad.canvas.material_colors = {n: colors[i % len(colors)] for i, n in enumerate(names)}
+        index = self.cad.entities.currentRow()
+        selected = drawing.entities[index].name if 0 <= index < len(drawing.entities) else None
+        self.cad.canvas.redraw(drawing.entities, self.cad.pending, selected)
 
     def _on_stage_list_changed(self, row: int):
-        if hasattr(self, "stage_tabs") and 0 <= row < self.stage_tabs.count():
-            self.stage_tabs.blockSignals(True)
-            self.stage_tabs.setCurrentIndex(row)
-            self.stage_tabs.blockSignals(False)
+        if hasattr(self, "model_stage_tabs"):
+            for tabs in (self.stage_tabs, self.model_stage_tabs):
+                tabs.blockSignals(True)
+                tabs.setCurrentIndex(row)
+                tabs.blockSignals(False)
+            self._refresh_cad_stage()
         self.draw()
 
     def _on_stage_tab_changed(self, index: int):
@@ -603,6 +661,7 @@ class MainWindow(QMainWindow):
             state = cur_mat if cur_mat else "excavated"
             label = menu.addAction(f"{region_label(self.model, region)} · {state}")
             label.setEnabled(False)
+            self._add_region_stage_action(menu, region)
         if struct_tag:
             s_lbl = structure_label(self.model, struct_tag)
             active = struct_tag in stage_active_structures(self.model, stage_idx)
@@ -613,6 +672,96 @@ class MainWindow(QMainWindow):
                 note = menu.addAction("Not active in this stage; the window opens the loaded stage")
                 note.setEnabled(False)
         menu.exec(global_pos)
+
+    def _add_region_stage_action(self, menu, region):
+        row = max(0, self.stages.currentRow())
+        name = self.stages.item(row).text() if self.stages.count() else "Initial"
+        action = menu.addAction(f"Assign material in stage {row}: {name}…")
+        ready = (
+            self.model is not None
+            and not self.cad.mesh_outdated
+            and region in self.model.mesh.regions()
+            and not self.busy
+        )
+        action.setEnabled(ready)
+        action.triggered.connect(lambda _=False: self.edit_region_stage(region))
+        excavate = menu.addAction("Excavate in this stage")
+        excavate.setEnabled(ready and stage_region_material(self.model, row, region) is not None)
+        excavate.triggered.connect(lambda _=False: self.excavate_region(region))
+        onward = menu.addAction("Excavate from this stage onward")
+        onward.setEnabled(
+            ready
+            and any(
+                stage_region_material(self.model, i, region) is not None
+                for i in range(row, len(self.model.stages) + 1)
+            )
+        )
+        onward.triggered.connect(lambda _=False: self.excavate_region(region, propagate=True))
+        if not ready:
+            hint = menu.addAction("Generate the mesh before assigning stage materials")
+            hint.setEnabled(False)
+        menu.addSeparator()
+
+    def excavate_region(self, region, *, propagate=False):
+        """Deactivate the picked region without deleting its geometry or material."""
+        if self.busy or not self._require_model():
+            return
+        try:
+            updated = set_region_stage_state(
+                self.model, max(0, self.stages.currentRow()), region, None, propagate=propagate
+            )
+        except (ValueError, ModelError) as exc:
+            QMessageBox.warning(self, "Excavation", str(exc))
+            return
+        self._apply_stage_edit(updated)
+
+    def edit_region_stage(self, region):
+        from .project_properties import RegionStageDialog
+
+        if self.busy or not self._require_model():
+            return
+        dialog = RegionStageDialog(self.model, max(0, self.stages.currentRow()), region, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._apply_stage_edit(dialog.updated)
+
+    def _apply_stage_edit(self, model):
+        row = min(max(0, self.stages.currentRow()), len(model.stages))
+        was_cad = self.workspace.currentWidget() is self.cad
+        history = self.cad.undo_stack[:], self.cad.redo_stack[:]
+        transform = self.cad.canvas.transform()
+        center = self.cad.canvas.mapToScene(self.cad.canvas.viewport().rect().center())
+        self.set_model(model, path=self.path, dirty=True)
+        self.cad.undo_stack, self.cad.redo_stack = history
+        self.stages.setCurrentRow(row)
+        if was_cad:
+            self.edit_geometry()
+            self.cad.canvas.setTransform(transform)
+            self.cad.canvas.centerOn(center)
+        self.status.showMessage("Stage settings updated · Recalculate to view results.")
+
+    def edit_project_properties(self):
+        from .project_properties import ProjectPropertiesDialog
+
+        if self.busy:
+            return
+        if self.model is not None and not self._require_model():
+            return
+        drawing = self.cad.current_drawing()
+        names = (
+            [s.name for s in self.model.stages]
+            if self.model is not None
+            else [drawing.loading_name, *[s.name for s in drawing.sequence]]
+        )
+        dialog = ProjectPropertiesDialog(names, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            if self.model is not None:
+                self._apply_stage_edit(set_project_stages(self.model, dialog.updated))
+            else:
+                self.cad.commit(drawing.with_stage_names(dialog.updated))
+        except Exception as exc:
+            QMessageBox.warning(self, "Project properties", str(exc))
 
     @property
     def busy(self):
@@ -774,9 +923,7 @@ class MainWindow(QMainWindow):
             return
         from .result_tools import StructureDisplacementDialog
 
-        StructureDisplacementDialog(
-            self.result, max(0, self.stages.currentRow()), self
-        ).exec()
+        StructureDisplacementDialog(self.result, max(0, self.stages.currentRow()), self).exec()
 
     def discard_changes(self):
         if not self.dirty and not self.cad.unsaved:
@@ -1149,9 +1296,7 @@ def main(argv=None):
             argv = list(argv[1:])
     parser = argparse.ArgumentParser(description="SlipSurfaceIQ native desktop")
     parser.add_argument("project", nargs="?", help=".ssproj or model JSON")
-    parser.add_argument(
-        "--smoke-test", metavar="DIRECTORY", help="run source application checks"
-    )
+    parser.add_argument("--smoke-test", metavar="DIRECTORY", help="run source application checks")
     args = parser.parse_args(argv)
     if sys.platform == "win32" and QApplication.instance() is None:
         # Native title bar/menus must not switch to the dark palette under our light theme.
