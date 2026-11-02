@@ -911,7 +911,7 @@ class CadDialog(QDialog):
         natm.setToolTip(
             "Horseshoe or circle; shotcrete + mesh + steel sets are smeared into one beam."
         )
-        pattern = strip.addAction(icon("bolt_pattern"), "Bolt pattern (along the selected line)")
+        pattern = strip.addAction(icon("bolt_pattern"), "Bolt pattern (selected line / boundary)")
         pattern.triggered.connect(self.bolt_pattern)
         tunnel_button = strip.widgetForAction(self.tool_actions["tunnel"])
         if isinstance(tunnel_button, QToolButton):
@@ -980,8 +980,13 @@ class CadDialog(QDialog):
                 self.stage_menu_requested.emit(menu, entity.region)
             menu.addAction("Properties…", lambda: self.show_inspector(0))
             menu.addAction("Assign / edit support…", lambda: self.show_inspector(2))
-            if entity.kind == "line":
-                menu.addAction(icon("bolt_pattern"), "Bolt pattern…", self.bolt_pattern)
+            menu.addAction(
+                icon("bolt_pattern"), "Bolt pattern along this line / boundary…", self.bolt_pattern
+            )
+            if edge:
+                menu.addAction(
+                    "Bolt pattern on this edge…", lambda e=edge: self.bolt_pattern(edge=e)
+                )
             if support is not None:
                 diagram = menu.addAction(
                     "Section forces (N–V–M)…",
@@ -1458,31 +1463,39 @@ class CadDialog(QDialog):
             self.cancel_drawing()
             self.show_error(exc)
             return
-        added = len(updated.sequence) - len(self.document.sequence)
         self.commit(updated)
         self.status.setStyleSheet("")
         self.status.setText(
-            f"Tunnel placed ({center[0]:.3g}, {center[1]:.3g}) · {added} construction stages; "
-            "they are added to the stages when the mesh is generated."
+            f"Tunnel placed ({center[0]:.3g}, {center[1]:.3g}) · Stage schedule unchanged. "
+            "Set excavation and support activation under Model > Stages."
         )
 
-    def bolt_pattern(self):
+    def bolt_pattern(self, _checked=False, *, edge=None):
         from ..cad.tunnel import bolt_pattern_along
         from .tunnel_designer import BoltPatternDialog
 
         index = self.entities.currentRow()
-        if not 0 <= index < len(self.document.entities) or (
-            self.document.entities[index].kind != "line"
-        ):
+        if not 0 <= index < len(self.document.entities):
             self.show_error(
-                "Select a line first (wall, lining or slope line) for a bolt pattern."
+                "Select a lining, line or tunnel boundary first, then choose bolt spacing."
             )
             return
         host = self.document.entities[index].name
         entity = self.document.entities[index]
-        pts = np.asarray(entity.points)
+        pts = np.asarray(
+            entity.points if entity.kind == "line" else (*entity.points, entity.points[0])
+        )
+        closed = np.allclose(pts[0], pts[-1])
+        signed_area = float(np.sum(pts[:-1, 0] * pts[1:, 1] - pts[1:, 0] * pts[:-1, 1]))
+        angle = -90.0 if closed and signed_area > 0 else 90.0
+        edge_index = entity.edge_names().index(edge) if edge in entity.edge_names() else None
+        if edge_index is not None:
+            pts = pts[edge_index : edge_index + 2]
+            closed = False
         chain_length = float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
-        dialog = BoltPatternDialog(host, self, chain_length=chain_length)
+        dialog = BoltPatternDialog(
+            edge or host, self, chain_length=chain_length, closed=closed, default_angle=angle
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
@@ -1496,11 +1509,14 @@ class CadDialog(QDialog):
                     dialog.pattern(),
                     margin=dialog.margin.value(),
                     spacing=dialog.spacing_along.value(),
+                    edge_index=edge_index,
+                    active=dialog.active.isChecked(),
                 )
             )
             self.status.setStyleSheet("")
-            n = dialog.pattern().count_on_length(max(chain_length - 2 * dialog.margin.value(), 0))
-            self.status.setText(f"{n} bolts added · {host}")
+            self.status.setText(
+                f"Bolts added · {edge or host} · Set activation under Model > Stages"
+            )
         except Exception as exc:
             self.show_error(exc)
 

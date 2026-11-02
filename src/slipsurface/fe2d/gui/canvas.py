@@ -100,9 +100,12 @@ class MeshCanvas(QGraphicsView):
         self.stage_index = 0
         self.cell_count = 0
         self.nvm_count = self.disp_label_count = 0
+        self.diagram_tags = []
         self.colorbar_visible = False
         self.field_name = "|u|"
         self.field_unit = "m"
+        self.selection = None
+        self.diagram_scale = 1.0
         self.field_range = (0.0, 0.0)
         self.constant_field = True
         self.legend = "Geometry · m"
@@ -119,12 +122,17 @@ class MeshCanvas(QGraphicsView):
         principal=False,
         plastic_points=False,
         stage_index=0,
+        selection=None,
+        diagram_scale=1.0,
     ):
         changed_model = self.model is not model
+        changed_selection = self.selection != selection
+        self.selection, self.diagram_scale = selection, diagram_scale
         self.model, self.stage, self.stage_index = model, stage, stage_index
         self.field_name = field
         self.scene().clear()
         self.cell_count = 0
+        self.diagram_tags = []
         self.principal_count = self.plastic_count = 0
         self.nvm_count = self.disp_label_count = 0
         section = field in SECTION_FIELDS
@@ -135,6 +143,16 @@ class MeshCanvas(QGraphicsView):
         if stage is not None:
             coords += deform * np.nan_to_num(stage.u)
         self.display_coords = coords
+        self.focus_coords = None
+        if selection is not None:
+            kind, selected = selection
+            blocks = mesh.continuum_blocks() if kind == "region" else [mesh.block(selected)]
+            nodes = [
+                b.conn[b.region == selected].ravel() if kind == "region" else b.conn.ravel()
+                for b in blocks
+            ]
+            if nodes and any(len(n) for n in nodes):
+                self.focus_coords = coords[np.unique(np.concatenate(nodes))]
         active_regs = stage_active_regions(model, stage_index)
         active_structs = stage_active_structures(model, stage_index)
         cells = []
@@ -164,10 +182,18 @@ class MeshCanvas(QGraphicsView):
                     continue
                 xy = coords[conn[order]]
                 region_centers.setdefault(reg_id, []).append(xy.mean(axis=0))
-                outline = None if nodal is None else nodal[e][order]
+                target = selection is None or selection == ("region", reg_id)
+                outline = None if nodal is None or not target else nodal[e][order]
                 if outline is not None:
                     samples.extend(float(v) for v in outline if np.isfinite(v))
                 cells.append((block, e, reg_id, xy, outline))
+        if selection is not None and selection[0] == "structure" and stage is not None:
+            if field in DISPLACEMENT_FIELDS:
+                u = stage.u[np.unique(mesh.block(selection[1]).conn)]
+                values = (
+                    np.linalg.norm(u, axis=1) if field == "|u|" else u[:, 0 if field == "ux" else 1]
+                )
+                samples = values[np.isfinite(values)].tolist()
         finite = np.asarray(samples, float)
         lo, hi = (float(finite.min()), float(finite.max())) if finite.size else (0.0, 0.0)
         span = hi - lo
@@ -175,6 +201,8 @@ class MeshCanvas(QGraphicsView):
         self.field_range = (lo, hi)
         self.constant_field = constant
         ghost_pen = QPen(QColor("#94a3b8"), 0, Qt.PenStyle.DashLine)
+        if section or (selection is not None and selection[0] == "structure"):
+            ghost_pen = QPen(Qt.PenStyle.NoPen)
         ghost_brush = QColor(226, 232, 240, 60)
         for _block, _e, reg_id, xy in excavated_cells:
             poly = QPolygonF([QPointF(float(x), float(-y)) for x, y in xy])
@@ -192,6 +220,7 @@ class MeshCanvas(QGraphicsView):
             name: region_colors[i % len(region_colors)] for i, name in enumerate(model.materials)
         }
         for block, e, reg_id, xy, outline in cells:
+            context = selection is not None and selection != ("region", reg_id)
             if outline is None:
                 value = float(reg_id)
                 tip_mat = stage_region_material(model, stage_index, reg_id) or "Excavated"
@@ -206,12 +235,18 @@ class MeshCanvas(QGraphicsView):
                 hi_e = float(np.max(finite_n)) if finite_n.size else np.nan
                 tip = f"{block.tag} · {e} · {field}: {lo_e:.6g} … {hi_e:.6g}"
             poly = QPolygonF([QPointF(float(x), float(-y)) for x, y in xy])
-            item = self.scene().addPolygon(poly, pen, color)
+            item = self.scene().addPolygon(
+                poly,
+                QPen(Qt.PenStyle.NoPen) if context else pen,
+                QColor("#edf1f4") if context else color,
+            )
             item.setData(0, ("region", reg_id))
             item.setToolTip(tip)
             self.cell_count += 1
         if stage is None:
             for reg_id, pts in sorted(region_centers.items()):
+                if selection is not None and selection != ("region", reg_id):
+                    continue
                 center = np.mean(pts, axis=0)
                 mat = stage_region_material(model, stage_index, reg_id)
                 r_lbl = region_label(model, reg_id)
@@ -223,8 +258,36 @@ class MeshCanvas(QGraphicsView):
                 badge.setBrush(QColor("#b42331" if mat is None else "#123f5b"))
                 badge.setZValue(3)
         for block in mesh.blocks:
+            if block.etype in (ElemType.IFACE4, ElemType.IFACE6) and selection == (
+                "structure",
+                block.tag,
+            ):
+                half = block.conn.shape[1] // 2
+                active = (
+                    stage.active.get(block.tag, np.ones(block.ne, bool))
+                    if stage is not None
+                    else np.ones(block.ne, bool)
+                )
+                for conn in block.conn[active]:
+                    for pair in (conn[:2], conn[half : half + 2]):
+                        a, b = coords[pair]
+                        if not np.isfinite([a, b]).all():
+                            continue
+                        color = QColor("#8455b6")
+                        if stage is not None and field in DISPLACEMENT_FIELDS:
+                            u = stage.u[pair]
+                            value = (
+                                np.linalg.norm(u, axis=1).mean()
+                                if field == "|u|"
+                                else u[:, 0 if field == "ux" else 1].mean()
+                            )
+                            color = field_color((value - lo) / span if not constant else 0.5)
+                        line = self.scene().addLine(a[0], -a[1], b[0], -b[1], QPen(color, 0))
+                        line.setData(0, ("structure", block.tag))
+                        line.setZValue(2.5)
             if block.etype not in (ElemType.BEAM2, ElemType.BAR2):
                 continue
+            context = selection is not None and selection != ("structure", block.tag)
             if stage is None:
                 is_active = block.tag in active_structs
                 p = QPen(
@@ -237,6 +300,9 @@ class MeshCanvas(QGraphicsView):
                     Qt.PenStyle.SolidLine if is_active else Qt.PenStyle.DashLine,
                 )
                 p.setCosmetic(True)
+                if context:
+                    p.setColor(QColor("#b7c2cc"))
+                    p.setWidthF(1.0)
                 s_lbl = structure_label(model, block.tag)
                 state_txt = "Active" if is_active else "Inactive (click to activate)"
                 for conn in block.conn:
@@ -248,6 +314,14 @@ class MeshCanvas(QGraphicsView):
             else:
                 active = stage.active.get(block.tag, np.ones(block.ne, bool))
                 s_lbl = structure_label(model, block.tag)
+                if selection == ("structure", block.tag):
+                    pen = QPen(QColor("#94a3b8"), 0, Qt.PenStyle.DashLine)
+                    for conn in block.conn[~active]:
+                        a, b = mesh.coords[conn]
+                        item = self.scene().addLine(a[0], -a[1], b[0], -b[1], pen)
+                        item.setData(0, ("structure", block.tag))
+                        item.setToolTip(f"{s_lbl} · Inactive in this stage")
+                        item.setZValue(2.5)
                 for conn in block.conn[active]:
                     a, b = coords[conn]
                     if field in DISPLACEMENT_FIELDS:
@@ -257,11 +331,7 @@ class MeshCanvas(QGraphicsView):
                             if field == "|u|"
                             else v[:, 0 if field == "ux" else 1].mean()
                         )
-                        t = (
-                            (value - lo) / (hi - lo)
-                            if not constant and np.isfinite(value)
-                            else 0.5
-                        )
+                        t = (value - lo) / (hi - lo) if not constant and np.isfinite(value) else 0.5
                         p = QPen(field_color(t), 3.2)
                     else:
                         p = QPen(
@@ -269,6 +339,9 @@ class MeshCanvas(QGraphicsView):
                             2.6,
                         )
                     p.setCosmetic(True)
+                    if context:
+                        p.setColor(QColor("#b7c2cc"))
+                        p.setWidthF(1.0)
                     line_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
                     line_item.setZValue(2.5)
                     line_item.setData(0, ("structure", block.tag))
@@ -277,6 +350,13 @@ class MeshCanvas(QGraphicsView):
                         f"{s_lbl} · |u|={np.linalg.norm(ua):.4g} … {np.linalg.norm(ub):.4g} m"
                     )
         unit = field_unit(field)
+        if (
+            selection is not None
+            and selection[0] == "structure"
+            and field == "N"
+            and model.structure_tags().get(selection[1]) == "bar"
+        ):
+            unit = "kN"
         self.field_unit = unit
         if stage is None:
             st_name = (
@@ -293,29 +373,30 @@ class MeshCanvas(QGraphicsView):
                 + " · Click a region/support or right-click to edit"
             )
         elif field in SECTION_FIELDS:
-            self.legend = (
-                f"{field} · {unit} · lining / pile / anchor · deformation ×{deform:g}"
-            )
+            self.legend = f"{field} · {unit} · lining / pile / anchor · deformation ×{deform:g}"
         else:
             sampling = "yielding Gauss-point fraction" if field == "plastic" else "nodal"
             self.legend = (
-                f"{field} · {unit} · {sampling} · {lo:.5g} … {hi:.5g}"
-                f" · deformation ×{deform:g}"
+                f"{field} · {unit} · {sampling} · {lo:.5g} … {hi:.5g} · deformation ×{deform:g}"
             )
         if stage is not None and result is not None:
             if field not in SECTION_FIELDS:
                 self.draw_overlays(result, stage, coords, principal, plastic_points)
             self.draw_structure_results(result, stage, coords, field)
             self.legend += self.overlay_note
-        if changed_model:
+        if changed_model or changed_selection:
             self.fit_model()
         self.viewport().update()
 
     def draw_overlays(self, result, stage, coords, principal, plastic):
+        if not principal and not plastic:
+            return
         extent = max(float(np.ptp(coords, axis=0).max()), 1e-9)
         records = []
         for block in result.model.mesh.continuum_blocks():
             active = stage.active.get(block.tag, np.ones(block.ne, bool))
+            if self.selection is not None and self.selection[0] == "region":
+                active = active & (block.region == self.selection[1])
             g = result.geom[block.tag]
             xy = np.einsum("gn,enj->egj", g.N, coords[block.conn[active]])
             sig = stage.sig[block.tag][active]
@@ -371,113 +452,83 @@ class MeshCanvas(QGraphicsView):
             if stride > 1:
                 self.overlay_note += f" (every {stride}th GP)"
 
-    @staticmethod
-    def _seg_normal(mapped, seg_idx):
-        a, b = mapped[seg_idx].a, mapped[seg_idx].b
-        t = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
-        return np.array([-t[1], t[0]])
-
     def draw_structure_results(self, result, stage, coords, field):
-        """N–V–M as an offset polyline on the member. Displacement stays a heatmap."""
-        show_nvm = field in SECTION_FIELDS
-        component = SECTION_FIELDS.get(field, 0)
-        if not show_nvm:
+        """Draw each connected member separately, scaled to its own dimensions."""
+        if field not in SECTION_FIELDS:
             return
         from .result_tools import (
             FORCE_COMPONENTS,
             diagram_amplitude,
             force_diagram_line,
+            structure_chains,
             structure_segments,
         )
 
-        mesh = result.model.mesh
-        finite = coords[np.isfinite(coords).all(1)]
-        extent = max(float(np.ptp(finite, axis=0).max()) if len(finite) else 1.0, 1e-9)
-        offset = 0.02 * extent
         notes = []
-        for block in mesh.blocks:
+        self.diagram_tags = []
+        for block in result.model.mesh.blocks:
             if block.etype not in (ElemType.BEAM2, ElemType.BAR2):
                 continue
-            try:
-                kind, segments = structure_segments(result, stage, block.tag)
-            except Exception:
+            if self.selection is not None and self.selection != ("structure", block.tag):
                 continue
-            if not segments:
-                continue
+            kind, segments = structure_segments(result, stage, block.tag)
             if kind == "bar" and field != "N":
                 continue
-            mapped, normals = [], {}
-            for seg in segments:
-                ia, ib = seg.nodes
-                pa, pb = coords[ia], coords[ib]
-                mapped.append(replace(seg, a=pa, b=pb))
-                tangent = (pb - pa) / max(float(np.linalg.norm(pb - pa)), 1e-30)
-                normal = np.array([-tangent[1], tangent[0]])
-                normals.setdefault(ia, []).append(normal)
-                normals.setdefault(ib, []).append(normal)
-            comp = 0 if kind == "bar" else max(0, min(int(component), 2))
+            comp = 0 if kind == "bar" else SECTION_FIELDS[field]
+            mapped = [
+                replace(seg, a=coords[seg.nodes[0]], b=coords[seg.nodes[1]])
+                for seg in segments
+                if np.isfinite(coords[list(seg.nodes)]).all()
+                and np.isfinite(seg.forces[:, comp]).all()
+            ]
+            if not mapped:
+                continue
+            self.diagram_tags.append(block.tag)
+            points = np.array([p for seg in mapped for p in (seg.a, seg.b)])
+            extent = max(float(np.ptp(points, axis=0).max()), 1e-9)
+            amplitude = diagram_amplitude(mapped, comp, extent, fraction=0.10) * self.diagram_scale
             key, title, unit = FORCE_COMPONENTS[kind][comp]
-            s_lbl = structure_label(result.model, block.tag)
-            amplitude = diagram_amplitude(mapped, comp, extent, fraction=0.08)
-            line = force_diagram_line(mapped, comp, amplitude)
+            label = structure_label(result.model, block.tag)
             pen = QPen(QColor("#156798"), 0)
             pen.setCosmetic(True)
-            # Filled, unbroken diagram band: close each element's offset pair back
-            # along the member itself, so the whole structure reads as one ribbon.
-            fill_pen = QPen(Qt.PenStyle.NoPen)
-            for seg_idx in range(0, len(line) - 1, 2):
-                (p0, v0), (p1, v1) = line[seg_idx], line[seg_idx + 1]
-                normal = self._seg_normal(mapped, seg_idx // 2)
-                base_a = p0 - amplitude * v0 * normal
-                base_b = p1 - amplitude * v1 * normal
-                sign = 1.0 if (v0 + v1) >= 0 else -1.0
-                fill = QColor("#d9485f" if sign > 0 else "#2f6fd6")
-                fill.setAlpha(110)
-                poly = QPolygonF(
-                    [
-                        QPointF(float(base_a[0]), float(-base_a[1])),
-                        QPointF(float(p0[0]), float(-p0[1])),
-                        QPointF(float(p1[0]), float(-p1[1])),
-                        QPointF(float(base_b[0]), float(-base_b[1])),
-                    ]
-                )
-                item = self.scene().addPolygon(poly, fill_pen, fill)
-                item.setZValue(2.1)
-                item.setData(0, ("structure", block.tag))
-                item.setToolTip(f"{s_lbl} · {title} {unit}")
-            for (xy0, _v0), (xy1, _v1) in zip(line, line[1:]):
-                item = self.scene().addLine(
-                    float(xy0[0]), float(-xy0[1]), float(xy1[0]), float(-xy1[1]), pen
-                )
-                item.setZValue(2.2)
-                item.setData(0, ("structure", block.tag))
-                item.setToolTip(f"{s_lbl} · {title} {unit}")
-                self.nvm_count += 1
-            ext = [
-                (float(seg.forces[k, comp]), seg.a if k == 0 else seg.b)
-                for seg in mapped
-                for k in (0, 1)
-                if np.isfinite(seg.forces[k, comp])
-            ]
-            if ext:
-                (vmin, pmin), (vmax, pmax) = min(ext, key=lambda v: v[0]), max(
-                    ext, key=lambda v: v[0]
-                )
-                for value, where, label in (
-                    (vmin, pmin, "min"),
-                    (vmax, pmax, "maks"),
-                ):
-                    node = min(normals, key=lambda n: float(np.linalg.norm(coords[n] - where)))
-                    mean_n = np.mean(normals[node], axis=0)
-                    mean_n = mean_n / max(float(np.linalg.norm(mean_n)), 1e-30)
-                    self._add_overlay_label(
-                        where + offset * mean_n,
-                        f"{key} {label} {value:.3g} {unit}",
-                        "#8a1c2c",
+            drawn_points = []
+            for chain in structure_chains(mapped):
+                line = force_diagram_line(chain, comp, amplitude)
+                drawn_points.extend(xy for xy, _ in line)
+                for i, seg in enumerate(chain):
+                    (p0, v0), (p1, v1) = line[2 * i : 2 * i + 2]
+                    bands = [(seg.a, p0, p1, seg.b, v0 + v1)]
+                    if v0 * v1 < 0:
+                        t = abs(v0) / (abs(v0) + abs(v1))
+                        zero = seg.a + t * (seg.b - seg.a)
+                        bands = [(seg.a, p0, zero, zero, v0), (zero, zero, p1, seg.b, v1)]
+                    for a, pa, pb, b, sign in bands:
+                        fill = QColor("#d9485f" if sign >= 0 else "#2f6fd6")
+                        fill.setAlpha(105)
+                        poly = QPolygonF(
+                            [QPointF(float(p[0]), float(-p[1])) for p in (a, pa, pb, b)]
+                        )
+                        item = self.scene().addPolygon(poly, QPen(Qt.PenStyle.NoPen), fill)
+                        item.setZValue(2.1)
+                        item.setData(0, ("structure", block.tag))
+                        item.setToolTip(f"{label} · {key}: {v0:.4g} → {v1:.4g} {unit}")
+                # Never bridge disconnected chains, inactive gaps or branches.
+                for (p0, v0), (p1, v1) in zip(line, line[1:]):
+                    item = self.scene().addLine(
+                        float(p0[0]), float(-p0[1]), float(p1[0]), float(-p1[1]), pen
                     )
-            notes.append(f"{s_lbl} {key}")
+                    item.setZValue(2.2)
+                    item.setData(0, ("structure", block.tag))
+                    item.setToolTip(f"{label} · {title}: {v0:.4g} → {v1:.4g} {unit}")
+                    self.nvm_count += 1
+            values = np.array([seg.forces[:, comp] for seg in mapped])
+            notes.append(f"{label}: min {values.min():.4g}, max {values.max():.4g} {unit}")
+            if self.selection == ("structure", block.tag):
+                self.focus_coords = np.vstack((points, drawn_points))
         if notes:
-            self.overlay_note += " · " + ", ".join(notes)
+            self.overlay_note += " · " + "; ".join(notes)
+        elif self.selection is not None:
+            self.overlay_note += " · No active section-force result in this stage"
 
     def _add_overlay_label(self, xy, text, color):
         item = self.scene().addSimpleText(text)
@@ -523,9 +574,7 @@ class MeshCanvas(QGraphicsView):
         painter.setPen(QColor("#123f5b"))
         painter.setFont(QFont("Source Sans 3", 8))
         ticks = (
-            [(0.5, lo)]
-            if self.constant_field
-            else [(0.0, hi), (0.5, 0.5 * (lo + hi)), (1.0, lo)]
+            [(0.5, lo)] if self.constant_field else [(0.0, hi), (0.5, 0.5 * (lo + hi)), (1.0, lo)]
         )
         for frac, value in ticks:
             yy = y + 6 + frac * bar_h
@@ -569,7 +618,9 @@ class MeshCanvas(QGraphicsView):
     def _apply_fit(self):
         # Fit the mesh nodes, not itemsBoundingRect(): transform-ignoring labels would count
         # their pixel size as metres and shrink/shift the mesh off-centre.
-        coords = getattr(self, "display_coords", None)
+        coords = getattr(self, "focus_coords", None)
+        if coords is None:
+            coords = getattr(self, "display_coords", None)
         if coords is None or not len(coords):
             return
         finite = coords[np.isfinite(coords).all(axis=1)]

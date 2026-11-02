@@ -51,7 +51,7 @@ class TracePlot(QWidget):
         if not finite.any():
             p.drawText(box, Qt.AlignmentFlag.AlignCenter, "No active result")
             return
-        xmin, xmax = float(self.x.min()), float(self.x.max())
+        xmin, xmax = float(self.x[finite].min()), float(self.x[finite].max())
         ymin, ymax = min(0.0, float(self.y[finite].min())), max(0.0, float(self.y[finite].max()))
         dy = ymax - ymin
         if dy < 1e-12:
@@ -342,8 +342,9 @@ def structure_segments(result, stage, tag):
     if block.etype is ElemType.BEAM2:
         for path in beam_paths(result, tag, stage):
             for (a, b), s, f in zip(path.nodes, path.distance, path.forces):
-                segments.append(StructureSegment(X[a], X[b], s, np.asarray(f, float),
-                                                 (int(a), int(b))))
+                segments.append(
+                    StructureSegment(X[a], X[b], s, np.asarray(f, float), (int(a), int(b)))
+                )
         return "beam", segments
     if block.etype is ElemType.BAR2:
         forces = stage.bars.get(tag)
@@ -355,8 +356,15 @@ def structure_segments(result, stage, tag):
             a, b = block.conn[e]
             length = float(np.linalg.norm(X[b] - X[a]))
             n = float(np.ravel(forces[e])[0])
-            segments.append(StructureSegment(X[a], X[b], np.array([distance, distance + length]),
-                                             np.array([[n], [n]]), (int(a), int(b))))
+            segments.append(
+                StructureSegment(
+                    X[a],
+                    X[b],
+                    np.array([distance, distance + length]),
+                    np.array([[n], [n]]),
+                    (int(a), int(b)),
+                )
+            )
             distance += length
         return "bar", segments
     raise ValueError(f"'{tag}' is not a beam/pile or an anchor.")
@@ -365,23 +373,64 @@ def structure_segments(result, stage, tag):
 def diagram_amplitude(segments, component, extent, fraction=0.22):
     """World-unit scale so the largest ordinate is ``fraction`` of ``extent``."""
     peak = max(
-        (abs(float(v)) for seg in segments for v in seg.forces[:, component]),
+        (abs(float(v)) for seg in segments for v in seg.forces[:, component] if np.isfinite(v)),
         default=0.0,
     )
-    return fraction * extent / max(peak, 1e-30)
+    return fraction * extent / peak if peak > 0 else 0.0
+
+
+def structure_chains(segments):
+    """Preserve FE connectivity; coincident coordinates do not join separate paths."""
+    chains = []
+    for seg in segments:
+        if (
+            not chains
+            or chains[-1][-1].nodes[1] != seg.nodes[0]
+            or not np.isclose(chains[-1][-1].station[1], seg.station[0])
+        ):
+            chains.append([])
+        chains[-1].append(seg)
+    return chains
 
 
 def force_diagram_line(segments, component, amplitude):
-    """Offset polyline vertices ``(xy, value)`` of the section-force diagram."""
+    """Offset endpoints with shared normals on a curved chain; forces stay unaveraged.
+
+    Call separately for each ``structure_chains`` entry when drawing connected lines.
+    The two ordinates at a load/discontinuity retain their separate FE values.
+    """
     pts = []
-    for seg in segments:
-        a, b, f = seg.a, seg.b, seg.forces
-        tangent = (b - a) / max(float(np.linalg.norm(b - a)), 1e-30)
-        normal = np.array([-tangent[1], tangent[0]])
-        fa, fb = float(f[0, component]), float(f[1, component])
-        pts.append((a + amplitude * fa * normal, fa))
-        pts.append((b + amplitude * fb * normal, fb))
+    for chain in structure_chains(segments):
+        normals = []
+        for seg in chain:
+            tangent = (seg.b - seg.a) / max(float(np.linalg.norm(seg.b - seg.a)), 1e-30)
+            normals.append(np.array([-tangent[1], tangent[0]]))
+        ends = [[n.copy(), n.copy()] for n in normals]
+        junctions = [(i, i + 1) for i in range(len(chain) - 1)]
+        if len(chain) > 1 and chain[-1].nodes[1] == chain[0].nodes[0]:
+            junctions.append((len(chain) - 1, 0))
+        for i, j in junctions:
+            normal = normals[i] + normals[j]
+            size = float(np.linalg.norm(normal))
+            if size > 1e-9:
+                ends[i][1] = ends[j][0] = normal / size
+        for seg, (na, nb) in zip(chain, ends):
+            fa, fb = map(float, seg.forces[:, component])
+            pts.extend(((seg.a + amplitude * fa * na, fa), (seg.b + amplitude * fb * nb, fb)))
     return pts
+
+
+def force_trace(segments, component):
+    """Distance/value arrays with a plotting break between disconnected paths."""
+    x, y = [], []
+    for chain in structure_chains(segments):
+        if x:
+            x.append(np.nan)
+            y.append(np.nan)
+        for seg in chain:
+            x.extend(seg.station)
+            y.extend(seg.forces[:, component])
+    return np.asarray(x), np.asarray(y)
 
 
 def segment_end_displacements(result, stage, segments):
@@ -461,11 +510,12 @@ class StructureDiagram(QWidget):
         p.setPen(QPen(QColor("#213547"), 3))
         for seg in self.segments:
             p.drawLine(screen(seg.a), screen(seg.b))
-        line = force_diagram_line(self.segments, self.component, amplitude)
         path = QPainterPath()
-        for i, (xy, _value) in enumerate(line):
-            pt = screen(xy)
-            path.moveTo(pt) if i == 0 else path.lineTo(pt)
+        for chain in structure_chains(self.segments):
+            line = force_diagram_line(chain, self.component, amplitude)
+            for i, (xy, _value) in enumerate(line):
+                pt = screen(xy)
+                path.moveTo(pt) if i == 0 else path.lineTo(pt)
         p.setPen(QPen(QColor("#156798"), 2.2))
         p.setBrush(Qt.NoBrush)
         p.drawPath(path)
@@ -526,11 +576,6 @@ class StructureForceDialog(QDialog):
         self.stage.currentIndexChanged.connect(self.refresh)
         self.component.currentIndexChanged.connect(self.draw)
         shown = max(0, min(stage_index, len(snapshots) - 1))
-        if not self._has_forces(shown):
-            for i in range(len(snapshots) - 1, -1, -1):
-                if self._has_forces(i):
-                    shown = i
-                    break
         self.stage.setCurrentIndex(shown)
         self.refresh()
 
@@ -566,12 +611,21 @@ class StructureForceDialog(QDialog):
         k = max(0, min(self.component.currentIndex(), len(items) - 1))
         key, title, unit = items[k]
         self.diagram.set_data(self.segments, k, unit)
-        s = np.array([seg.station for seg in self.segments], float).reshape(-1)
-        values = np.array([seg.forces[:, k] for seg in self.segments], float).reshape(-1)
+        s, values = force_trace(self.segments, k)
         self.trace.set_data(s, values, title, unit)
         i = self.stage.currentData() or 0
         st = self.result.initial if i == 0 else self.result.stages[i - 1]
-        ds, umag, ux, uy = segment_end_displacements(self.result, st, self.segments)
+        traces = [
+            segment_end_displacements(self.result, st, chain)
+            for chain in structure_chains(self.segments)
+        ]
+        arrays = [[] for _ in range(4)]
+        for trace in traces:
+            for values, part in zip(arrays, trace):
+                if values:
+                    values.append(np.nan)
+                values.extend(part)
+        ds, umag, ux, uy = map(np.asarray, arrays)
         for plot, y, name in zip(self.disp_plots, (umag, ux, uy), ("|u|", "ux", "uy")):
             plot.set_data(ds, y, name, "m")
         ext = self.diagram.extremes()
@@ -580,9 +634,9 @@ class StructureForceDialog(QDialog):
             return
         (vmin, pmin), (vmax, pmax) = ext
         ranges = []
-        for j, (name, _, unit) in enumerate(FORCE_COMPONENTS[self.kind]):
+        for j, (name, _, component_unit) in enumerate(FORCE_COMPONENTS[self.kind]):
             col = np.array([seg.forces[:, j] for seg in self.segments], float)
-            ranges.append(f"{name} [{np.nanmin(col):.4g}, {np.nanmax(col):.4g}] {unit}")
+            ranges.append(f"{name} [{np.nanmin(col):.4g}, {np.nanmax(col):.4g}] {component_unit}")
         self.status.setText(
             f"{key}: min {vmin:.5g} {unit} @ ({pmin[0]:.3g}, {pmin[1]:.3g}) m · "
             f"max {vmax:.5g} {unit} @ ({pmax[0]:.3g}, {pmax[1]:.3g}) m · "

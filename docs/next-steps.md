@@ -2,6 +2,15 @@
 
 ## 2 November 2026 review follow-up
 
+The results dock now lists every region and structural object. Select a member before
+choosing its N/V/M field; the plot scales to that member, preserves real force jumps,
+and separates disconnected paths. Region/interface displacement selections and element
+charts use the selected stage. Tunnel placement preserves the user's schedule and adds
+no automatic excavation/support stages. Manual bolt patterns can be placed on a selected
+line, closed boundary or clicked edge using exact adjacent-head spacing; split boundary
+rules are retained. See `tests/unit/test_selected_results.py` and the
+[model workflow](integrated-modeler.md#selected-element-results-and-manual-bolt-patterns).
+
 The model/CAD workspace now has bottom stage tabs synchronized with the mesh/results
 view and document viewer. **Model > Project properties** edits the number and names
 of construction stages, including in unmeshed drafts. Right-clicking a region on
