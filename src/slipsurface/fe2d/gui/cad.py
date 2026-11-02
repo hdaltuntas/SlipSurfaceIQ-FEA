@@ -972,7 +972,7 @@ class CadDialog(QDialog):
         fixity.setCheckable(True)
         fixity.setToolTip("Pick fixity on the model: click an edge to set ux / uy")
         fixity.toggled.connect(self.toggle_fixity_pick)
-        strip.addAction(fixity)
+        strip.insertAction(fit, fixity)
         self.fixity_action = fixity
         self.canvas.fixity_edge_selected.connect(self.show_edge_fixity_menu)
         self.tool_actions["select"].setChecked(True)
@@ -998,7 +998,9 @@ class CadDialog(QDialog):
             item = menu.addAction(title)
             item.setCheckable(True)
             item.setChecked(getattr(rule, field))
-            item.triggered.connect(lambda checked, key=field: self.set_edge_rule(edge, **{key: checked}))
+            item.triggered.connect(
+                lambda checked, key=field: self.set_edge_rule(edge, **{key: checked})
+            )
         menu.exec(global_pos)
 
     def show_inspector(self, tab=None):

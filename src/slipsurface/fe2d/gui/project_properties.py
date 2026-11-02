@@ -81,7 +81,9 @@ class ProjectPropertiesDialog(EditorDialog):
                 self.error("Check the values on the Stages tab before applying.")
                 return
             from dataclasses import replace
-            self.updated_model = replace(self.stage_editor.model, stages=list(self.stage_editor.items))
+            self.updated_model = replace(
+                self.stage_editor.model, stages=list(self.stage_editor.items)
+            )
         self.updated = names
         self.accept()
 

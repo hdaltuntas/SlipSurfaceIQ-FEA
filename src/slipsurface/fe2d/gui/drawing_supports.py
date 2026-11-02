@@ -13,7 +13,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..cad.supports import BOLT_GRADES, SupportAssignment, bolt_section, default_properties, pile_section
+from ..cad.supports import (
+    BOLT_GRADES,
+    SupportAssignment,
+    bolt_section,
+    default_properties,
+    pile_section,
+)
 
 LABELS = {
     "E": "E (kPa)",

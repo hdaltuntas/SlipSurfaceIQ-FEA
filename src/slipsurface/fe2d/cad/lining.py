@@ -63,7 +63,9 @@ class LiningSystem:
     rib_inertia: float = 0.0  # cm4
     rib_spacing: float = 1.0  # m along the tunnel axis
     E_steel: float = 2.1e8  # kPa
-    initial_capacity_percent: float = 50.0
+    initial_capacity_percent: float = 100.0
+    fc28: float = 30000.0  # 28-day compressive strength, kPa
+    ft28: float = 2500.0  # 28-day tensile strength, kPa
 
     def __post_init__(self):
         # Legacy catalogue tokens from files saved before the English rename.
@@ -85,7 +87,8 @@ class LiningSystem:
             raise ValueError("Wire mesh type or layer count is invalid.")
         if self.rib != "Custom" and self.rib not in STEEL_RIBS:
             raise ValueError("Steel rib section is invalid.")
-        if not np.isfinite(self.initial_capacity_percent) or not 0 < self.initial_capacity_percent <= 100:
+        if (not np.isfinite(self.initial_capacity_percent)
+                or not 0 < self.initial_capacity_percent <= 100):
             raise ValueError("Initial shotcrete percentage must be in (0, 100].")
         if not np.isfinite([self.fc28, self.ft28]).all() or self.fc28 <= 0 or self.ft28 <= 0:
             raise ValueError("28-day shotcrete compressive/tensile strengths must be positive.")
