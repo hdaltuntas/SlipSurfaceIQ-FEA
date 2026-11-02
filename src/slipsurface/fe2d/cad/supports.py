@@ -24,9 +24,28 @@ def pile_section(D, spacing):
     return np.pi * D**2 / 4 / spacing, np.pi * D**4 / 64 / spacing
 
 
+BOLT_GRADES = {
+    0: ("Steel rebar B500B", 200e6, 500e3),
+    1: ("Steel bar S355", 210e6, 355e3),
+    2: ("Steel bar S460", 210e6, 460e3),
+}
+
+
+def bolt_section(diameter_mm, grade_code):
+    """Nominal elastic stiffness and tensile yield for a solid circular steel bolt."""
+    grade = int(grade_code)
+    if grade not in BOLT_GRADES or not np.isfinite(diameter_mm) or diameter_mm <= 0:
+        raise ValueError("A valid grade and positive diameter in mm are required.")
+    _, e, fy = BOLT_GRADES[grade]
+    area = np.pi * (diameter_mm / 1000.0) ** 2 / 4.0
+    return e * area, fy * area
+
+
 def default_properties(kind, legacy=False):
     if kind == "bolt":
-        return dict(EA=200000.0, T_yield=200.0, pretension=0.0, spacing_out_of_plane=1.0)
+        ea, fy = bolt_section(25.0, 0)
+        return dict(EA=ea, T_yield=fy, pretension=0.0, spacing_out_of_plane=1.0,
+                    diameter_mm=25.0, grade_code=0)
     if kind == "pile" and legacy:
         area, inertia = pile_section(0.8, 2.0)
         return dict(E=3e7, nu=0.2, A=area, I=inertia, As=area * 5 / 6, unit_weight=24.0)
@@ -88,7 +107,12 @@ class SupportAssignment:
     def spec(self):
         p = self.properties
         if self.kind == "bolt":
-            return api.BoltSpec(self.tag, **p)
+            values = {k: p[k] for k in ("EA", "T_yield", "pretension", "spacing_out_of_plane")}
+            if "diameter_mm" in self.properties:
+                values["EA"], values["T_yield"] = bolt_section(
+                    p["diameter_mm"], p.get("grade_code", 0)
+                )
+            return api.BoltSpec(self.tag, **values)
         if self.kind == "pile" and "D" in p:
             area, inertia = pile_section(p["D"], p["spacing"])
             # Shear area of a solid circle: 0.9 A.
