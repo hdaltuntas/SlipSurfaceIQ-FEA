@@ -580,42 +580,66 @@ def bolt_stations(total, spacing, count=0, margin=0.0, *, closed=False):
     return start + np.arange(n) * spacing
 
 
-def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angle=90.0,
-                       pattern=None, prefix="Bolt", margin=0.0, spacing=None, *,
-                       edge_index=None, active=True):  # fmt: skip
-    """Bolts along a line/edge chain, turned ``angle`` degrees (counter-clockwise) from its
-    direction. ``spacing`` (or ``pattern.spacing``) sets the count when ``count`` is 0;
-    ``margin`` keeps them off the ends."""
-    entity = next(e for e in drawing.entities if e.name == entity_name)
-    pts = np.asarray(entity.points if entity.kind == "line" else (*entity.points, entity.points[0]))
-    closed = np.allclose(pts[0], pts[-1])
-    if edge_index is not None:
-        if not 0 <= edge_index < len(pts) - 1:
-            raise ValueError("Selected edge is outside the host boundary.")
-        pts = pts[edge_index : edge_index + 2]
-        closed = False
+def bolt_layout(entity, pattern, angle=90.0, margin=0.0, *, selected_range=None,
+                edge_index=None, count=0):
+    """Preview and insertion share the same heads, directions and host-edge indices."""
+    from .bolt_path import boundary_path, range_stations
+
+    pts, station = boundary_path(entity)
     seg = np.diff(pts, axis=0)
-    seg_len = np.linalg.norm(seg, axis=1)
-    station = np.concatenate([[0.0], np.cumsum(seg_len)])
-    total = station[-1]
-    pattern = pattern or BoltPattern()
-    length = pattern.length if length is None else length
-    space = spacing if spacing is not None else pattern.spacing
-    if not np.isfinite([length, angle]).all() or length <= 0:
+    seg_len = np.diff(station)
+    total = float(station[-1])
+    closed = np.allclose(pts[0], pts[-1])
+    start, end = 0.0, total
+    if selected_range is not None:
+        start, end, total, closed = range_stations(entity, selected_range)
+    elif edge_index is not None:
+        if not 0 <= edge_index < len(seg):
+            raise ValueError("Selected edge is outside the host boundary.")
+        start, end = station[edge_index : edge_index + 2]
+    if not np.isfinite([pattern.length, angle]).all() or pattern.length <= 0:
         raise ValueError("Bolt length must be positive and length/angle finite.")
-    s_values = bolt_stations(total, space, count, margin, closed=closed)
-    names = {e.name for e in drawing.entities}
-    entities, supports = [], []
-    vertices = {tuple(p) for p in map(tuple, _rounded(pts))}
-    new_points = list(map(tuple, pts[:-1] if entity.kind != "line" else pts))
+    s_values = start + bolt_stations(
+        end - start, pattern.spacing, count, margin,
+        closed=closed and selected_range is None and edge_index is None,
+    )
+    if closed:
+        s_values %= total
+    c, sn = np.cos(np.radians(angle)), np.sin(np.radians(angle))
+    result = []
     for s in s_values:
         k = min(int(np.searchsorted(station, s, side="right")) - 1, len(seg) - 1)
         t = (s - station[k]) / max(seg_len[k], 1e-30)
         head = _rounded(pts[k] + t * seg[k])
         d = seg[k] / max(seg_len[k], 1e-30)
-        c, sn = np.cos(np.radians(angle)), np.sin(np.radians(angle))
         direction = np.array([c * d[0] - sn * d[1], sn * d[0] + c * d[1]])
-        tail = _rounded(head + direction * length)
+        tail = _rounded(head + direction * pattern.length)
+        result.append((k, t, tuple(head), tuple(tail)))
+    return result
+
+
+def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angle=90.0,
+                       pattern=None, prefix="Bolt", margin=0.0, spacing=None, *,
+                       edge_index=None, active=True, selected_range=None):  # fmt: skip
+    """Bolts on a selected arc-length range (or an explicitly requested full API chain).
+
+    Range selection never changes the canonical host direction, so reversing a mouse
+    drag does not flip bolt orientation. Closed ranges can cross the closure seam.
+    """
+    entity = next(e for e in drawing.entities if e.name == entity_name)
+    pattern = pattern or BoltPattern()
+    pattern = replace(
+        pattern,
+        length=pattern.length if length is None else length,
+        spacing=pattern.spacing if spacing is None else spacing,
+    )
+    layout = bolt_layout(entity, pattern, angle, margin, selected_range=selected_range,
+                         edge_index=edge_index, count=count)
+    names = {e.name for e in drawing.entities}
+    entities, supports = [], []
+    vertices = set(map(tuple, _rounded(entity.points)))
+    new_points = []
+    for k, t, head, tail in layout:
         n = 1
         while f"{prefix}_{entity_name}_{n}" in names:
             n += 1
@@ -625,7 +649,7 @@ def bolt_pattern_along(drawing: Drawing, entity_name, count=0, length=None, angl
         supports.append(SupportAssignment(bolt, "bolt", pattern.properties(), active))
         if tuple(head) not in vertices:
             vertices.add(tuple(head))
-            new_points.append((k if edge_index is None else edge_index, t, tuple(head)))
+            new_points.append((k, t, tuple(head)))
     # Insert the bolt heads as vertices of the host so the mesh stays conforming.
     base = list(map(tuple, entity.points))
     inserts = sorted((p for p in new_points if len(p) == 3), key=lambda p: (p[0], p[1]))

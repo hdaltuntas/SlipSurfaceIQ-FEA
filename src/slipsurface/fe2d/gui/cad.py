@@ -75,6 +75,7 @@ class CadCanvas(QGraphicsView):
     entity_activated = Signal(int)
     context_requested = Signal(int, str, object)
     vertex_moved = Signal(object, object)
+    bolt_range_selected = Signal(str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -87,6 +88,9 @@ class CadCanvas(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         # Keep the drawing centred when the workspace resizes (dock/notice/panels toggling).
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        from .bolt_drag import BoltDrag
+
+        self.bolt_drag = BoltDrag(self)
         self.entities = ()
         self.pending = []
         self.drawing = False
@@ -374,6 +378,7 @@ class CadCanvas(QGraphicsView):
         painter.drawText(origin + QPointF(-4, -44), "Y")
         painter.drawText(QPointF(14, 22), "XY · metres")
         painter.restore()
+        self.bolt_drag.paint(painter)
         if self._drag_vertex is not None:
             old, new, neighbours = self._drag_vertex
             pen = QPen(QColor("#ed8c24"), 2, Qt.PenStyle.DashLine)
@@ -409,6 +414,10 @@ class CadCanvas(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         position = event.position().toPoint()
+        if self.bolt_drag.enabled and self._pan_position is None:
+            self.bolt_drag.move(position)
+            event.accept()
+            return
         if self._pan_position is not None:
             delta = position - self._pan_position
             self._pan_position = position
@@ -442,6 +451,9 @@ class CadCanvas(QGraphicsView):
             self._auto_fit = False
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
+        elif self.bolt_drag.enabled and event.button() == Qt.MouseButton.LeftButton:
+            self.bolt_drag.press(event.position().toPoint())
+            event.accept()
         elif self.drawing and event.button() == Qt.MouseButton.LeftButton:
             q, _ = self.mapped_point(event.position().toPoint())
             self.point_added.emit(q)
@@ -468,8 +480,12 @@ class CadCanvas(QGraphicsView):
         ):
             self._pan_position = None
             self.setCursor(
-                Qt.CursorShape.CrossCursor if self.drawing else Qt.CursorShape.ArrowCursor
+                Qt.CursorShape.CrossCursor
+                if self.drawing or self.bolt_drag.enabled else Qt.CursorShape.ArrowCursor
             )
+            event.accept()
+        elif button == Qt.MouseButton.LeftButton and self.bolt_drag.enabled:
+            self.bolt_drag.release(event.position().toPoint())
             event.accept()
         elif button == Qt.MouseButton.LeftButton and self._drag_vertex is not None:
             old, new, _ = self._drag_vertex
@@ -491,6 +507,8 @@ class CadCanvas(QGraphicsView):
     def mouseDoubleClickEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseDoubleClickEvent(event)
+        elif self.bolt_drag.enabled:
+            event.accept()
         elif self.drawing:
             self.finish_requested.emit()
         else:
@@ -499,7 +517,7 @@ class CadCanvas(QGraphicsView):
         event.accept()
 
     def contextMenuEvent(self, event):
-        if self.drawing:
+        if self.drawing or self.bolt_drag.enabled:
             event.accept()
             return
         index = self.hit_entity(event.pos())
@@ -509,7 +527,7 @@ class CadCanvas(QGraphicsView):
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.drawing:
             self.finish_requested.emit()
-        elif event.key() == Qt.Key.Key_Escape and self.drawing:
+        elif event.key() == Qt.Key.Key_Escape and (self.drawing or self.bolt_drag.enabled):
             self.cancelled.emit()
         else:
             super().keyPressEvent(event)
@@ -651,6 +669,7 @@ class CadDialog(QDialog):
         self.canvas.entity_activated.connect(self.activate_entity)
         self.canvas.context_requested.connect(self.canvas_menu)
         self.canvas.vertex_moved.connect(self.move_vertex)
+        self.canvas.bolt_range_selected.connect(self.finish_bolt_pattern)
         self.tunnel_lining = QAction("Add a lining to the tunnel", self)
         self.tunnel_lining.setCheckable(True)
         self.tunnel_lining.setChecked(True)
@@ -911,8 +930,8 @@ class CadDialog(QDialog):
         natm.setToolTip(
             "Horseshoe or circle; shotcrete + mesh + steel sets are smeared into one beam."
         )
-        pattern = strip.addAction(icon("bolt_pattern"), "Bolt pattern (selected line / boundary)")
-        pattern.triggered.connect(self.bolt_pattern)
+        tool("bolt_pattern", "Bolt pattern (drag along boundary)",
+             "bolt_pattern", self.bolt_pattern)
         tunnel_button = strip.widgetForAction(self.tool_actions["tunnel"])
         if isinstance(tunnel_button, QToolButton):
             options = QMenu(tunnel_button)
@@ -974,19 +993,14 @@ class CadDialog(QDialog):
             self.select_from_canvas(index)
             entity = self.document.entities[index]
             support = next((s for s in self.document.supports if s.entity == entity.name), None)
-            header = menu.addAction(entity.name)
-            header.setEnabled(False)
             if entity.kind == "region":
                 self.stage_menu_requested.emit(menu, entity.region)
+                menu.exec(global_pos)
+                return
+            header = menu.addAction(entity.name)
+            header.setEnabled(False)
             menu.addAction("Properties…", lambda: self.show_inspector(0))
             menu.addAction("Assign / edit support…", lambda: self.show_inspector(2))
-            menu.addAction(
-                icon("bolt_pattern"), "Bolt pattern along this line / boundary…", self.bolt_pattern
-            )
-            if edge:
-                menu.addAction(
-                    "Bolt pattern on this edge…", lambda e=edge: self.bolt_pattern(edge=e)
-                )
             if support is not None:
                 diagram = menu.addAction(
                     "Section forces (N–V–M)…",
@@ -1072,9 +1086,19 @@ class CadDialog(QDialog):
                 for point in points
             )
 
-        entities = tuple(replace(e, points=moved(e.points)) for e in current.entities)
         index = self.entities.currentRow()
-        self.commit(replace(current, entities=entities))
+        try:
+            entities = tuple(replace(e, points=moved(e.points)) for e in current.entities)
+            updated = replace(current, entities=entities)
+            if any(e.kind == "region" for e in updated.entities):
+                updated.validate()
+        except ValueError as exc:
+            self.canvas.redraw(current.entities, selected=(
+                current.entities[index].name if 0 <= index < len(current.entities) else None
+            ))
+            self.show_error(f"Corner move cancelled; geometry unchanged. {exc}")
+            return
+        self.commit(updated)
         if index >= 0:
             self.entities.setCurrentRow(index)
         self.status.setText(f"Corner moved → x={new[0]:.4g}, y={new[1]:.4g} m · Ctrl+Z: undo")
@@ -1152,6 +1176,9 @@ class CadDialog(QDialog):
             self.status.setText("Not understood: x,y | @dx,dy | @L<angle")
 
     def cursor_status(self, text):
+        if self.canvas.bolt_drag.enabled:
+            self.status.setText(text)
+            return
         hint = (
             f" · {len(self.pending)} points · Double-click / Enter / right click: finish · "
             "Esc: cancel"
@@ -1287,6 +1314,7 @@ class CadDialog(QDialog):
         self.canvas.redraw(self.document.entities, self.pending, e.name)
 
     def begin_drawing(self):
+        self.canvas.bolt_drag.reset()
         self.placing = self.canvas.placement = None
         self.circle_mode = self.canvas.circle = False
         self.draw_support_kind = None
@@ -1339,6 +1367,7 @@ class CadDialog(QDialog):
             self.finish_drawing()
 
     def cancel_drawing(self):
+        self.canvas.bolt_drag.reset()
         self.placing = self.canvas.placement = None
         self.circle_mode = self.canvas.circle = False
         self.draw_support_kind = None
@@ -1458,7 +1487,11 @@ class CadDialog(QDialog):
         from ..cad.tunnel import place_tunnel
 
         try:
-            updated = place_tunnel(self.current_drawing(), design, center)
+            updated = place_tunnel(
+                self.current_drawing(),
+                replace(design, bolts=None, bench_bolts=None, invert_bolts=None),
+                center,
+            )
         except Exception as exc:
             self.cancel_drawing()
             self.show_error(exc)
@@ -1470,55 +1503,50 @@ class CadDialog(QDialog):
             "Set excavation and support activation under Model > Stages."
         )
 
-    def bolt_pattern(self, _checked=False, *, edge=None):
+    def bolt_pattern(self, _checked=False):
+        """Arm a drag tool; neither selection nor tool activation inserts any bolts."""
+        self.cancel_drawing()
+        self._mark_tool("bolt_pattern")
+        self.canvas.bolt_drag.arm()
+        self.canvas.setFocus()
+        self.status.setText(
+            "Bolt pattern: press on a lining/boundary, drag along the desired interval, "
+            "then release to set spacing and length. Esc: cancel."
+        )
+
+    def finish_bolt_pattern(self, host, selected_range):
         from ..cad.tunnel import bolt_pattern_along
         from .tunnel_designer import BoltPatternDialog
 
-        index = self.entities.currentRow()
-        if not 0 <= index < len(self.document.entities):
-            self.show_error(
-                "Select a lining, line or tunnel boundary first, then choose bolt spacing."
-            )
-            return
-        host = self.document.entities[index].name
-        entity = self.document.entities[index]
-        pts = np.asarray(
-            entity.points if entity.kind == "line" else (*entity.points, entity.points[0])
-        )
-        closed = np.allclose(pts[0], pts[-1])
-        signed_area = float(np.sum(pts[:-1, 0] * pts[1:, 1] - pts[1:, 0] * pts[:-1, 1]))
-        angle = -90.0 if closed and signed_area > 0 else 90.0
-        edge_index = entity.edge_names().index(edge) if edge in entity.edge_names() else None
-        if edge_index is not None:
-            pts = pts[edge_index : edge_index + 2]
-            closed = False
-        chain_length = float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
+        drag = self.canvas.bolt_drag
         dialog = BoltPatternDialog(
-            edge or host, self, chain_length=chain_length, closed=closed, default_angle=angle
+            host, self, chain_length=abs(selected_range[1] - selected_range[0]),
+            default_angle=drag.angle, selected_interval=True,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
+
+        def preview():
+            drag.preview(dialog.pattern(), dialog.angle.value(), dialog.margin.value())
+
+        dialog.preview_changed.connect(preview)
+        preview()
         try:
-            self.commit(
-                bolt_pattern_along(
-                    self.current_drawing(),
-                    host,
-                    0,
-                    dialog.length.value(),
-                    dialog.angle.value(),
-                    dialog.pattern(),
-                    margin=dialog.margin.value(),
-                    spacing=dialog.spacing_along.value(),
-                    edge_index=edge_index,
-                    active=dialog.active.isChecked(),
-                )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            updated = bolt_pattern_along(
+                self.current_drawing(), host, pattern=dialog.pattern(),
+                angle=dialog.angle.value(), margin=dialog.margin.value(),
+                selected_range=selected_range, active=dialog.active.isChecked(),
             )
+            self.commit(updated)
             self.status.setStyleSheet("")
             self.status.setText(
-                f"Bolts added · {edge or host} · Set activation under Model > Stages"
+                f"Bolts added on the selected interval · {host} · Ctrl+Z: undo · "
+                "Set activation under Model > Stages"
             )
         except Exception as exc:
             self.show_error(exc)
+        finally:
+            self.cancel_drawing()
 
     def open_lining_designer(self):
         """Edit the composite lining library; with a liner selected, apply it to that liner."""

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -39,7 +39,6 @@ from ..cad.tunnel import (
     SteelSet,
     TunnelDesign,
     TunnelSection,
-    _chain_length,
     _lining_chains,
     _part_bolt_heads,
     _rounded,
@@ -288,48 +287,6 @@ class LiningDesignerDialog(QDialog):
         )
 
 
-# --------------------------------------------------------------------------- bolts
-class PartBoltBox(QGroupBox):
-    """Enable + circumferential spacing + length for one excavation part."""
-
-    def __init__(self, title, pattern=None, parent=None):
-        super().__init__(title, parent)
-        enabled = pattern is not None
-        source = pattern or BoltPattern()
-        self.use = QCheckBox("Add bolts")
-        self.use.setChecked(enabled)
-        self.spacing = _spin(source.spacing, 0.2, 20, 2, "m")
-        self.length = _spin(source.length, 0.1, 50, 2, "m")
-        self.count = QLabel()
-        form = QFormLayout(self)
-        form.addRow(self.use)
-        form.addRow("Spacing (along the perimeter)", self.spacing)
-        form.addRow("Length", self.length)
-        form.addRow("Count", self.count)
-        self.use.toggled.connect(self._toggle)
-        self._toggle(self.use.isChecked())
-
-    def _toggle(self, on):
-        for w in (self.spacing, self.length, self.count):
-            w.setEnabled(on)
-
-    def set_count(self, n):
-        self.count.setText("—" if not self.use.isChecked() else f"{n} (from spacing)")
-
-    def pattern(self, shared):
-        if not self.use.isChecked():
-            return None
-        return BoltPattern(
-            0,
-            self.length.value(),
-            EA=shared["EA"],
-            T_yield=shared["T"],
-            spacing_out_of_plane=shared["spacing"],
-            pretension=shared["pre"],
-            spacing=self.spacing.value(),
-        )
-
-
 # --------------------------------------------------------------------------- tunnel
 class SectionPreview(QWidget):
     COLORS = {"heading": "#e2b878", "bench": "#82c39b", "invert": "#b39ddb", "full": "#65b4c8"}
@@ -414,7 +371,7 @@ def _area(ring):
 
 
 class TunnelDesignerDialog(QDialog):
-    """Separate window: section, lining, bolt pattern and staging of one NATM tunnel."""
+    """Section and lining design. Bolts and stages are assigned in the model workspace."""
 
     PLACE_CLICK, PLACE_COORDS = 1, 2
 
@@ -429,7 +386,8 @@ class TunnelDesignerDialog(QDialog):
         note = QLabel(
             "Shotcrete, wire mesh and steel sets are smeared into one Timoshenko beam. "
             "The check is beam theory and the closed form of pile skin friction. "
-            "This window is not an RS2/PLAXIS or 3D NATM verification."
+            "Add bolts in the model with Support > Bolt pattern: "
+            "drag the required boundary interval."
         )
         note.setWordWrap(True)
         root.addWidget(note)
@@ -497,30 +455,6 @@ class TunnelDesignerDialog(QDialog):
         v.addWidget(edit)
         v.addStretch(1)
         tabs.addTab(page, "Lining")
-
-        # Bolts
-        shared = design.bolts or design.bench_bolts or design.invert_bolts or BoltPattern()
-        page = QWidget()
-        v = QVBoxLayout(page)
-        self.heading_bolts = PartBoltBox("Top heading / full face", design.bolts)
-        self.bench_bolts = PartBoltBox("Bench", design.bench_bolts)
-        self.invert_bolts = PartBoltBox("Invert", design.invert_bolts)
-        v.addWidget(self.heading_bolts)
-        v.addWidget(self.bench_bolts)
-        v.addWidget(self.invert_bolts)
-        mech = QGroupBox("Section (all parts)")
-        f = QFormLayout(mech)
-        self.bolt_EA = _spin(shared.EA, 1, 1e9, 0, "kN")
-        self.bolt_T = _spin(shared.T_yield, 1, 1e6, 1, "kN")
-        self.bolt_spacing = _spin(shared.spacing_out_of_plane, 0.1, 20, 2, "m")
-        self.bolt_pre = _spin(shared.pretension, 0, 1e5, 1, "kN")
-        f.addRow("EA (tek bulon)", self.bolt_EA)
-        f.addRow("Akma kuvveti", self.bolt_T)
-        f.addRow("Spacing along the tunnel axis", self.bolt_spacing)
-        f.addRow("Pretension", self.bolt_pre)
-        v.addWidget(mech)
-        v.addStretch(1)
-        tabs.addTab(page, "Bolts")
 
         # Steel sets
         steel = design.steel
@@ -598,9 +532,6 @@ class TunnelDesignerDialog(QDialog):
             self.use_lining,
             self.use_steel,
             self.use_disturbance,
-            self.heading_bolts.use,
-            self.bench_bolts.use,
-            self.invert_bolts.use,
         ):
             w.toggled.connect(self.refresh)
         self.refresh()
@@ -626,14 +557,6 @@ class TunnelDesignerDialog(QDialog):
             segments=self.segments.value(),
         )
 
-    def _bolt_shared(self):
-        return dict(
-            EA=self.bolt_EA.value(),
-            T=self.bolt_T.value(),
-            spacing=self.bolt_spacing.value(),
-            pre=self.bolt_pre.value(),
-        )
-
     def steel(self):
         if not self.use_steel.isChecked():
             return None
@@ -646,19 +569,17 @@ class TunnelDesignerDialog(QDialog):
         )
 
     def design(self):
-        shared = self._bolt_shared()
         disturbance = None
         if self.use_disturbance.isChecked():
             disturbance = BlastDisturbance(self.disturb_D.value(), self.disturb_thickness.value())
-        parts = self.parts.currentData()
         return TunnelDesign(
             self.section(),
             self.lining_value if self.use_lining.isChecked() else None,
-            self.heading_bolts.pattern(shared),
+            None,
             self._load_split,
             self._separate_support_stage,
-            self.bench_bolts.pattern(shared) if parts >= 2 else None,
-            self.invert_bolts.pattern(shared) if parts == 3 else None,
+            None,
+            None,
             self.steel(),
             disturbance,
         )
@@ -673,9 +594,6 @@ class TunnelDesignerDialog(QDialog):
         parts = self.parts.currentData()
         self.heading_level.setEnabled(parts >= 2)
         self.invert_level.setEnabled(parts == 3)
-        self.heading_bolts.setTitle("Full face" if parts == 1 else "Top heading")
-        self.bench_bolts.setVisible(parts >= 2)
-        self.invert_bolts.setVisible(parts == 3)
         custom = self.rib.currentText() == "Custom"
         self.rib_area.setEnabled(self.use_steel.isChecked() and custom)
         self.rib_inertia.setEnabled(self.use_steel.isChecked() and custom)
@@ -701,25 +619,6 @@ class TunnelDesignerDialog(QDialog):
             else:
                 self.steel_summary.setText("")
             design = self.design()
-            section = design.section
-            cuts = [section.heading_level, section.invert_level][: section.parts - 1]
-            for key, box in (
-                ("full" if parts == 1 else "heading", self.heading_bolts),
-                ("bench", self.bench_bolts),
-                ("invert", self.invert_bolts),
-            ):
-                if key not in section.part_names():
-                    box.set_count(0)
-                    continue
-                pts = section.parts_at((0.0, 0.0))[key]
-                chains = _lining_chains(pts, cuts)
-                pattern = box.pattern(self._bolt_shared()) if box.use.isChecked() else None
-                n = (
-                    sum(pattern.count_on_length(_chain_length(c)) for c in chains)
-                    if pattern is not None
-                    else 0
-                )
-                box.set_count(n)
             self.preview.set_design(design)
         except ValueError as exc:
             self.preview.set_design(None, str(exc))
@@ -760,7 +659,6 @@ class TunnelDesignerDialog(QDialog):
         self.use_lining.setChecked(design.lining is not None)
         if design.lining is not None:
             self.lining_value = design.lining
-        self._load_bolts(design)
         self.use_steel.setChecked(design.steel is not None)
         steel = design.steel
         if steel is not None:
@@ -777,35 +675,14 @@ class TunnelDesignerDialog(QDialog):
             self.disturb_thickness.setValue(design.disturbance.thickness)
         self.refresh()
 
-    def _load_bolts(self, design):
-        shared = design.bolts or design.bench_bolts or design.invert_bolts
-        if shared is not None:
-            self.bolt_EA.setValue(shared.EA)
-            self.bolt_T.setValue(shared.T_yield)
-            self.bolt_spacing.setValue(shared.spacing_out_of_plane)
-            self.bolt_pre.setValue(shared.pretension)
-        for box, pattern in (
-            (self.heading_bolts, design.bolts),
-            (self.bench_bolts, design.bench_bolts),
-            (self.invert_bolts, design.invert_bolts),
-        ):
-            box.use.setChecked(pattern is not None)
-            if pattern is None:
-                continue
-            spacing = pattern.spacing
-            if pattern.count > 1:
-                span = abs(np.radians(pattern.end_angle - pattern.start_angle))
-                arc = span * design.section.radius
-                spacing = max(arc / (pattern.count - 1), 0.2)
-            box.spacing.setValue(spacing)
-            box.length.setValue(pattern.length)
-
-
 # --------------------------------------------------------------------------- bolts
 class BoltPatternDialog(QDialog):
     """Bolt pattern along a selected line: spacing, length, angle to the line and margins."""
 
-    def __init__(self, host, parent=None, chain_length=None, *, closed=False, default_angle=90.0):
+    preview_changed = Signal()
+
+    def __init__(self, host, parent=None, chain_length=None, *, closed=False,
+                 default_angle=90.0, selected_interval=False):
         super().__init__(parent)
         self.setWindowTitle(f"Bolt pattern · {host}")
         self.chain_length = chain_length
@@ -817,7 +694,8 @@ class BoltPatternDialog(QDialog):
         self.length = _spin(default.length, 0.1, 100, 2, "m")
         self.angle = _spin(default_angle, -180, 180, 1, "°")
         self.angle.setToolTip("Angle counter-clockwise from the line direction (90° = left normal)")
-        self.margin = _spin(0.0 if closed else min(0.5, (chain_length or 2) / 4), 0, 1e4, 2, "m")
+        margin = 0.0 if closed or selected_interval else min(0.5, (chain_length or 2) / 4)
+        self.margin = _spin(margin, 0, 1e4, 2, "m")
         self.active = QCheckBox("Activate immediately in all stages")
         self.EA = _spin(default.EA, 1, 1e9, 0, "kN")
         self.T = _spin(default.T_yield, 1, 1e6, 1, "kN")
@@ -837,7 +715,8 @@ class BoltPatternDialog(QDialog):
             form.addRow(label, w)
         form.addRow(self.active)
         note = QLabel(
-            "Bolts use the entered spacing; leftover distance is shared at the ends. "
+            "Only the highlighted interval receives bolts. Check the preview and set the angle "
+            "to choose the side. Spacing is exact; leftover distance is shared at the ends. "
             "Leave activation off to install them in stages you define."
         )
         note.setWordWrap(True)
@@ -845,9 +724,12 @@ class BoltPatternDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        self.buttons = buttons
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+        for spin in self.findChildren(QDoubleSpinBox):
+            spin.valueChanged.connect(lambda _v: self.preview_changed.emit())
         self.spacing_along.valueChanged.connect(self._update_count)
         self.margin.valueChanged.connect(self._update_count)
         self._update_count()
@@ -868,8 +750,10 @@ class BoltPatternDialog(QDialog):
                 )
             )
             self.count.setText(f"{n} (from spacing)")
+            self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
         except ValueError as exc:
             self.count.setText(str(exc))
+            self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
 
     def pattern(self):
         return BoltPattern(

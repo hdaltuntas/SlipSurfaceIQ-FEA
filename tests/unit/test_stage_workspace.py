@@ -203,7 +203,7 @@ def test_context_menu_assignment_preserves_stage_view_and_invalidates_results(
         window.cad.canvas_menu(0, "", QPoint())
     else:
         window._on_canvas_context_menu(1, "", QPoint())
-    assert len(selected) == 1 and "2: Excavation" in selected[0]
+    assert selected == ["Assign materials…"]
     assert window.result is None and window.dirty
     assert window.workspace.currentWidget() is (window.cad if view == "cad" else window.result_page)
     assert window.model_stage_tabs.currentIndex() == window.stages.currentRow() == 2
@@ -253,8 +253,8 @@ def test_void_reactivation_and_cancel_do_not_modify_other_stages(qt_app, staged_
 @pytest.mark.parametrize("view", ["cad", "mesh"])
 @pytest.mark.parametrize("stage_index", [0, 1])
 @pytest.mark.parametrize("propagate", [False, True])
-def test_direct_right_click_excavation_scope_and_geometry(
-    qt_app, staged_model, view, stage_index, propagate
+def test_assign_materials_void_scope_and_geometry(
+    qt_app, staged_model, view, stage_index, propagate, monkeypatch
 ):
     model = replace(
         staged_model, stages=[replace(s, active_regions=None) for s in staged_model.stages]
@@ -264,13 +264,22 @@ def test_direct_right_click_excavation_scope_and_geometry(
     if view == "cad":
         window.edit_geometry()
     window.model_stage_tabs.setCurrentIndex(stage_index)
-    title = "Excavate from this stage onward" if propagate else "Excavate in this stage"
+    title = "Assign materials…"
+
+    def accept(dialog):
+        dialog.material.setCurrentIndex(dialog.material.findData(None))
+        dialog.propagate.setChecked(propagate)
+        dialog.apply()
+        return dialog.result()
+
+    monkeypatch.setattr(RegionStageDialog, "exec", accept)
     selected = []
 
     def choose():
         menu = qt_app.activePopupWidget()
         try:
-            action = next(a for a in menu.actions() if a.text() == title)
+            assert [a.text() for a in menu.actions()] == [title]
+            action = menu.actions()[0]
             selected.append(action.isEnabled())
             action.trigger()
         finally:
@@ -298,28 +307,19 @@ def test_direct_right_click_excavation_scope_and_geometry(
     assert not window.cad.mesh_outdated
 
 
-def test_excavation_shortcuts_respect_inactive_regions_and_stale_mesh(qt_app, staged_model):
-    model = replace(
-        staged_model,
-        stages=[
-            *staged_model.stages[:-1],
-            replace(staged_model.stages[-1], active_regions=None),
-        ],
-    )
+def test_assignment_only_menu_and_stale_mesh_guard(qt_app, staged_model):
     window = MainWindow()
-    window.set_model(model)
+    window.set_model(staged_model)
     window.stages.setCurrentRow(2)
     menu = QMenu()
     window._add_region_stage_action(menu, 2)
-    actions = {a.text(): a for a in menu.actions()}
-    assert not actions["Excavate in this stage"].isEnabled()
-    assert actions["Excavate from this stage onward"].isEnabled()
-    actions["Excavate from this stage onward"].trigger()
-    assert stage_region_material(window.model, 3, 2) is None
+    assert [a.text() for a in menu.actions()] == ["Assign materials…"]
+    assert menu.actions()[0].isEnabled()  # void regions can be assigned a material again
     window.cad.commit(replace(window.cad.current_drawing(), h=2))
     stale_menu = QMenu()
     window._add_region_stage_action(stale_menu, 2)
-    assert all(not a.isEnabled() for a in stale_menu.actions() if a.text().startswith("Excavate"))
+    assert len(stale_menu.actions()) == 1 and not stale_menu.actions()[0].isEnabled()
+    assert "mesh" in stale_menu.actions()[0].toolTip()
     before = window.model
     window.excavate_region(2)
     assert window.model is before
