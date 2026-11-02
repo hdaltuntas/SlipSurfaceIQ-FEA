@@ -76,6 +76,7 @@ class CadCanvas(QGraphicsView):
     context_requested = Signal(int, str, object)
     vertex_moved = Signal(object, object)
     bolt_range_selected = Signal(str, object)
+    fixity_edge_selected = Signal(str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -105,6 +106,7 @@ class CadCanvas(QGraphicsView):
         self._press_position = None
         self._drag_vertex = None
         self._auto_fit = False
+        self.fixity_pick_enabled = False
         self.placement = None  # outline (relative) of a tunnel being placed by a click
         self.rectangle = False
         self.circle = False
@@ -451,6 +453,13 @@ class CadCanvas(QGraphicsView):
             self._auto_fit = False
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
+        elif self.fixity_pick_enabled and event.button() == Qt.MouseButton.LeftButton:
+            position = event.position().toPoint()
+            index = self.hit_entity(position)
+            edge = self.hit_edge(position, index)
+            if edge:
+                self.fixity_edge_selected.emit(edge, self.mapToGlobal(position))
+            event.accept()
         elif self.bolt_drag.enabled and event.button() == Qt.MouseButton.LeftButton:
             self.bolt_drag.press(event.position().toPoint())
             event.accept()
@@ -762,7 +771,7 @@ class CadDialog(QDialog):
         properties_scroll.setWidgetResizable(True)
         properties_scroll.setWidget(side)
         inspector.addTab(properties_scroll, "Object properties")
-        inspector.addTab(boundary_page, "Fixity / load")
+        inspector.addTab(boundary_page, "Loads")
         self.support_panel = DrawingSupportPanel()
         self.support_panel.apply_requested.connect(self.apply_support)
         inspector.addTab(self.support_panel, "Support")
@@ -959,6 +968,13 @@ class CadDialog(QDialog):
         self.delete_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self)
         self.delete_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.delete_shortcut.activated.connect(self.delete_entity)
+        fixity = QAction(icon("settings"), "Assign fixity · click a model edge", strip)
+        fixity.setCheckable(True)
+        fixity.setToolTip("Pick fixity on the model: click an edge to set ux / uy")
+        fixity.toggled.connect(self.toggle_fixity_pick)
+        strip.addAction(fixity)
+        self.fixity_action = fixity
+        self.canvas.fixity_edge_selected.connect(self.show_edge_fixity_menu)
         self.tool_actions["select"].setChecked(True)
         return strip
 
@@ -966,6 +982,24 @@ class CadDialog(QDialog):
         action = self.tool_actions.get(key)
         if action is not None and not action.isChecked():
             action.setChecked(True)
+
+    def toggle_fixity_pick(self, enabled):
+        self.cancel_drawing()
+        self.canvas.fixity_pick_enabled = enabled
+        self.canvas.setCursor(Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.ArrowCursor)
+        self.status.setText("Click a model edge to assign ux/uy fixities" if enabled else IDLE_HINT)
+
+    def show_edge_fixity_menu(self, edge, global_pos):
+        rule = next((r for r in self.current_drawing().rules if r.edge == edge), BoundaryRule(edge))
+        menu = QMenu(self)
+        menu.addAction(f"Edge: {edge}").setEnabled(False)
+        for title, field in (("Fix horizontal displacement (ux)", "ux"),
+                             ("Fix vertical displacement (uy)", "uy")):
+            item = menu.addAction(title)
+            item.setCheckable(True)
+            item.setChecked(getattr(rule, field))
+            item.triggered.connect(lambda checked, key=field: self.set_edge_rule(edge, **{key: checked}))
+        menu.exec(global_pos)
 
     def show_inspector(self, tab=None):
         """Open the floating properties window, optionally on a given tab."""
@@ -1025,7 +1059,7 @@ class CadDialog(QDialog):
                 menu.addAction(
                     f"Pressure… ({rule.pressure:g} kPa)", lambda e=edge: self.ask_pressure(e)
                 )
-                menu.addAction("Fixity / load table…", lambda: self.show_inspector(1))
+                menu.addAction("Pressure / load table…", lambda: self.show_inspector(1))
             menu.addSeparator()
             menu.addAction(icon("delete"), "Delete", self.delete_entity)
         else:
@@ -1044,7 +1078,7 @@ class CadDialog(QDialog):
                 menu.addAction(tool.icon(), tool.text(), tool.trigger)
             menu.addSeparator()
             menu.addAction("Fit all", self.canvas.fit_drawing)
-            menu.addAction("Fixity / load table…", lambda: self.show_inspector(1))
+            menu.addAction("Pressure / load table…", lambda: self.show_inspector(1))
             menu.addAction("Mesh settings (h, E, ν)…", lambda: self.show_inspector(0))
         menu.exec(global_pos)
 
