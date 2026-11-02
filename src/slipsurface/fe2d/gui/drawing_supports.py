@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..cad.supports import SupportAssignment, default_properties, pile_section
+from ..cad.supports import BOLT_GRADES, SupportAssignment, bolt_section, default_properties, pile_section
 
 LABELS = {
     "E": "E (kPa)",
@@ -23,6 +23,8 @@ LABELS = {
     "As": "As (m²/m)",
     "unit_weight": "γ (kN/m³)",
     "EA": "EA (kN / single nail)",
+    "diameter_mm": "Bolt nominal diameter (mm)",
+    "grade_code": "Steel grade",
     "T_yield": "Yield force (kN)",
     "pretension": "Pretension (kN)",
     "spacing_out_of_plane": "Out-of-plane spacing (m)",
@@ -91,7 +93,13 @@ class DrawingSupportPanel(QWidget):
         kind = self.kind.currentData()
         if kind:
             for key, value in (properties or default_properties(kind)).items():
-                if key == "interface":
+                if key == "grade_code":
+                    field = QComboBox()
+                    for code, (title, _, _) in BOLT_GRADES.items():
+                        field.addItem(title, code)
+                    field.setCurrentIndex(field.findData(int(value)))
+                    field.currentIndexChanged.connect(self.update_section)
+                elif key == "interface":
                     field = QCheckBox("Pile–soil interface")
                     field.setChecked(bool(value))
                     field.toggled.connect(self.update_section)
@@ -105,12 +113,26 @@ class DrawingSupportPanel(QWidget):
 
     def values(self):
         return {
-            k: (1.0 if w.isChecked() else 0.0) if isinstance(w, QCheckBox) else float(w.text())
+            k: (w.currentData() if isinstance(w, QComboBox) else
+                (1.0 if w.isChecked() else 0.0) if isinstance(w, QCheckBox)
+                else float(w.text()))
             for k, w in self.fields.items()
         }
 
     def update_section(self, *_):
         """Live equivalent section of a pile row (per metre out of plane)."""
+        if "diameter_mm" in self.fields:
+            self.section.show()
+            try:
+                data = self.values()
+                ea, fy = bolt_section(data["diameter_mm"], data["grade_code"])
+                self.section.setText(
+                    f"Nominal steel bolt: EA={ea:,.1f} kN, yield={fy:,.1f} kN. "
+                    "Bond, corrosion and threaded-area reduction are not included."
+                )
+            except (ValueError, KeyError) as exc:
+                self.section.setText(str(exc))
+            return
         if "D" not in self.fields:
             self.section.hide()
             return
