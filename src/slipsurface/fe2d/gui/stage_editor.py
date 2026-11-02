@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -64,7 +65,26 @@ class StageDetailDialog(EditorDialog):
                 box.addItem(name, name)
             box.setCurrentIndex(box.findData(stage.material_override.get(r)))
             self.overrides.setCellWidget(i, 1, box)
+        seismic = QWidget()
+        seismic_form = QFormLayout(seismic)
+        self.kh = QDoubleSpinBox()
+        self.kv = QDoubleSpinBox()
+        for widget, value in ((self.kh, stage.seismic_kh), (self.kv, stage.seismic_kv)):
+            widget.setRange(-1.0, 1.0)
+            widget.setDecimals(4)
+            widget.setSingleStep(0.05)
+            widget.setValue(value)
+        seismic_form.addRow("Horizontal kh (+x)", self.kh)
+        seismic_form.addRow("Vertical kv (+y)", self.kv)
+        explanation = QLabel(
+            "Pseudo-static inertial loads act on active soil elements. "
+            "Positive kh acts in +x; positive kv acts in +y. "
+            "Not a dynamic time-history analysis. Structural mass is excluded."
+        )
+        explanation.setWordWrap(True)
+        seismic_form.addRow(explanation)
         tabs.addTab(self.loads, "Loads")
+        tabs.addTab(seismic, "Seismic")
         tabs.addTab(self.water, "Water")
         tabs.addTab(self.overrides, "Material change")
         tabs.addTab(self.displacements, "Displacement")
@@ -76,6 +96,8 @@ class StageDetailDialog(EditorDialog):
             stage = replace(
                 self.model.stages[self.index],
                 loads=self.loads.values(),
+                seismic_kh=self.kh.value(),
+                seismic_kv=self.kv.value(),
                 displacements=self.displacements.values(),
                 water=self.water.value(),
                 material_override={
