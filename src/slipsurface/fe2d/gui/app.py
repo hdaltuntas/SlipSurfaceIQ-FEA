@@ -490,7 +490,7 @@ class MainWindow(QMainWindow):
             ("Materials…", self.edit_materials),
             ("Structures (drawing)", self.edit_structures),
             ("Boundaries (mesh sets)…", self.edit_boundaries),
-            ("Stages…", self.edit_stages),
+            ("Model Properties / Stages…", self.edit_project_properties),
         ]:
             a = action(title, slot)
             model_menu.addAction(a)
@@ -754,12 +754,13 @@ class MainWindow(QMainWindow):
             if self.model is not None
             else [drawing.loading_name, *[s.name for s in drawing.sequence]]
         )
-        dialog = ProjectPropertiesDialog(names, self)
+        dialog = ProjectPropertiesDialog(names, self, model=self.model)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
             if self.model is not None:
-                self._apply_stage_edit(set_project_stages(self.model, dialog.updated))
+                edited = getattr(dialog, "updated_model", self.model)
+                self._apply_stage_edit(set_project_stages(edited, dialog.updated))
             else:
                 self.cad.commit(drawing.with_stage_names(dialog.updated))
         except Exception as exc:
@@ -1267,11 +1268,8 @@ class MainWindow(QMainWindow):
             self.set_model(dialog.updated, path=self.path, dirty=True)
 
     def edit_stages(self):
-        if self.busy or not self._require_model():
-            return
-        dialog = StageDialog(self.model, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.set_model(dialog.updated, path=self.path, dirty=True)
+        """Stage editing is a tab in Model Properties, not a separate window."""
+        self.edit_project_properties()
 
     def start_solve(self):
         if self.busy or not self._require_model():
