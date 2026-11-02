@@ -34,6 +34,20 @@ def validate_edit(model):
                 }
                 assignments.append({**assignment, "properties": properties})
         model = replace(model, geometry={**model.geometry, "supports": assignments})
+    if model.geometry and (model.geometry.get("material_library")
+                           or model.geometry.get("material_assignments")):
+        from ..cad.material_assignment import serialize_materials
+
+        regions = {e["name"]: e["region"] for e in model.geometry.get("entities", [])
+                   if e["kind"] == "region"}
+        names = ["Initial", *[s.name for s in model.stages]]
+        assignments = [{**a, "material": stage_region_material(
+            model, names.index(a["stage"]), regions[a["region"]])}
+            for a in model.geometry.get("material_assignments", [])
+            if a["stage"] in names and a["region"] in regions]
+        model = replace(model, geometry={**model.geometry,
+                        "material_library": list(serialize_materials(model.materials)),
+                        "material_assignments": assignments})
     return model
 
 
@@ -372,6 +386,10 @@ def set_project_stages(model, names):
         drawing = replace(
             drawing,
             loading_name=renames.get(drawing.loading_name, drawing.loading_name),
+            material_assignments=tuple(
+                {**a, "stage": renames.get(a["stage"], a["stage"])}
+                for a in drawing.material_assignments if a["stage"] not in removed
+            ),
             sequence=tuple(
                 replace(s, name=renames.get(s.name, s.name))
                 for s in drawing.sequence

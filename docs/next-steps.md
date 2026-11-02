@@ -19,8 +19,10 @@ view and document viewer. **Model > Project properties** edits the number and na
 of construction stages, including in unmeshed drafts. Right-clicking a region on
 either canvas opens material/excavation assignment for the selected stage; applying
 to following stages is optional. Region context menus now contain only **Assign materials**;
-the material list includes **Excavated (void)**. Mesh generation is still required for
-stage material assignments, and stale geometry is guarded.
+the material list includes **Excavated (void)**. Material/excavation assignment now also works without a mesh and on changed geometry.
+The draft material catalogue and assignments are saved in CAD JSON, previewed by stage,
+and applied after mesh generation and old-model transfer. Existing meshed edits remain
+authoritative on later remeshes. See `tests/unit/test_premesh_materials.py`.
 Existing softened/disturbed material definitions
 can be selected. These edits clear old results and survive project save/reopen and
 remeshing. Regression coverage: `tests/unit/test_stage_workspace.py` (desktop CI).

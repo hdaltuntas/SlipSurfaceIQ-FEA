@@ -236,6 +236,9 @@ def transfer_model(previous, fresh):
         settings=previous.settings,
         geometry=geometry,
     )
+    from .material_assignment import apply_assignments
+
+    result = apply_assignments(result, new_drawing)
     result.validate()
     return result, list(dict.fromkeys(report))
 

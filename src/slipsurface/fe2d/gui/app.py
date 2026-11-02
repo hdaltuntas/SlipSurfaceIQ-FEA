@@ -616,19 +616,15 @@ class MainWindow(QMainWindow):
                 r: stage_region_material(self.model, row, r) for r in self.model.mesh.regions()
             }
             names = list(self.model.materials)
-        elif self.model is None:
-            materials = {e.region: "soil" for e in drawing.entities if e.kind == "region"}
-            by_name = {e.name: e.region for e in drawing.entities if e.kind == "region"}
-            for step in drawing.sequence[: max(0, row - 1)]:
-                for name in step.disturb:
-                    if name in by_name and drawing.disturbed_material:
-                        materials[by_name[name]] = drawing.disturbed_material
-                for name in step.excavate:
-                    if name in by_name:
-                        materials[by_name[name]] = None
-            names = ["soil", drawing.disturbed_material]
         else:
-            names = []  # Outdated geometry has no reliable stage-to-region mapping yet.
+            from ..cad.material_assignment import material_specs, region_state, stage_names
+
+            if self.model is not None:
+                drawing = drawing.with_stage_names([s.name for s in self.model.stages])
+            row = min(row, len(stage_names(drawing)) - 1)
+            materials = {e.region: region_state(drawing, row, e, self.model)
+                         for e in drawing.entities if e.kind == "region"}
+            names = list(material_specs(drawing, self.model))
         colors = ("#65b4c8", "#e2b878", "#82c39b", "#b39ddb", "#e5989b", "#80cbc4")
         self.cad.canvas.stage_materials = materials
         self.cad.canvas.material_colors = {n: colors[i % len(colors)] for i, n in enumerate(names)}
@@ -691,17 +687,12 @@ class MainWindow(QMainWindow):
 
     def _add_region_stage_action(self, menu, region):
         action = menu.addAction("Assign materials…")
-        ready = (
-            self.model is not None
-            and not self.cad.mesh_outdated
-            and region in self.model.mesh.regions()
-            and not self.busy
+        ready = not self.busy and (
+            any(e.kind == "region" and e.region == region for e in self.cad.document.entities)
+            or (self.model is not None and region in self.model.mesh.regions())
         )
         action.setEnabled(ready)
-        action.setToolTip(
-            "Choose a material or Excavated (void) for the selected stage."
-            if ready else "Generate the mesh before assigning stage materials."
-        )
+        action.setToolTip("Choose a material or Excavated (void) for the selected stage.")
         menu.setToolTipsVisible(True)
         action.triggered.connect(lambda _=False: self.edit_region_stage(region))
 
@@ -719,9 +710,26 @@ class MainWindow(QMainWindow):
         self._apply_stage_edit(updated)
 
     def edit_region_stage(self, region):
-        from .project_properties import RegionStageDialog
+        from .project_properties import DraftRegionStageDialog, RegionStageDialog
 
-        if self.busy or not self._require_model():
+        if self.busy:
+            return
+        if self.model is None or self.cad.mesh_outdated:
+            drawing = self.cad.current_drawing()
+            if self.model is not None:
+                drawing = drawing.with_stage_names([s.name for s in self.model.stages])
+            entity = next((e for e in drawing.entities
+                           if e.kind == "region" and e.region == region), None)
+            if entity is None:
+                return
+            dialog = DraftRegionStageDialog(drawing, max(0, self.stages.currentRow()),
+                                            entity, self.model, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.cad.commit(dialog.updated)
+                self.result = None
+                self.dirty = True
+            return
+        if not self._require_model():
             return
         dialog = RegionStageDialog(self.model, max(0, self.stages.currentRow()), region, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -1152,7 +1160,24 @@ class MainWindow(QMainWindow):
         self.cad.start_mesh()
 
     def edit_materials(self):
-        if self.busy or not self._require_model():
+        if self.busy:
+            return
+        if self.model is None or self.cad.mesh_outdated:
+            from dataclasses import replace
+
+            from ..cad.material_assignment import material_specs, serialize_materials
+            from .project_properties import DraftMaterialDialog
+
+            drawing = self.cad.current_drawing()
+            dialog = DraftMaterialDialog(material_specs(drawing, self.model), self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.cad.commit(replace(
+                    drawing, material_library=serialize_materials(dialog.updated)
+                ))
+                self.result = None
+                self.dirty = True
+            return
+        if not self._require_model():
             return
         dialog = MaterialDialog(self.model, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
