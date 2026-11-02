@@ -41,17 +41,22 @@ verifications are complete; the S4 structural preliminary checks passed. There i
 Experimental generation of conforming mixed T3+Q4 and T6+Q8 meshes was added:
 [API, verification scope, and sheet-pile comparison](docs/mixed-mesh.md).
 
-## Install (development)
+## Run from source
+
+Python 3.10+ is required. In the repository folder:
 
 ```bash
-pip install -e ".[dev]"
-pytest                    # unit + verification tests
-pytest -m benchmark       # Gate 1 performance criterion
-
-# Native desktop (PySide6)
-pip install -e ".[gui]"
-python -m slipsurface.fe2d.gui
+python -m pip install -r requirements.txt
+python main.py --check
+python main.py
+# Open an existing project:
+python main.py model.ssproj
 ```
+
+No installer, portable executable, wheel/sdist build or publishing workflow is used.
+The application entry point is `main.py`; dependencies are installed separately.
+For development, install `pytest ruff mypy pyvista` and run `python -m pytest`.
+The scripting examples below use `PYTHONPATH=src` when run outside pytest or main.py.
 
 ## Quick start
 
@@ -102,7 +107,7 @@ multi-surface return in principal stress space, consistent tangent), `drucker_pr
 displacements (`Stage.displacements`) for displacement-controlled loading; the initial
 state can be `gravity`, `k0_field`, a constant `field` or `none`. Elements: T3, T6, Q4
 (B-bar), Q8. Nodal stresses use superconvergent patch recovery (`api.nodal_stress`).
-`slipsurface.fe2d.gui.show_result` gives a quick PyVista view (`pip install .[gui]`).
+`slipsurface.fe2d.gui.show_result` gives a quick PyVista view (`python -m pip install pyvista`).
 
 ### Staged construction, supports and project files
 

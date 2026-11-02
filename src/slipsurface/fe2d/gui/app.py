@@ -1150,7 +1150,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="SlipSurfaceIQ native desktop")
     parser.add_argument("project", nargs="?", help=".ssproj or model JSON")
     parser.add_argument(
-        "--smoke-test", metavar="DIRECTORY", help="run installed application checks"
+        "--smoke-test", metavar="DIRECTORY", help="run source application checks"
     )
     args = parser.parse_args(argv)
     if sys.platform == "win32" and QApplication.instance() is None:

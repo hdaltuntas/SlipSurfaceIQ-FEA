@@ -2,14 +2,15 @@
 
 Run from an IDE (open this file and press Run) or from a terminal:
 
-    python main.py                                  # empty elastic model
+    python main.py                                  # open the drawing workspace
     python main.py model.ssproj                     # open a project file
     python main.py model.json                       # open a model JSON
-    python main.py --smoke-test DIR                 # installed-app smoke check
+    python main.py --smoke-test DIR                 # source application smoke check
     python main.py --check                          # dependency check, no window
 
 Works from any working directory: the src folder is put on sys.path, so
-no installation is required (``pip install -e .`` is optional).
+install the dependencies once with ``python -m pip install -r requirements.txt``.
+The application itself is run directly from source.
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ REQUIRED = {
     "scipy": "scipy",
     "numba": "numba",
     "h5py": "h5py",
+    "shapely": "shapely",
+    "ezdxf": "ezdxf",
 }
 MIN_PYTHON = (3, 10)
 
@@ -52,7 +55,7 @@ def check_environment(verbose: bool = True) -> bool:
     if missing:
         ok = False
         print("[ERROR] Missing package(s): " + ", ".join(missing))
-        print("        Install:  python -m pip install -e \".[desktop]\"")
+        print(f'        Install:  python -m pip install -r "{ROOT / "requirements.txt"}"')
     if ok and verbose:
         print(f"  Python     {sys.version.split()[0]}  ({sys.executable})")
         print("Environment ready.")
