@@ -79,6 +79,7 @@ class CadCanvas(QGraphicsView):
     vertex_moved = Signal(object, object)
     bolt_range_selected = Signal(str, object)
     fixity_edge_selected = Signal(str, object)
+    fixity_vertex_selected = Signal(object, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -117,6 +118,7 @@ class CadCanvas(QGraphicsView):
         self.material_colors = {}
         self.hidden_entities = set()
         self.fixity_rules = {}
+        self.point_fixities = ()
         self.mesh_refinements = ()
         self._region_labels = []
         self.setSceneRect(-4, -12, 28, 18)
@@ -192,6 +194,18 @@ class CadCanvas(QGraphicsView):
                 label.setPos(float(mid[0]), float(-mid[1]))
                 label.setBrush(QColor("#34566a"))
                 label.setZValue(2)
+        for rule in self.point_fixities:
+            if not (rule["ux"] or rule["uy"]):
+                continue
+            glyph = self.scene().addSimpleText(
+                "XY" if rule["ux"] and rule["uy"]
+                else "X" if rule["ux"] else "Y"
+            )
+            glyph.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+            glyph.setBrush(QColor("#b42331"))
+            glyph.setPos(float(rule["x"]), -float(rule["y"]))
+            glyph.setZValue(5)
+            glyph.setToolTip("CAD vertex restraint")
         # Keep direct-pick restraint symbols visible after each CAD redraw.
         for entity in entities:
             if entity.name in self.hidden_entities:
@@ -489,10 +503,14 @@ class CadCanvas(QGraphicsView):
             event.accept()
         elif self.fixity_pick_enabled and event.button() == Qt.MouseButton.LeftButton:
             position = event.position().toPoint()
-            index = self.hit_entity(position)
-            edge = self.hit_edge(position, index)
-            if edge:
-                self.fixity_edge_selected.emit(edge, self.mapToGlobal(position))
+            vertex = self.hit_vertex(position)
+            if vertex is not None:
+                self.fixity_vertex_selected.emit(vertex, self.mapToGlobal(position))
+            else:
+                index = self.hit_entity(position)
+                edge = self.hit_edge(position, index)
+                if edge:
+                    self.fixity_edge_selected.emit(edge, self.mapToGlobal(position))
             event.accept()
         elif self.bolt_drag.enabled and event.button() == Qt.MouseButton.LeftButton:
             self.bolt_drag.press(event.position().toPoint())
@@ -1022,6 +1040,7 @@ class CadDialog(QDialog):
         strip.insertAction(fit, fixity)
         self.fixity_action = fixity
         self.canvas.fixity_edge_selected.connect(self.show_edge_fixity_menu)
+        self.canvas.fixity_vertex_selected.connect(self.show_vertex_fixity_menu)
         self.tool_actions["select"].setChecked(True)
         return strip
 
@@ -1089,6 +1108,41 @@ class CadDialog(QDialog):
         self.canvas.fixity_pick_enabled = enabled
         self.canvas.setCursor(Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.ArrowCursor)
         self.status.setText("Click a model edge to assign ux/uy fixities" if enabled else IDLE_HINT)
+
+    def show_vertex_fixity_menu(self, point, global_pos):
+        """Apply explicit node restraint at a drawn shared vertex."""
+        x, y = map(float, point)
+        rule = next(
+            (r for r in self.current_drawing().point_fixities
+             if (r["x"], r["y"]) == (x, y)), None,
+        )
+        current = (rule["ux"], rule["uy"]) if rule else (False, False)
+        menu = QMenu(self)
+        menu.addAction(f"Vertex ({x:g}, {y:g})").setEnabled(False)
+        for title, ux, uy in (
+            ("Free", False, False),
+            ("Restrain X", True, False),
+            ("Restrain Y", False, True),
+            ("Restrain X + Y", True, True),
+        ):
+            action = menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(current == (ux, uy))
+            action.triggered.connect(
+                lambda _checked=False, a=ux, b=uy:
+                    self.set_vertex_rule(x, y, a, b)
+            )
+        menu.exec(global_pos)
+
+    def set_vertex_rule(self, x, y, ux, uy):
+        drawing = self.current_drawing()
+        others = tuple(
+            r for r in drawing.point_fixities
+            if (r["x"], r["y"]) != (x, y)
+        )
+        rule = ({"x": x, "y": y, "ux": ux, "uy": uy},) if ux or uy else ()
+        self.commit(replace(drawing, point_fixities=others + rule))
+        self.status.setText(f"Vertex ({x:g}, {y:g}): ux={ux}, uy={uy}; remesh required.")
 
     def show_edge_fixity_menu(self, edge, global_pos):
         rule = next((r for r in self.current_drawing().rules if r.edge == edge), BoundaryRule(edge))
@@ -1441,6 +1495,7 @@ class CadDialog(QDialog):
             rule.edge: (rule.ux, rule.uy) for rule in self.document.rules
         }
         self.canvas.mesh_refinements = self.document.mesh_refinements
+        self.canvas.point_fixities = self.document.point_fixities
         self.canvas.redraw(self.document.entities, self.pending)
         self._refresh_model_tree()
         if fit:
