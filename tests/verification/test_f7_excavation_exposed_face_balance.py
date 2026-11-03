@@ -9,6 +9,7 @@ import pytest
 
 from slipsurface.fe2d import api
 from slipsurface.fe2d.core.enums import ElemType
+from slipsurface.fe2d.core.errors import MeshError
 from slipsurface.fe2d.mesh import layered_box
 from slipsurface.fe2d.post.excavation_balance import excavation_stage_balance
 
@@ -105,3 +106,27 @@ def test_partial_stage_not_falsely_certified():
     solved = api.run(modified)
     with pytest.raises(ValueError, match="Partial load splits"):
         excavation_stage_balance(modified, solved, 1)
+
+
+def test_solver_external_pressure_resultant_on_newly_exposed_face():
+    """Reject the old bug: loading sees two original owners and cancels forces."""
+    from slipsurface.fe2d.fem.loads import edge_traction_forces, edge_load_traction
+
+    model = make_layered_case(ElemType.T3)
+    block = model.mesh.continuum_blocks()[0]
+    active = {"soil": block.region == 2}
+    edges = model.mesh.edges("new_exposed_top")
+    _, nodal = edge_traction_forces(
+        model.mesh, edges,
+        edge_load_traction(api.EdgeLoad("new_exposed_top", qn=PRESSURE)),
+        model.analysis, active_masks=active,
+    )
+    assert nodal.sum(axis=(0, 1)) == pytest.approx(
+        [0., -PRESSURE * WIDTH], abs=1e-9
+    )
+    with pytest.raises(MeshError, match="more than one active continuum owner"):
+        edge_traction_forces(
+            model.mesh, edges,
+            edge_load_traction(api.EdgeLoad("new_exposed_top", qn=PRESSURE)),
+            model.analysis, active_masks={"soil": np.ones(block.ne, dtype=bool)},
+        )
