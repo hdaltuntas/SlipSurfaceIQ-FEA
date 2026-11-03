@@ -47,8 +47,11 @@ def test_changed_reference_or_missing_stage_rejected():
     ]
     with pytest.raises(ValueError, match="identical"):
         compare_local_stress_meshes(values)
+    # Reset the conflicting head, then independently assert the stage
+    # coverage check detects a duplicate/missing stage.
     values[2]["head_m"] = 0.
     values[3]["stage"] = "initial"
+    values[3]["head_m"] = 0.
     with pytest.raises(ValueError, match="Every mesh"):
         compare_local_stress_meshes(values)
 
