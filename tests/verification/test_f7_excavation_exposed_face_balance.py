@@ -12,7 +12,6 @@ from slipsurface.fe2d.core.enums import ElemType
 from slipsurface.fe2d.mesh import layered_box
 from slipsurface.fe2d.post.excavation_balance import excavation_stage_balance
 
-
 WIDTH = 4.0
 GAMMA = 18.0
 PRESSURE = 20.0
