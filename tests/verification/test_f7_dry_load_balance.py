@@ -114,3 +114,17 @@ def test_rejected_water_and_changed_geometry_not_misreported_as_pass():
     rows = dry_stage_load_balance_by_stage(changed, output)
     assert rows[0]["status"] == "unsupported"
     assert "excavation" in rows[0]["reason"]
+
+
+def test_exterior_pressure_sign_does_not_depend_on_edge_node_order():
+    base = base_model(ElemType.T3)
+    stage = api.Stage("top", loads=(api.EdgeLoad("top", qn=40.),))
+    expected = independent_stage_loads(base, stage)
+    assert expected == pytest.approx([0., -40. * WIDTH])
+    backwards = np.asarray(base.mesh.edge_sets["top"])[:, ::-1]
+    mesh = replace(
+        base.mesh,
+        edge_sets={**base.mesh.edge_sets, "top": backwards},
+    )
+    reversed_model = replace(base, mesh=mesh)
+    assert independent_stage_loads(reversed_model, stage) == pytest.approx(expected)
