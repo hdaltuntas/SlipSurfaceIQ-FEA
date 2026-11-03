@@ -17,7 +17,6 @@ import numpy as np
 
 from slipsurface.fe2d.core.enums import Analysis, ElemType
 from slipsurface.fe2d.model.boundary import EdgeLoad, PointLoad
-from slipsurface.fe2d.post.global_balance import gravity_equilibrium_budget
 
 
 def _boundary_edge_map(mesh):
