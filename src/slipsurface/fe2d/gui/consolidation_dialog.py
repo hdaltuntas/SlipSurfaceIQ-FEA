@@ -1,5 +1,6 @@
 """Native consolidation settlement calculation dialog (independent of FEM)."""
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -83,7 +84,7 @@ class ConsolidationDialog(QDialog):
                           f"{1000 * data.settlement(days):.3f}")
                 for col, value in enumerate(values):
                     item = QTableWidgetItem(value)
-                    item.setFlags(item.flags() & ~item.flags().ItemIsEditable)
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                     self.table.setItem(row, col, item)
         except ValueError as exc:
             self.message.setText(f"Invalid input: {exc}")
