@@ -143,7 +143,7 @@ def compare_supports_by_stage(rows: list[dict]) -> list[dict]:
     return output
 
 
-def stage_support_profiles(model, stage, count=51):
+def stage_support_profiles(model, stage, count=51, *, signed=False):
     """Profiles for supports present in this stage; inactive supports are omitted."""
     drawing = Drawing.from_dict(model.geometry)
     entities = {entity.name: entity for entity in drawing.entities}
@@ -158,19 +158,42 @@ def stage_support_profiles(model, stage, count=51):
         profile = sample_support_profile(
             model.mesh, stage, tag,
             (entity.points[0], entity.points[-1]),
-            kind=kind, count=count,
+            kind=kind, count=count, signed=signed,
         )
         profiles[tag] = profile
     return profiles
 
 
-def compare_stage_profiles(rows):
+def stage_signed_profiles(model, stage, count=51):
+    """Signed outputs are opt-in per support; report invalid local orientations."""
+    drawing = Drawing.from_dict(model.geometry)
+    entities = {entity.name: entity for entity in drawing.entities}
+    valid, errors = {}, {}
+    for assignment in drawing.supports:
+        tag = assignment.tag
+        kind = "bar" if assignment.kind == "bolt" else "beam"
+        sources = stage.bars if kind == "bar" else stage.beams
+        if tag not in sources:
+            continue
+        entity = entities[assignment.entity]
+        try:
+            valid[tag] = sample_support_profile(
+                model.mesh, stage, tag,
+                (entity.points[0], entity.points[-1]),
+                kind=kind, count=count, signed=True,
+            )
+        except ValueError as exc:
+            errors[tag] = str(exc)
+    return valid, errors
+
+
+def compare_stage_profiles(rows, field="profiles"):
     """Return differences for each stage and support between successive meshes."""
     previous = {}
     comparisons = []
     for row in rows:
         stage = row["stage"]
-        current = row.get("profiles", {})
+        current = row.get(field, {})
         old = previous.get(stage)
         if old is not None:
             for tag in sorted(set(old) | set(current)):
@@ -210,6 +233,9 @@ def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
                 metrics = stage_metrics(stage, h, model.mesh.nn, elements)
                 metrics["supports"] = support_force_metrics(stage)
                 metrics["profiles"] = stage_support_profiles(model, stage)
+                signed, errors = stage_signed_profiles(model, stage)
+                metrics["signed_profiles"] = signed
+                metrics["signed_profile_errors"] = errors
                 rows.append(metrics)
         except Exception as exc:
             failures.append({"h_m": h, "type": type(exc).__name__, "detail": str(exc)})
@@ -236,6 +262,7 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
     attach_mesh_differences(rows)
     comparisons = compare_supports_by_stage(rows)
     profile_comparisons = compare_stage_profiles(rows)
+    signed_comparisons = compare_stage_profiles(rows, field="signed_profiles")
     (output / "excavation_force_distributions.json").write_text(
         json.dumps({
             "profiles": [
@@ -244,6 +271,13 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
                 for row in rows
             ],
             "comparisons": profile_comparisons,
+            "signed_comparisons": signed_comparisons,
+            "signed_profiles": [
+                {"stage": row["stage"], "h_m": row["h_m"],
+                 "supports": row.get("signed_profiles", {}),
+                 "errors": row.get("signed_profile_errors", {})}
+                for row in rows
+            ],
         }, indent=2, allow_nan=False),
         encoding="utf-8",
     )
@@ -260,7 +294,7 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         writer.writerows(comparisons)
     with (output / "excavation_mesh_audit.csv").open("w", newline="", encoding="utf-8") as file:
         if rows:
-            fieldnames = [field for field in rows[0] if field not in {"supports", "profiles"}]
+            fieldnames = [field for field in rows[0] if field not in {"supports", "profiles", "signed_profiles", "signed_profile_errors"}]
             writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
@@ -270,6 +304,7 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         "results": rows,
         "support_comparisons": comparisons,
         "profile_comparisons": profile_comparisons,
+        "signed_comparisons": signed_comparisons,
         "failures": failures,
         "warning": (
             "Convergence and mesh sensitivity are not independent physical validation; "
