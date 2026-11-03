@@ -29,7 +29,19 @@ class ConsolidationDialog(QDialog):
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
+        guidance = QLabel(
+            "When an oedometer Cc/e0 result is unavailable, select mv–cv. "
+            "mv may be estimated from justified correlations or constrained modulus "
+            "(mv ≈ 1/M). cv still requires an independently justified value. "
+            "The calculator does not infer either parameter from soil type."
+        )
+        guidance.setWordWrap(True)
+        layout.addWidget(guidance)
         form = QFormLayout()
+        self.method = QComboBox()
+        self.method.addItem("Cc–e0 (normally consolidated, logarithmic)", "cc")
+        self.method.addItem("mv–cv (constant volume compressibility)", "mv")
+        form.addRow("Settlement method", self.method)
         self.controls = {}
         fields = [
             ("thickness", "Compressible layer thickness H (m)", 5.0),
@@ -37,11 +49,12 @@ class ConsolidationDialog(QDialog):
             ("delta_sigma", "Vertical stress increment Δσv (kPa)", 50.0),
             ("compression_index", "Compression index Cc (–)", 0.25),
             ("void_ratio", "Initial void ratio e0 (–)", 0.8),
+            ("mv", "Volume compressibility mv (1/kPa)", 0.0003),
             ("cv", "Consolidation coefficient cv (m²/day)", 0.001),
         ]
         for key, label, default in fields:
             field = QDoubleSpinBox()
-            field.setDecimals(6)
+            field.setDecimals(9)
             field.setRange(-1e6 if key == "delta_sigma" else 0, 1e9)
             field.setValue(default)
             self.controls[key] = field
@@ -63,6 +76,14 @@ class ConsolidationDialog(QDialog):
         for widget in self.controls.values():
             widget.valueChanged.connect(self.calculate)
         self.drainage.currentIndexChanged.connect(self.calculate)
+        self.method.currentIndexChanged.connect(self._method_changed)
+        self._method_changed()
+
+    def _method_changed(self, *_):
+        uses_cc = self.method.currentData() == "cc"
+        for key in ("compression_index", "void_ratio"):
+            self.controls[key].setEnabled(uses_cc)
+        self.controls["mv"].setEnabled(not uses_cc)
         self.calculate()
 
     def calculate(self, *_):
@@ -70,6 +91,7 @@ class ConsolidationDialog(QDialog):
             data = ConsolidationInput(
                 **{key: widget.value() for key, widget in self.controls.items()},
                 drainage=self.drainage.currentData(),
+                method=self.method.currentData(),
             )
             ultimate = data.final_settlement()
             t90 = data.time_to_90()
