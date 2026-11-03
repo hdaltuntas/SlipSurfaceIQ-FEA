@@ -49,7 +49,7 @@ def test_changed_reference_or_missing_stage_rejected():
         compare_local_stress_meshes(values)
     values[2]["head_m"] = 0.
     values[3]["stage"] = "initial"
-    with pytest.raises(ValueError, match="every mesh"):
+    with pytest.raises(ValueError, match="Every mesh"):
         compare_local_stress_meshes(values)
 
 
