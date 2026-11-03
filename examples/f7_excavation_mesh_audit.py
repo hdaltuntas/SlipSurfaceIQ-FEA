@@ -28,6 +28,7 @@ from slipsurface.fe2d import api
 from slipsurface.fe2d.cad.geometry import Drawing
 from slipsurface.fe2d.gui.demo import excavation_model
 from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
+from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
 from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
@@ -230,9 +231,11 @@ def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
                     f"{quality.nonpositive_jacobian_elements} invalid Jacobian elements"
                 )
             result = api.run(model)
+            gravity_balances = gravity_equilibrium_by_stage(model, result)
             elements = sum(block.ne for block in model.mesh.continuum_blocks())
-            for stage in result.stages:
+            for index, stage in enumerate(result.stages):
                 metrics = stage_metrics(stage, h, model.mesh.nn, elements)
+                metrics["gravity_balance"] = gravity_balances[index]
                 metrics["supports"] = support_force_metrics(stage)
                 metrics["interface_pairs"] = stage_interface_pairs(model, stage)
                 metrics["interface_nodal_transfer"] = stage_interface_nodal_audit(model, stage)
@@ -298,11 +301,16 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         writer.writerows(comparisons)
     with (output / "excavation_mesh_audit.csv").open("w", newline="", encoding="utf-8") as file:
         if rows:
-            fieldnames = [field for field in rows[0] if field not in {"supports", "profiles", "signed_profiles", "signed_profile_errors", "interface_pairs", "interface_nodal_transfer"}]
+            fieldnames = [field for field in rows[0] if field not in {"supports", "profiles", "signed_profiles", "signed_profile_errors", "interface_pairs", "interface_nodal_transfer", "gravity_balance"}]
             writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
     report = {
+        "gravity_balance": [
+            {"stage": row["stage"], "h_m": row["h_m"],
+             **row.get("gravity_balance", {})}
+            for row in rows
+        ],
         "interface_nodal_transfer": [
             {"stage": row["stage"], "h_m": row["h_m"],
              "interfaces": row.get("interface_nodal_transfer", {})}
