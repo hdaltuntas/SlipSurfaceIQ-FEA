@@ -60,6 +60,23 @@ def maximum_finite_magnitude(arrays) -> float:
     return max((float(x.max()) for x in valid if x.size), default=0.0)
 
 
+def support_force_metrics(stage) -> dict:
+    """Peak structural response per tag, preserving the engineering identity.
+
+    No nonzero value is fabricated for an inactive or absent support.
+    """
+    return {
+        "beam_moments": {
+            tag: maximum_finite_magnitude([force[..., 2]])
+            for tag, force in sorted(stage.beams.items())
+        },
+        "bar_axial_forces": {
+            tag: maximum_finite_magnitude([force])
+            for tag, force in sorted(stage.bars.items())
+        },
+    }
+
+
 def stage_metrics(stage, h: float, nodes: int, elements: int) -> dict:
     plastic_gp = sum(int(np.count_nonzero(x)) for x in stage.plastic.values())
     beam_moments = maximum_finite_magnitude(
@@ -92,6 +109,39 @@ def stage_metrics(stage, h: float, nodes: int, elements: int) -> dict:
     }
 
 
+def compare_supports_by_stage(rows: list[dict]) -> list[dict]:
+    """Compare structural forces between successive meshes at the same stage.
+
+    An absent support does not mean zero force: it is an activation or
+    data-coverage mismatch and must be visible in the audit.
+    """
+    previous: dict[str, dict] = {}
+    output: list[dict] = []
+    for row in rows:
+        name = row["stage"]
+        support = row.get("supports", {"beam_moments": {}, "bar_axial_forces": {}})
+        before = previous.get(name)
+        if before is not None:
+            for kind in ("beam_moments", "bar_axial_forces"):
+                earlier = before.get(kind, {})
+                current = support.get(kind, {})
+                for tag in sorted(set(earlier) | set(current)):
+                    first, second = earlier.get(tag), current.get(tag)
+                    change = (
+                        abs(second - first) / max(abs(first), abs(second), 1e-12)
+                        if first is not None and second is not None else None
+                    )
+                    output.append({
+                        "stage": name, "h_m": row["h_m"],
+                        "kind": kind, "tag": tag,
+                        "previous_peak": first, "current_peak": second,
+                        "relative_change": change,
+                        "status": "compared" if change is not None else "missing",
+                    })
+        previous[name] = support
+    return output
+
+
 def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
     base = excavation_model()
     rows: list[dict] = []
@@ -106,10 +156,10 @@ def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
                 )
             result = api.run(model)
             elements = sum(block.ne for block in model.mesh.continuum_blocks())
-            rows.extend(
-                stage_metrics(stage, h, model.mesh.nn, elements)
-                for stage in result.stages
-            )
+            for stage in result.stages:
+                metrics = stage_metrics(stage, h, model.mesh.nn, elements)
+                metrics["supports"] = support_force_metrics(stage)
+                rows.append(metrics)
         except Exception as exc:
             failures.append({"h_m": h, "type": type(exc).__name__, "detail": str(exc)})
     return rows, failures
@@ -133,15 +183,29 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
     output.mkdir(parents=True, exist_ok=True)
     rows, failures = run_audit(sizes)
     attach_mesh_differences(rows)
+    comparisons = compare_supports_by_stage(rows)
+    with (output / "excavation_support_comparison.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as file:
+        writer = csv.DictWriter(
+            file, fieldnames=[
+                "stage", "h_m", "kind", "tag", "previous_peak",
+                "current_peak", "relative_change", "status",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(comparisons)
     with (output / "excavation_mesh_audit.csv").open("w", newline="", encoding="utf-8") as file:
         if rows:
-            writer = csv.DictWriter(file, fieldnames=list(rows[0]))
+            fieldnames = [field for field in rows[0] if field != "supports"]
+            writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
     report = {
         "case": "RS2-inspired pile/anchor staged excavation (native demo)",
         "mesh_sizes_m": list(sizes),
         "results": rows,
+        "support_comparisons": comparisons,
         "failures": failures,
         "warning": (
             "Convergence and mesh sensitivity are not independent physical validation; "
