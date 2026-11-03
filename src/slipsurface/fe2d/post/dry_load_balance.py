@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from slipsurface.fe2d.post.balance_acceptance import classify_balance
 from slipsurface.fe2d.core.enums import Analysis, ElemType
 from slipsurface.fe2d.model.boundary import EdgeLoad, PointLoad
+from slipsurface.fe2d.post.balance_acceptance import classify_balance
 
 
 def _boundary_edge_map(mesh, active_masks=None):
