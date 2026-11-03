@@ -19,9 +19,10 @@ import numpy as np
 from slipsurface.fe2d.core.enums import Analysis
 from slipsurface.fe2d.core.units import GAMMA_W
 from slipsurface.fe2d.post.balance_acceptance import classify_balance
+from slipsurface.fe2d.post.water_table_geometry import mesh_element_water_areas
 
 
-def saturated_column_budget(model, result, stage_index=None):
+def saturated_column_budget(model, result, stage_index=None, *, exact_cut=False):
     """Independent hydrostatic and gravity Ry benchmark, in kN/m.
 
     stage_index=None evaluates the initial state. Otherwise it evaluates
@@ -71,6 +72,8 @@ def saturated_column_budget(model, result, stage_index=None):
     dry_weight = 0.0
     saturated_weight = 0.0
     areas_sum = 0.0
+    cut_elements = 0
+    clipped = mesh_element_water_areas(model.mesh, head) if exact_cut else {}
     for block in model.mesh.continuum_blocks():
         mask = np.asarray(stage.active[block.tag], dtype=bool)
         if mask.shape != (block.ne,) or not mask.all():
@@ -79,19 +82,29 @@ def saturated_column_budget(model, result, stage_index=None):
         vertices = coords[corners]
         ymin = vertices[:, :, 1].min(axis=1)
         ymax = vertices[:, :, 1].max(axis=1)
-        if np.any((ymin < head - 1e-9) & (ymax > head + 1e-9)):
+        crossed = (ymin < head - 1e-9) & (ymax > head + 1e-9)
+        cut_elements += int(np.count_nonzero(crossed))
+        if crossed.any() and not exact_cut:
             raise ValueError("Water table must follow element edges")
-        # Use element geometry's Gauss quadrature for exact straight-sided area.
+        # When exact_cut=True, independently clip polygon corner geometry.
+        # The legacy aligned case retains the FEM's geometry area integration.
         areas = np.asarray(result.geom[block.tag].wdet).sum(axis=1)
         if not np.isfinite(areas).all() or np.any(areas <= 0):
             raise ValueError("Nonpositive element area")
+        if exact_cut:
+            dry_areas, wet_areas = clipped[block.tag]
+            if not np.allclose(
+                dry_areas + wet_areas, areas, rtol=1e-8, atol=1e-8
+            ):
+                raise ValueError("Element geometry and clipped area disagree")
+        else:
+            wet_areas = np.where(ymin >= head - 1e-9, 0.0, areas)
+            dry_areas = areas - wet_areas
         areas_sum += float(areas.sum())
         for idx, region in enumerate(block.region):
             spec = model.materials[model.region_material[int(region)]]
-            if ymin[idx] >= head - 1e-9:
-                dry_weight += float(areas[idx] * spec.gamma_unsat)
-            else:
-                saturated_weight += float(areas[idx] * spec.gamma_sat)
+            dry_weight += float(dry_areas[idx] * spec.gamma_unsat)
+            saturated_weight += float(wet_areas[idx] * spec.gamma_sat)
     if not math.isclose(areas_sum, width * (y1 - y0), rel_tol=1e-8, abs_tol=1e-8):
         raise ValueError("Column requires a fully filled rectangular continuum")
     water_surface_force = GAMMA_W * max(head - y1, 0.0) * width
@@ -101,6 +114,8 @@ def saturated_column_budget(model, result, stage_index=None):
     return {
         "stage": stage.name,
         "water_head_m": head,
+        "water_table_cut_elements": cut_elements,
+        "reference_method": "exact_polygon_clip" if exact_cut else "aligned_mesh",
         "dry_soil_weight_kn_per_m": dry_weight,
         "saturated_soil_weight_kn_per_m": saturated_weight,
         "water_surface_force_kn_per_m": water_surface_force,
@@ -119,6 +134,26 @@ def saturated_column_budget_by_stage(model, result):
         try:
             row = classify_balance(
                 saturated_column_budget(model, result, index), "relative_residual"
+            )
+        except (ValueError, KeyError, IndexError) as exc:
+            row = {"stage": name, "status": "unsupported", "reason": str(exc)}
+        rows.append(row)
+    return rows
+
+
+def exact_cut_saturated_column_budget_by_stage(model, result):
+    """Classify exact polygon-clipped bulk weight against the FEM reaction.
+
+    A mesh-cut water table can produce FEM integration error: this classifier
+    is allowed to return `failed` and must never silently accept it.
+    """
+    rows = []
+    for index in (None, *range(len(result.stages))):
+        name = "initial" if index is None else result.stages[index].name
+        try:
+            row = classify_balance(
+                saturated_column_budget(model, result, index, exact_cut=True),
+                "relative_residual",
             )
         except (ValueError, KeyError, IndexError) as exc:
             row = {"stage": name, "status": "unsupported", "reason": str(exc)}
