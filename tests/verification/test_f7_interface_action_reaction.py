@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from slipsurface.fe2d.core.enums import ElemType
+from slipsurface.fe2d.core.enums import Analysis, ElemType
 from slipsurface.fe2d.model.materials import InterfaceSpec
 from slipsurface.fe2d.model.mesh import ElementBlock, Mesh
 from slipsurface.fe2d.post.interface_balance import (
@@ -71,7 +71,7 @@ def test_stage_interface_aggregation_requires_matching_material_spec():
     stage = SimpleNamespace(interfaces={"joint": np.ones((1, 2, 2))})
     model = SimpleNamespace(
         mesh=mesh, interfaces={"joint": props},
-        analysis=__import__("slipsurface.fe2d.core.enums", fromlist=["Analysis"]).Analysis.PLANE_STRAIN,
+        analysis=Analysis.PLANE_STRAIN,
     )
     output = stage_interface_pairs(model, stage)
     assert "joint" in output
