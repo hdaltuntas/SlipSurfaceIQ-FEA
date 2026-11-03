@@ -116,6 +116,7 @@ class CadCanvas(QGraphicsView):
         self.stage_materials = {}
         self.material_colors = {}
         self.hidden_entities = set()
+        self.fixity_rules = {}
         self._region_labels = []
         self.setSceneRect(-4, -12, 28, 18)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -190,6 +191,22 @@ class CadCanvas(QGraphicsView):
                 label.setPos(float(mid[0]), float(-mid[1]))
                 label.setBrush(QColor("#34566a"))
                 label.setZValue(2)
+        # Keep direct-pick restraint symbols visible after each CAD redraw.
+        for entity in entities:
+            if entity.name in self.hidden_entities:
+                continue
+            for edge, (start, end) in zip(entity.edge_names(), entity.segments()):
+                ux, uy = self.fixity_rules.get(edge, (False, False))
+                if not (ux or uy):
+                    continue
+                midpoint = (np.asarray(start, dtype=float) +
+                            np.asarray(end, dtype=float)) / 2
+                label = self.scene().addSimpleText("XY" if ux and uy else "X" if ux else "Y")
+                label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+                label.setBrush(QColor("#a32d26" if ux and uy else "#156798"))
+                label.setPos(float(midpoint[0]), float(-midpoint[1]))
+                label.setZValue(4)
+                label.setToolTip(f"{edge}: ux={ux}, uy={uy}")
         if pending:
             path = QPainterPath(QPointF(*[pending[0][0], -pending[0][1]]))
             for x, y in pending[1:]:
@@ -1367,6 +1384,9 @@ class CadDialog(QDialog):
         self.canvas.hidden_entities.intersection_update(
             {entity.name for entity in self.document.entities}
         )
+        self.canvas.fixity_rules = {
+            rule.edge: (rule.ux, rule.uy) for rule in self.document.rules
+        }
         self.canvas.redraw(self.document.entities, self.pending)
         self._refresh_model_tree()
         if fit:
