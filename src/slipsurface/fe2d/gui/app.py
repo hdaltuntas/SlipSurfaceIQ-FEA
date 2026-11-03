@@ -719,11 +719,12 @@ class MainWindow(QMainWindow):
         from dataclasses import replace
 
         stage = self.model.stages[stage_index - 1]
-        previous = next(
-            (load.qn for load in stage.loads
+        existing = next(
+            (load for load in stage.loads
              if isinstance(load, api.EdgeLoad) and load.edge_set == edge),
-            0.0,
+            None,
         )
+        previous = existing.qn if existing is not None else 0.0
         pressure, accepted = QInputDialog.getDouble(
             self, "Construction stage edge pressure",
             f"{stage.name} · {edge} · qn (kPa, positive inward)",
@@ -735,7 +736,11 @@ class MainWindow(QMainWindow):
             load for load in stage.loads
             if not (isinstance(load, api.EdgeLoad) and load.edge_set == edge)
         )
-        loads = retained + ((api.EdgeLoad(edge, pressure, 0.0),) if pressure else ())
+        tangential = existing.qt if existing is not None else 0.0
+        loads = retained + (
+            (api.EdgeLoad(edge, pressure, tangential),)
+            if pressure or tangential else ()
+        )
         stages = list(self.model.stages)
         stages[stage_index - 1] = replace(stage, loads=loads)
         self._apply_stage_edit(replace(self.model, stages=stages))
