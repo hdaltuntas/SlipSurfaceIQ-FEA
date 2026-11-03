@@ -79,6 +79,8 @@ def test_gui_vertex_rule_is_undoable(qt_app):
         cad.undo()
         assert cad.document.point_fixities == ()
     finally:
+        window.cad.saved_drawing = window.cad.current_drawing()
+        window.dirty = False
         window.close()
 
 
