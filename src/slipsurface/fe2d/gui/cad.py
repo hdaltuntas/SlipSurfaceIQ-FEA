@@ -46,6 +46,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QTabWidget,
     QToolBar,
+    QTreeWidget,
+    QTreeWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -113,6 +115,7 @@ class CadCanvas(QGraphicsView):
         self.supports = {}
         self.stage_materials = {}
         self.material_colors = {}
+        self.hidden_entities = set()
         self._region_labels = []
         self.setSceneRect(-4, -12, 28, 18)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -134,6 +137,8 @@ class CadCanvas(QGraphicsView):
         shapes = {e.name: e.shape() for e in entities if e.kind != "line"}
         region_palette = ("#65b4c8", "#e2b878", "#82c39b", "#b39ddb", "#e5989b", "#80cbc4")
         for e in entities:
+            if e.name in self.hidden_entities:
+                continue
             path = QPainterPath(QPointF(e.points[0][0], -e.points[0][1]))
             for x, y in e.points[1:]:
                 path.lineTo(x, -y)
@@ -276,6 +281,8 @@ class CadCanvas(QGraphicsView):
         tolerance = self._tolerance(8)
         hits = []
         for index, entity in enumerate(self.entities):
+            if entity.name in self.hidden_entities:
+                continue
             shape = entity.shape()
             boundary = shape if entity.kind == "line" else shape.boundary
             distance = boundary.distance(point)
@@ -691,6 +698,20 @@ class CadDialog(QDialog):
         drafting.setContentsMargins(0, 0, 0, 0)
         drafting.setSpacing(0)
         drafting.addWidget(self.tool_strip)
+        # RS2-style document tree remains in the integrated modeler, not a dialog.
+        model_panel = QWidget()
+        model_panel.setMinimumWidth(190)
+        model_panel.setMaximumWidth(300)
+        model_layout = QVBoxLayout(model_panel)
+        model_layout.setContentsMargins(5, 5, 5, 5)
+        model_layout.addWidget(QLabel("MODEL EXPLORER"))
+        self.model_tree = QTreeWidget()
+        self.model_tree.setHeaderLabels(["Objects / visibility"])
+        self.model_tree.itemChanged.connect(self._tree_visibility_changed)
+        self.model_tree.itemSelectionChanged.connect(self._tree_selection_changed)
+        model_layout.addWidget(self.model_tree, 1)
+        model_layout.addWidget(QLabel("Double-click a model object to edit its properties."))
+        drafting.addWidget(model_panel)
         drafting.addWidget(ruled_canvas(self.canvas), 1)
         editor_layout.addLayout(drafting, 1)
         settings = QHBoxLayout()
@@ -982,6 +1003,60 @@ class CadDialog(QDialog):
         action = self.tool_actions.get(key)
         if action is not None and not action.isChecked():
             action.setChecked(True)
+
+    def _refresh_model_tree(self):
+        """Synchronize model groups and checkable entity visibility after edits."""
+        tree = self.model_tree
+        previous = {item.data(0, Qt.ItemDataRole.UserRole)
+                    for item in tree.selectedItems()}
+        tree.blockSignals(True)
+        tree.clear()
+        roots = {
+            "region": QTreeWidgetItem(tree, ["Material regions"]),
+            "hole": QTreeWidgetItem(tree, ["Excavations / voids"]),
+            "line": QTreeWidgetItem(tree, ["Geometry lines"]),
+            "support": QTreeWidgetItem(tree, ["Supports"]),
+        }
+        supports = {item.entity for item in self.document.supports}
+        for entity in self.document.entities:
+            category = "support" if entity.name in supports else entity.kind
+            parent = roots.get(category, roots["line"])
+            child = QTreeWidgetItem(parent, [entity.name])
+            child.setData(0, Qt.ItemDataRole.UserRole, entity.name)
+            child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            child.setCheckState(
+                0, Qt.CheckState.Unchecked if entity.name in self.canvas.hidden_entities
+                else Qt.CheckState.Checked
+            )
+            if entity.name in previous:
+                child.setSelected(True)
+        for parent in roots.values():
+            parent.setExpanded(True)
+        tree.blockSignals(False)
+
+    def _tree_visibility_changed(self, item, column):
+        if column != 0:
+            return
+        name = item.data(0, Qt.ItemDataRole.UserRole)
+        if name is None:
+            return
+        if item.checkState(0) == Qt.CheckState.Checked:
+            self.canvas.hidden_entities.discard(name)
+        else:
+            self.canvas.hidden_entities.add(name)
+        self.canvas.redraw(
+            self.document.entities, self.pending,
+            self.document.entities[self.entities.currentRow()].name
+            if 0 <= self.entities.currentRow() < len(self.document.entities) else None,
+        )
+
+    def _tree_selection_changed(self):
+        for item in self.model_tree.selectedItems():
+            name = item.data(0, Qt.ItemDataRole.UserRole)
+            for index, entity in enumerate(self.document.entities):
+                if name == entity.name:
+                    self.select_from_canvas(index)
+                    return
 
     def toggle_fixity_pick(self, enabled):
         self.cancel_drawing()
@@ -1284,7 +1359,11 @@ class CadDialog(QDialog):
                 min(self.values[k].minimum(), value), max(self.values[k].maximum(), value)
             )
             self.values[k].setValue(value)
+        self.canvas.hidden_entities.intersection_update(
+            {entity.name for entity in self.document.entities}
+        )
         self.canvas.redraw(self.document.entities, self.pending)
+        self._refresh_model_tree()
         if fit:
             self.canvas.fit_drawing()
         self.drawing_changed.emit()
