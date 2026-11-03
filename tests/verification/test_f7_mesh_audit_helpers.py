@@ -106,3 +106,20 @@ def test_support_comparison_preserves_activation_and_missing_tags():
     assert bolt[0]["status"] == "missing"
     assert bolt[0]["relative_change"] is None
     assert bolt[1]["relative_change"] == pytest.approx(0.5 / 5.0)
+
+
+def test_stage_support_profiles_compare_componentwise_and_detect_missing():
+    profile = {
+        "tag": "pile", "kind": "beam", "s": [0., 1.],
+        "components": [[1., 2., 3.], [2., 3., 4.]],
+    }
+    data = [
+        {"stage": "Lift 1", "h_m": 2.0, "profiles": {"pile": profile}},
+        {"stage": "Lift 1", "h_m": 1.0, "profiles": {"pile": profile}},
+        {"stage": "Lift 1", "h_m": 0.5, "profiles": {}},
+    ]
+    compared = AUDIT["compare_stage_profiles"](data)
+    assert compared[0]["status"] == "compared"
+    assert compared[0]["relative_rms_components"] == pytest.approx([0., 0., 0.])
+    assert compared[1]["status"] == "missing"
+    assert compared[1]["relative_rms_components"] is None
