@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 from slipsurface.fe2d import api
