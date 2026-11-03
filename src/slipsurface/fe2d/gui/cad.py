@@ -117,6 +117,7 @@ class CadCanvas(QGraphicsView):
         self.material_colors = {}
         self.hidden_entities = set()
         self.fixity_rules = {}
+        self.mesh_refinements = ()
         self._region_labels = []
         self.setSceneRect(-4, -12, 28, 18)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -207,6 +208,15 @@ class CadCanvas(QGraphicsView):
                 label.setPos(float(midpoint[0]), float(-midpoint[1]))
                 label.setZValue(4)
                 label.setToolTip(f"{edge}: ux={ux}, uy={uy}")
+        # Dashed local mesh sizing zones show the actual persisted CAD parameters.
+        for zone in self.mesh_refinements:
+            cx, cy, radius = (float(zone[k]) for k in ("x", "y", "radius"))
+            outline = self.scene().addEllipse(
+                cx - radius, -cy - radius, 2 * radius, 2 * radius,
+                QPen(QColor("#8b5cf6"), 0, Qt.PenStyle.DashLine),
+            )
+            outline.setZValue(2.8)
+            outline.setToolTip(f"Local target h = {zone['h']:g} m")
         if pending:
             path = QPainterPath(QPointF(*[pending[0][0], -pending[0][1]]))
             for x, y in pending[1:]:
@@ -1124,6 +1134,10 @@ class CadDialog(QDialog):
             entity = self.document.entities[index]
             support = next((s for s in self.document.supports if s.entity == entity.name), None)
             if entity.kind == "region":
+                menu.addAction(
+                    "Refine mesh near this region…",
+                    lambda _checked=False, i=index: self.add_region_refinement(i),
+                )
                 self.stage_menu_requested.emit(menu, entity.region)
                 if edge:
                     menu.addSeparator()
@@ -1177,9 +1191,48 @@ class CadDialog(QDialog):
                 menu.addAction(tool.icon(), tool.text(), tool.trigger)
             menu.addSeparator()
             menu.addAction("Fit all", self.canvas.fit_drawing)
+            menu.addAction("Clear local mesh refinements", self.clear_mesh_refinements)
             menu.addAction("Pressure / load table…", lambda: self.show_inspector(1))
             menu.addAction("Mesh settings (h, E, ν)…", lambda: self.show_inspector(0))
         menu.exec(global_pos)
+
+    def add_region_refinement(self, index):
+        """Local circular size zone around selected region's interior point."""
+        if not 0 <= index < len(self.document.entities):
+            return
+        entity = self.document.entities[index]
+        if entity.kind != "region":
+            return
+        centre = entity.shape().representative_point()
+        radius, accepted = QInputDialog.getDouble(
+            self, "Local mesh refinement", "Influence radius (m)",
+            max(self.document.h * 3, 0.01), 0.000001, 1e6, 4,
+        )
+        if not accepted:
+            return
+        size, accepted = QInputDialog.getDouble(
+            self, "Local mesh refinement", "Local target element size h (m)",
+            max(0.001, self.document.h / 2), 0.000001, self.document.h, 6,
+        )
+        if not accepted:
+            return
+        zone = {
+            "x": float(centre.x), "y": float(centre.y),
+            "radius": radius, "h": size,
+        }
+        drawing = self.current_drawing()
+        self.commit(replace(
+            drawing, mesh_refinements=(*drawing.mesh_refinements, zone),
+        ))
+        self.status.setText(
+            f"Local refinement: h={size:g} m, radius={radius:g} m. Remesh required."
+        )
+
+    def clear_mesh_refinements(self):
+        drawing = self.current_drawing()
+        if drawing.mesh_refinements:
+            self.commit(replace(drawing, mesh_refinements=()))
+            self.status.setText("Local mesh refinement zones cleared; remesh required.")
 
     def set_edge_rule(self, edge, **changes):
         current = self.current_drawing()
@@ -1387,6 +1440,7 @@ class CadDialog(QDialog):
         self.canvas.fixity_rules = {
             rule.edge: (rule.ux, rule.uy) for rule in self.document.rules
         }
+        self.canvas.mesh_refinements = self.document.mesh_refinements
         self.canvas.redraw(self.document.entities, self.pending)
         self._refresh_model_tree()
         if fit:
