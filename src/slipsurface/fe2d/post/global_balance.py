@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from slipsurface.fe2d.post.balance_acceptance import classify_balance
 from slipsurface.fe2d.core.enums import Analysis, ElemType
+from slipsurface.fe2d.post.balance_acceptance import classify_balance
 
 
 def gravity_equilibrium_budget(model, result, stage_index: int) -> dict:
