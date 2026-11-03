@@ -68,6 +68,15 @@ def test_oedometer_analytical_displacement_and_equilibrium(etype, cells):
     expected = -PRESSURE * HEIGHT / constrained_modulus(YOUNG, POISSON)
     assert np.allclose(result.last.u[top, 1], expected, atol=1e-9, rtol=1e-7)
     assert np.allclose(result.last.u[top, 0], 0.0, atol=1e-9)
+    # For elastic oedometric compression: syy = -q and
+    # sxx = szz = -nu/(1-nu) * q; no shear should arise.
+    sig = result.last.sig["soil"]
+    assert np.allclose(sig[..., 0], -POISSON / (1 - POISSON) * PRESSURE,
+                       atol=1e-6, rtol=1e-7)
+    assert np.allclose(sig[..., 1], -PRESSURE, atol=1e-6, rtol=1e-7)
+    assert np.allclose(sig[..., 2], -POISSON / (1 - POISSON) * PRESSURE,
+                       atol=1e-6, rtol=1e-7)
+    assert np.allclose(sig[..., 3], 0.0, atol=1e-6)
     force = result.last.reactions.sum(axis=0)
     assert force[0] == pytest.approx(0.0, abs=1e-6)
     assert force[1] == pytest.approx(PRESSURE * WIDTH, rel=1e-7, abs=1e-7)
