@@ -54,8 +54,18 @@ def finite_max_displacement(stage) -> float:
     return float(finite.max()) if finite.size else 0.0
 
 
+def maximum_finite_magnitude(arrays) -> float:
+    """Peak absolute finite structural result; ignores inactive NaN elements."""
+    valid = [np.abs(a[np.isfinite(a)]) for a in arrays]
+    return max((float(x.max()) for x in valid if x.size), default=0.0)
+
+
 def stage_metrics(stage, h: float, nodes: int, elements: int) -> dict:
     plastic_gp = sum(int(np.count_nonzero(x)) for x in stage.plastic.values())
+    beam_moments = maximum_finite_magnitude(
+        [force[..., 2] for force in stage.beams.values()]
+    )
+    bar_forces = maximum_finite_magnitude(list(stage.bars.values()))
     history = stage.history
     accepted = [step for step in history.steps if step.converged] if history else []
     rejected = [step for step in history.steps if not step.converged] if history else []
@@ -72,6 +82,8 @@ def stage_metrics(stage, h: float, nodes: int, elements: int) -> dict:
         "reaction_fx_kn_per_m": float(np.sum(stage.reactions[:, 0])),
         "reaction_fy_kn_per_m": float(np.sum(stage.reactions[:, 1])),
         "active_plastic_gauss_points": plastic_gp,
+        "max_abs_beam_moment": beam_moments,
+        "max_abs_bar_axial_force": bar_forces,
         "load_factor": float(stage.lam),
         "accepted_steps": len(accepted),
         "rejected_steps": len(rejected),
