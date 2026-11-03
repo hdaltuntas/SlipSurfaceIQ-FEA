@@ -39,6 +39,8 @@ def gravity_equilibrium_budget(model, result, stage_index: int) -> dict:
         raise ValueError("External or seismic stage loads require a separate force budget")
     if stage_def.displacements or model.displacements:
         raise ValueError("Imposed displacements require a separate force budget")
+    if any(prior.material_override for prior in model.stages[:stage_index + 1]):
+        raise ValueError("Stage material overrides require a cumulative material budget")
     if model.bolts and any(
         tag in stage_def.active_structures and spec.pretension
         for tag, spec in model.bolts.items()
