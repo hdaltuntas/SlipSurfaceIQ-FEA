@@ -76,7 +76,8 @@ def test_water_table_lowering_preserves_reaction_equilibrium_across_stages():
 
 
 def test_unaligned_water_table_is_explicitly_unsupported():
-    model = column(api.WaterCondition.piezo([(0., -2.)]))
+    # The top 4 m has four rows: -2 m is a mesh line, -2.5 m cuts elements.
+    model = column(api.WaterCondition.piezo([(0., -2.5)]))
     result = api.run(model)
     with pytest.raises(ValueError, match="element edges"):
         saturated_column_budget(model, result)
