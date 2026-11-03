@@ -80,3 +80,41 @@ def test_gui_vertex_rule_is_undoable(qt_app):
         assert cad.document.point_fixities == ()
     finally:
         window.close()
+
+
+def test_moving_restrained_vertex_preserves_its_restraint(qt_app):
+    pytest.importorskip("PySide6")
+    pytest.importorskip("shapely")
+    from slipsurface.fe2d.gui.app import MainWindow
+
+    window = MainWindow()
+    try:
+        cad = window.cad
+        cad.commit(base_drawing())
+        cad.set_vertex_rule(0.0, 0.0, True, True)
+        cad.move_vertex((0, 0), (-1, 0))
+        assert cad.document.point_fixities == (
+            {"x": -1.0, "y": 0.0, "ux": True, "uy": True},
+        )
+        cad.undo()
+        assert cad.document.point_fixities[0]["x"] == 0.0
+    finally:
+        window.close()
+
+
+def test_starting_draw_tool_disables_fixity_pick(qt_app):
+    pytest.importorskip("PySide6")
+    pytest.importorskip("shapely")
+    from slipsurface.fe2d.gui.app import MainWindow
+
+    window = MainWindow()
+    try:
+        cad = window.cad
+        cad.fixity_action.setChecked(True)
+        assert cad.canvas.fixity_pick_enabled
+        cad.start_tool("region")
+        assert not cad.fixity_action.isChecked()
+        assert not cad.canvas.fixity_pick_enabled
+        cad.cancel_drawing()
+    finally:
+        window.close()
