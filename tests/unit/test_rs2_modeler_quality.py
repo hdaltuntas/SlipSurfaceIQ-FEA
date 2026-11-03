@@ -55,3 +55,39 @@ def test_model_explorer_selects_and_hides_a_region(qt_app):
         assert "Ground" not in window.cad.canvas.hidden_entities
     finally:
         window.close()
+
+
+def test_t6_curved_element_detects_negative_gauss_jacobian():
+    """Corners have positive area but a misplaced midside node folds T6 mapping."""
+    coords = np.array([
+        [0., 0.], [2., 0.], [0., 2.],
+        [1., 1.], [1., 1.], [0., 1.],
+    ])
+    mesh = Mesh(
+        coords,
+        (ElementBlock(ElemType.T6, np.array([[0, 1, 2, 3, 4, 5]]),
+                      np.array([1])),),
+    )
+    report = mesh_quality_report(mesh, batch_size=1)
+    assert report.minimum_area == pytest.approx(2.0)
+    assert report.inverted_or_degenerate == 0
+    assert report.nonpositive_jacobian_elements == 1
+    assert report.minimum_jacobian < 0
+    assert report.sampled_gauss_points == 3
+
+
+def test_straight_t6_and_batch_invariance():
+    coords = np.array([
+        [0., 0.], [2., 0.], [0., 2.],
+        [1., 0.], [1., 1.], [0., 1.],
+    ])
+    mesh = Mesh(
+        coords,
+        (ElementBlock(ElemType.T6, np.array([[0, 1, 2, 3, 4, 5]]),
+                      np.array([1])),),
+    )
+    a = mesh_quality_report(mesh, batch_size=1)
+    b = mesh_quality_report(mesh, batch_size=2048)
+    assert a == b
+    assert a.nonpositive_jacobian_elements == 0
+    assert a.minimum_jacobian == pytest.approx(4.0)
