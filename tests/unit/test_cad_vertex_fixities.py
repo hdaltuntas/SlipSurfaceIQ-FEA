@@ -4,6 +4,8 @@ from dataclasses import replace
 
 import pytest
 
+pytest.importorskip("shapely")
+
 from slipsurface.fe2d.cad.geometry import Drawing, Entity
 
 
