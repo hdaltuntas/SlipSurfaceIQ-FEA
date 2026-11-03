@@ -46,3 +46,30 @@ def test_interpret_has_independent_stage_tabs_and_stress_fields(qt_app):
     assert not principal.isChecked()
     dlg.close()
     window.close()
+
+
+def test_stage_pressure_from_picked_edge_preserves_tangential_component(qt_app, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    from slipsurface.fe2d import api
+
+    window = MainWindow()
+    try:
+        model = excavation_model()
+        edge = next(iter(model.mesh.edge_sets))
+        stage = model.stages[0]
+        from dataclasses import replace
+
+        updated_stage = replace(stage, loads=(api.EdgeLoad(edge, 5.0, 12.0),))
+        model = replace(model, stages=[updated_stage, *model.stages[1:]])
+        window.set_model(model)
+        assert not window.cad.mesh_outdated
+        monkeypatch.setattr(QInputDialog, "getDouble", lambda *a, **k: (120.0, True))
+        window.assign_stage_edge_pressure(edge, 1)
+        first = window.model.stages[0]
+        matching = [load for load in first.loads
+                    if isinstance(load, api.EdgeLoad) and load.edge_set == edge]
+        assert len(matching) == 1
+        assert (matching[0].qn, matching[0].qt) == (120.0, 12.0)
+    finally:
+        window.close()
