@@ -73,8 +73,8 @@ def local_column_errors(model, result, stage_index=None):
     if not np.allclose(line[:, 1], line[0, 1], atol=1e-10, rtol=0):
         raise ValueError("Sloping piezometric line unsupported")
     material = model.materials[next(iter(model.region_material.values()))]
-    if material.drainage.value != "drained":
-        raise ValueError("Undrained reference unsupported")
+    if material.drainage.value != "drained" or material.model != "elastic":
+        raise ValueError("Only drained elastic material is supported")
     coords = model.mesh.coords
     surface = float(coords[:, 1].max())
     xmin, xmax = coords[:, 0].min(), coords[:, 0].max()
