@@ -69,3 +69,41 @@ def test_reject_invalid_parameters(field, value):
 def test_reject_negative_elapsed_time():
     with pytest.raises(ValueError):
         sample().settlement(-1)
+
+
+def test_mv_cv_primary_settlement_matches_linear_compressibility():
+    case = ConsolidationInput(
+        thickness=6, sigma_initial=120, delta_sigma=80,
+        compression_index=0.0, void_ratio=0.0, cv=0.005,
+        method="mv", mv=0.00025,
+    )
+    assert case.final_settlement() == pytest.approx(0.12)
+    assert case.settlement(case.time_to_90()) == pytest.approx(0.108, abs=0.0002)
+
+
+def test_mv_method_does_not_depend_on_cc_or_void_ratio():
+    base = ConsolidationInput(5, 100, 50, 0.1, 0.8, 0.01, method="mv", mv=0.0002)
+    alternative = ConsolidationInput(5, 100, 50, 3.0, 5.0, 0.01, method="mv",
+                                     mv=0.0002)
+    assert base.final_settlement() == pytest.approx(alternative.final_settlement())
+    assert base.time_to_90() == alternative.time_to_90()
+
+
+def test_mv_drainage_changes_time_not_ultimate_settlement():
+    double = ConsolidationInput(5, 100, 50, 0.0, 0.0, 0.01,
+                                drainage="double", method="mv", mv=0.0003)
+    single = ConsolidationInput(5, 100, 50, 0.0, 0.0, 0.01,
+                                drainage="single", method="mv", mv=0.0003)
+    assert double.final_settlement() == single.final_settlement()
+    assert single.time_to_90() == pytest.approx(4 * double.time_to_90())
+
+
+@pytest.mark.parametrize("mv", [None, float("nan"), float("inf"), -0.01])
+def test_mv_method_rejects_missing_or_invalid_input(mv):
+    with pytest.raises(ValueError):
+        ConsolidationInput(5, 100, 50, 0, 0, 0.01, method="mv", mv=mv)
+
+
+def test_invalid_method_rejected():
+    with pytest.raises(ValueError):
+        ConsolidationInput(5, 100, 50, 0.2, 0.8, 0.01, method="unverified")
