@@ -497,6 +497,7 @@ class MainWindow(QMainWindow):
             self.edit_actions.append(a)
         model_menu.addSeparator()
         model_menu.addAction(action("Consolidation settlement…", self.open_consolidation))
+        model_menu.addAction(action("Mesh quality report…", self.show_mesh_quality))
         # RS2-style top-level analysis workflow; the existing commands remain
         # available so saved shortcuts and existing user workflows keep working.
         analysis_menu = self.menuBar().addMenu("Analysis")
@@ -751,6 +752,16 @@ class MainWindow(QMainWindow):
             self.cad.canvas.setTransform(transform)
             self.cad.canvas.centerOn(center)
         self.status.showMessage("Stage settings updated · Recalculate to view results.")
+
+    def show_mesh_quality(self):
+        """Show mesh preflight diagnostics before trusting computed results."""
+        if self.model is None:
+            QMessageBox.information(self, "Mesh quality", "Generate a mesh first.")
+            return
+        from .mesh_quality import mesh_quality_report
+
+        report = mesh_quality_report(self.model.mesh)
+        QMessageBox.information(self, "Mesh quality · preflight", report.summary())
 
     def open_consolidation(self):
         """Standalone Terzaghi 1D settlement tool; no FEM state is mutated."""
