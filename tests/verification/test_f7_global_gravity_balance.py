@@ -54,7 +54,7 @@ def test_global_equilibrium_survives_staged_top_layer_excavation(etype):
         assert budget["reaction_fx_kn_per_m"] == pytest.approx(0.0, abs=1e-6)
         assert budget["relative_resultant_imbalance"] < 1e-7
     rows = gravity_equilibrium_by_stage(model, solved)
-    assert [entry["status"] for entry in rows] == ["checked", "checked"]
+    assert [entry["status"] for entry in rows] == ["passed", "passed"]
 
 
 def test_budget_declines_unsupported_external_load_instead_of_faking_balance():

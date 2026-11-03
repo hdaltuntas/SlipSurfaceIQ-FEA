@@ -16,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from slipsurface.fe2d.core.enums import Analysis, ElemType
+from slipsurface.fe2d.post.balance_acceptance import classify_balance
 
 
 def gravity_equilibrium_budget(model, result, stage_index: int) -> dict:
@@ -105,8 +106,10 @@ def gravity_equilibrium_by_stage(model, result) -> list[dict]:
     output = []
     for index, stage in enumerate(result.stages):
         try:
-            entry = gravity_equilibrium_budget(model, result, index)
-            entry["status"] = "checked"
+            entry = classify_balance(
+                gravity_equilibrium_budget(model, result, index),
+                "relative_resultant_imbalance",
+            )
         except (ValueError, KeyError, IndexError) as exc:
             entry = {"stage": stage.name, "status": "unsupported", "reason": str(exc)}
         output.append(entry)
