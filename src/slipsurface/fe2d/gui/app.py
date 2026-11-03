@@ -1502,6 +1502,17 @@ class MainWindow(QMainWindow):
     def start_solve(self):
         if self.busy or not self._require_model():
             return
+        from .mesh_quality import mesh_quality_report
+
+        quality = mesh_quality_report(self.model.mesh)
+        if quality.nonpositive_jacobian_elements:
+            QMessageBox.warning(
+                self,
+                "Cannot compute · invalid element Jacobian",
+                quality.summary()
+                + "\n\nRegenerate or repair the mesh before solving.",
+            )
+            return
         self.show_results()
         self.cad.setEnabled(False)
         self.result = None
