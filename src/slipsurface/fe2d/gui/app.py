@@ -1302,6 +1302,8 @@ class MainWindow(QMainWindow):
             controls.addWidget(deform)
             principal = QCheckBox("Principal stress directions")
             controls.addWidget(principal)
+            query_button = QPushButton("Query / stage graph…")
+            controls.addWidget(query_button)
             layout.addLayout(controls)
             canvas = MeshCanvas()
             layout.addWidget(canvas, 1)
@@ -1354,6 +1356,7 @@ class MainWindow(QMainWindow):
             animate.clicked.connect(toggle_animation)
             dlg.finished.connect(lambda _code: timer.stop())
             dlg.viewer = (stage_tabs, fields, canvas, legend, deform, principal)
+            query_button.clicked.connect(self._query_interpret)
             stage_tabs.currentChanged.connect(self._refresh_interpret)
             fields.currentIndexChanged.connect(self._refresh_interpret)
             deform.valueChanged.connect(self._refresh_interpret)
@@ -1374,6 +1377,22 @@ class MainWindow(QMainWindow):
         self._refresh_interpret()
         dlg.show()
         dlg.raise_()
+
+    def _query_interpret(self):
+        dlg = getattr(self, "_interpret_window", None)
+        if dlg is None or self.result is None:
+            self.status.showMessage("Compute results before querying the model.", 6000)
+            return
+        from .result_tools import QueryDialog
+
+        tabs, fields, canvas, _, deform, _ = dlg.viewer
+        index = max(0, tabs.currentIndex())
+        stage = self.result.initial if index == 0 else self.result.stages[index - 1]
+        query = QueryDialog(self.result, stage, dlg, deform=deform.value())
+        if query.field.findText(fields.currentText()) >= 0:
+            query.field.setCurrentText(fields.currentText())
+        query.line_changed.connect(canvas.show_query_line)
+        query.exec()
 
     def _refresh_interpret(self, *_):
         dlg = getattr(self, "_interpret_window", None)
