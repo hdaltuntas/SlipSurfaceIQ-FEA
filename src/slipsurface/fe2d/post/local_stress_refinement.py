@@ -34,6 +34,12 @@ def compare_local_stress_meshes(rows, *, tolerance=1e-6):
     mesh_sizes = sorted(groups, reverse=True)
     if len(mesh_sizes) < 2:
         raise ValueError("At least two distinct mesh sizes are required")
+    # Completeness first: a missing or duplicated stage must not be
+    # mistaken for a mismatch in the physical groundwater reference.
+    for h in mesh_sizes:
+        these = groups[h]
+        if len(these) != len(stages) or {r["stage"] for r in these} != set(stages):
+            raise ValueError("Every mesh must report each stage exactly once")
     reference_heads = {}
     for stage in stages:
         head_values = [float(r["head_m"]) for r in rows if r["stage"] == stage]
@@ -45,8 +51,6 @@ def compare_local_stress_meshes(rows, *, tolerance=1e-6):
     results = []
     for h in mesh_sizes:
         these = groups[h]
-        if len(these) != len(stages) or {r["stage"] for r in these} != set(stages):
-            raise ValueError("Every mesh must report each stage exactly once")
         for stage in stages:
             row = next(r for r in these if r["stage"] == stage)
             for name in (
