@@ -497,6 +497,14 @@ class MainWindow(QMainWindow):
             self.edit_actions.append(a)
         model_menu.addSeparator()
         model_menu.addAction(action("Consolidation settlement…", self.open_consolidation))
+        # RS2-style top-level analysis workflow; the existing commands remain
+        # available so saved shortcuts and existing user workflows keep working.
+        analysis_menu = self.menuBar().addMenu("Analysis")
+        analysis_menu.addAction(action("Project Settings…", self.edit_project_properties))
+        analysis_menu.addSeparator()
+        analysis_menu.addAction(action("Compute", self.start_solve))
+        analysis_menu.addAction(action("Interpret…", self.open_interpret))
+
         toolbar.addSeparator()
         self.mesh_action = action("Generate mesh", self.build_mesh, "Ctrl+M", "mesh")
         self.mesh_action.setToolTip("Generate mesh (Ctrl+M)")
@@ -549,7 +557,6 @@ class MainWindow(QMainWindow):
             lambda _=False: self.drawing_file_action("open_tunnel_designer"),
         ))
         result_menu = self.menuBar().addMenu("Inspect results")
-        result_menu.addAction(action("Open Interpret window…", self.open_interpret))
         result_menu.addAction(action("Open Interpret window…", self.open_interpret))
         for title, slot in [
             ("Query line", self.query_line),
@@ -1200,39 +1207,60 @@ class MainWindow(QMainWindow):
         self.cad.canvas.viewport().update()
 
     def open_interpret(self):
-        """Open an independent results window without replacing the CAD workspace."""
+        """Independent RS2-style postprocessor with stage tabs and stress fields."""
         if self.model is None:
+            self.status.showMessage("Generate a mesh before opening Interpret.", 5000)
             return
         dlg = getattr(self, "_interpret_window", None)
         if dlg is None:
             dlg = QDialog(self)
             dlg.setWindowTitle("SlipSurfaceIQ-FEA · Interpret")
-            dlg.resize(1100, 760)
+            dlg.resize(1200, 800)
             layout = QVBoxLayout(dlg)
             controls = QHBoxLayout()
-            stages = QComboBox()
             fields = QComboBox()
-            fields.addItems(["|u|", "ux", "uy"])
-            controls.addWidget(QLabel("Stage"))
-            controls.addWidget(stages)
-            controls.addWidget(QLabel("Field"))
-            controls.addWidget(fields)
+            fields.addItems([
+                "s1", "s3", "sxx", "syy", "szz", "txy", "q",
+                "|u|", "ux", "uy", "pore", "excess_pore", "plastic",
+            ])
+            controls.addWidget(QLabel("Result field"))
+            controls.addWidget(fields, 1)
+            controls.addWidget(QLabel("Deformation ×"))
+            deform = QDoubleSpinBox()
+            deform.setRange(0, 1e6)
+            deform.setValue(1.0)
+            deform.setDecimals(2)
+            controls.addWidget(deform)
+            principal = QCheckBox("Principal stress directions")
+            controls.addWidget(principal)
             layout.addLayout(controls)
             canvas = MeshCanvas()
             layout.addWidget(canvas, 1)
             legend = QLabel()
+            legend.setWordWrap(True)
             layout.addWidget(legend)
-            dlg.viewer = (stages, fields, canvas, legend)
-            stages.currentIndexChanged.connect(self._refresh_interpret)
+            stage_tabs = QTabBar()
+            stage_tabs.setExpanding(False)
+            stage_tabs.setUsesScrollButtons(True)
+            layout.addWidget(stage_tabs)
+            dlg.viewer = (stage_tabs, fields, canvas, legend, deform, principal)
+            stage_tabs.currentChanged.connect(self._refresh_interpret)
             fields.currentIndexChanged.connect(self._refresh_interpret)
-            dlg.finished.connect(lambda _code: setattr(self, "_interpret_window", None))
+            deform.valueChanged.connect(self._refresh_interpret)
+            principal.toggled.connect(self._refresh_interpret)
+            dlg.finished.connect(
+                lambda _code: setattr(self, "_interpret_window", None)
+            )
             self._interpret_window = dlg
-        stages = dlg.viewer[0]
-        stages.blockSignals(True)
-        stages.clear()
-        stages.addItems(["Initial", *[stage.name for stage in self.model.stages]])
-        stages.setCurrentIndex(min(max(0, self.stages.currentRow()), stages.count() - 1))
-        stages.blockSignals(False)
+        tabs = dlg.viewer[0]
+        tabs.blockSignals(True)
+        while tabs.count():
+            tabs.removeTab(0)
+        tabs.addTab("Initial")
+        for i, stage in enumerate(self.model.stages, start=1):
+            tabs.addTab(f"{i}. {stage.name}")
+        tabs.setCurrentIndex(min(max(0, self.stages.currentRow()), tabs.count() - 1))
+        tabs.blockSignals(False)
         self._refresh_interpret()
         dlg.show()
         dlg.raise_()
@@ -1241,14 +1269,23 @@ class MainWindow(QMainWindow):
         dlg = getattr(self, "_interpret_window", None)
         if dlg is None or self.model is None:
             return
-        stages, fields, canvas, legend = dlg.viewer
-        idx = stages.currentIndex()
-        stage = None if self.result is None else (
-            self.result.initial if idx == 0 else self.result.stages[idx - 1]
+        tabs, fields, canvas, legend, deform, principal = dlg.viewer
+        index = max(0, tabs.currentIndex())
+        result_stage = None
+        if self.result is not None:
+            result_stage = (
+                self.result.initial if index == 0 else self.result.stages[index - 1]
+            )
+        field = fields.currentText()
+        canvas.show_model(
+            self.model, result_stage, field, deform.value(),
+            result=self.result, stage_index=index,
+            principal=principal.isChecked() and field not in ("plastic",),
         )
-        canvas.show_model(self.model, stage, fields.currentText(), 1.0,
-                          result=self.result, stage_index=idx)
-        legend.setText(canvas.legend)
+        legend.setText(
+            canvas.legend if result_stage is not None
+            else "No computed results: mesh view only. Run Analysis > Compute."
+        )
 
     def show_results(self):
         self.workspace.setCurrentWidget(self.result_page)
