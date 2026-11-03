@@ -77,3 +77,60 @@ def test_comparison_rejects_nonmatching_tags_or_sampling_grid():
         compare_profiles(sample, {**sample, "tag": "other"})
     with pytest.raises(ValueError, match="stations"):
         compare_profiles(sample, {**sample, "s": [0., 0.5]})
+
+
+def test_signed_beam_profile_preserves_negative_moment_and_shear():
+    mesh = mesh_with_beam()
+    stage = SimpleNamespace(beams={"pile": np.array([
+        [[0., -2., -4.], [0., -2., -3.]],
+        [[0., -2., -3.], [0., -2., -1.]],
+    ])}, bars={})
+    signed = sample_support_profile(
+        mesh, stage, "pile", [(0., 0.), (2., 0.)], count=5, signed=True
+    )
+    magnitude = sample_support_profile(
+        mesh, stage, "pile", [(0., 0.), (2., 0.)], count=5
+    )
+    assert signed["mode"] == "signed_local"
+    assert np.asarray(signed["components"])[:, 2] == pytest.approx(
+        [-4., -3.5, -3., -2., -1.]
+    )
+    assert np.asarray(signed["components"])[:, 1] == pytest.approx([-2.] * 5)
+    assert np.asarray(magnitude["components"])[:, 2] == pytest.approx(
+        [4., 3.5, 3., 2., 1.]
+    )
+    with pytest.raises(ValueError, match="signed and magnitude"):
+        compare_profiles(signed, magnitude)
+
+
+def test_signed_beam_rejects_reversed_element_orientation():
+    mesh = mesh_with_beam((1, 0))
+    stage = SimpleNamespace(beams={"pile": np.zeros((2, 2, 3))}, bars={})
+    # Reverse a single element's *node order*, not just its mesh index.
+    mesh.block("pile").conn[0] = mesh.block("pile").conn[0, ::-1]
+    with pytest.raises(ValueError, match="consistent CAD orientation"):
+        sample_support_profile(
+            mesh, stage, "pile", [(0., 0.), (2., 0.)], signed=True
+        )
+    # Legacy unsigned reporting remains orientation-agnostic.
+    report = sample_support_profile(
+        mesh, stage, "pile", [(0., 0.), (2., 0.)]
+    )
+    assert report["mode"] == "magnitude"
+
+
+def test_signed_bar_preserves_axial_compression():
+    mesh = SimpleNamespace(
+        coords=np.array([[0., 0.], [1., 0.], [2., 0.]]),
+        block=lambda _tag: SimpleNamespace(
+            ne=2, conn=np.array([[0, 1], [1, 2]])
+        ),
+    )
+    stage = SimpleNamespace(beams={}, bars={"bolt": np.array([-8., -12.])})
+    signed = sample_support_profile(
+        mesh, stage, "bolt", [(0., 0.), (2., 0.)], kind="bar",
+        signed=True, count=3,
+    )
+    assert np.asarray(signed["components"])[:, 0] == pytest.approx(
+        [-8., -10., -12.]
+    )
