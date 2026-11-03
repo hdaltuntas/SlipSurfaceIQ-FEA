@@ -1329,7 +1329,17 @@ class CadDialog(QDialog):
         index = self.entities.currentRow()
         try:
             entities = tuple(replace(e, points=moved(e.points)) for e in current.entities)
-            updated = replace(current, entities=entities)
+            fixities = tuple(
+                {
+                    **rule,
+                    "x": float(new[0]),
+                    "y": float(new[1]),
+                } if np.allclose(
+                    [rule["x"], rule["y"]], old, rtol=0, atol=1e-9
+                ) else rule
+                for rule in current.point_fixities
+            )
+            updated = replace(current, entities=entities, point_fixities=fixities)
             if any(e.kind == "region" for e in updated.entities):
                 updated.validate()
         except ValueError as exc:
@@ -1563,6 +1573,9 @@ class CadDialog(QDialog):
         self.canvas.redraw(self.document.entities, self.pending, e.name)
 
     def begin_drawing(self):
+        # Drawing tools and fixity picking must not compete for left-clicks.
+        if hasattr(self, "fixity_action") and self.fixity_action.isChecked():
+            self.fixity_action.setChecked(False)
         self.canvas.bolt_drag.reset()
         self.placing = self.canvas.placement = None
         self.circle_mode = self.canvas.circle = False
