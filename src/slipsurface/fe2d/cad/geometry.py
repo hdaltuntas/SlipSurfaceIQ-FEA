@@ -122,6 +122,7 @@ class Drawing:
     material_library: tuple[dict, ...] = ()
     material_assignments: tuple[dict, ...] = ()
     mesh_refinements: tuple[dict, ...] = ()  # {x, y, radius, h} circular local zones
+    point_fixities: tuple[dict, ...] = ()  # {x, y, ux, uy} shared CAD vertex
 
     def __post_init__(self):
         if not np.isfinite([self.h, self.E, self.nu, self.gamma]).all():
@@ -136,6 +137,20 @@ class Drawing:
             if not np.isfinite(values).all() or values[2] <= 0 or values[3] <= 0:
                 raise ValueError("Mesh refinement zone needs finite positive radius and h.")
         object.__setattr__(self, "mesh_refinements", refinements)
+        point_rules = tuple(dict(item) for item in self.point_fixities)
+        seen = set()
+        for rule in point_rules:
+            if not {"x", "y", "ux", "uy"} <= set(rule):
+                raise ValueError("Point fixity requires x, y, ux and uy.")
+            if (not np.isfinite([rule["x"], rule["y"]]).all()
+                    or not isinstance(rule["ux"], bool)
+                    or not isinstance(rule["uy"], bool)):
+                raise ValueError("Invalid point fixity location or restraint.")
+            key = (float(rule["x"]), float(rule["y"]))
+            if key in seen:
+                raise ValueError("Duplicate point fixity location.")
+            seen.add(key)
+        object.__setattr__(self, "point_fixities", point_rules)
         names = [self.loading_name, *(step.name for step in self.sequence)]
         if any(not n.strip() for n in names) or len({n.strip() for n in names}) != len(names):
             raise ValueError("Construction stage names must be non-empty and unique.")
@@ -162,6 +177,7 @@ class Drawing:
             tuple(data.get("material_library", ())),
             tuple(data.get("material_assignments", ())),
             tuple(data.get("mesh_refinements", ())),
+            tuple(data.get("point_fixities", ())),
         )
 
     def with_stage_names(self, names):
@@ -261,6 +277,10 @@ class Drawing:
             for name in step.disturb:
                 if name not in by_name or by_name[name].kind != "region":
                     raise ValueError(f"{step.name}: region to disturb '{name}' was not found.")
+        vertices = {tuple(point) for e in self.entities for point in e.points}
+        for rule in self.point_fixities:
+            if (float(rule["x"]), float(rule["y"])) not in vertices:
+                raise ValueError("Point fixity must reference an existing CAD vertex.")
         regions = [e for e in self.entities if e.kind == "region"]
         holes = [e for e in self.entities if e.kind == "hole"]
         if not regions:
@@ -444,6 +464,25 @@ class Drawing:
         )
         if checkpoint:
             checkpoint()
+        if self.point_fixities:
+            sets = dict(mesh.node_sets)
+            node_rules = []
+            span = np.ptp(mesh.coords, axis=0).max()
+            tolerance = 1e-8 * max(1.0, float(span))
+            for index, rule in enumerate(self.point_fixities):
+                point = np.array([rule["x"], rule["y"]], dtype=float)
+                distances = np.linalg.norm(mesh.coords - point, axis=1)
+                node = int(np.argmin(distances))
+                if distances[node] > tolerance:
+                    raise ValueError("CAD point fixity did not map to a mesh vertex.")
+                name = f"CAD_Point_Fixity_{index + 1}"
+                if name in sets:
+                    raise ValueError(f"Reserved node set name already used: {name}")
+                sets[name] = np.array([node], dtype=np.int64)
+                node_rules.append(api.Fixity(name, rule["ux"], rule["uy"]))
+            mesh = replace(mesh, node_sets=sets)
+        else:
+            node_rules = []
         boundary = {tuple(sorted(e[:2])) for e in mesh.edge_sets["boundary"]}
         loads, fixities = [], []
         loaded = set()
@@ -461,6 +500,7 @@ class Drawing:
                     raise ValueError(f"{r.edge}: two pressures assigned to the same mesh edge.")
                 loaded.update(keys)
                 loads.append(api.EdgeLoad(r.edge, qn=r.pressure))
+        fixities.extend(node_rules)
         _check_supports(mesh, fixities)
         model = api.Model(
             api.Analysis.PLANE_STRAIN,
