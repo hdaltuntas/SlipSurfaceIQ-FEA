@@ -91,3 +91,41 @@ def test_straight_t6_and_batch_invariance():
     assert a == b
     assert a.nonpositive_jacobian_elements == 0
     assert a.minimum_jacobian == pytest.approx(4.0)
+
+
+def test_compute_refuses_folded_t6_before_solver_worker(qt_app, monkeypatch):
+    """A positive corner area cannot bypass the high-order mesh preflight."""
+    pytest.importorskip("PySide6")
+    pytest.importorskip("shapely")
+    from PySide6.QtWidgets import QMessageBox
+
+    from slipsurface.fe2d import api
+    from slipsurface.fe2d.gui.app import MainWindow
+
+    coords = np.array([
+        [0., 0.], [2., 0.], [0., 2.],
+        [1., 1.], [1., 1.], [0., 1.],
+    ])
+    mesh = Mesh(
+        coords,
+        (ElementBlock(ElemType.T6, np.array([[0, 1, 2, 3, 4, 5]]),
+                      np.array([1])),),
+    )
+    model = api.Model(
+        api.Analysis.PLANE_STRAIN, mesh,
+        {"soil": api.MaterialSpec.elastic("soil", 20000.0, 0.3)},
+        {1: "soil"},
+    )
+    window = MainWindow()
+    warnings = []
+    try:
+        window.set_model(model)
+        monkeypatch.setattr(
+            QMessageBox, "warning",
+            lambda *args: warnings.append(args[2]),
+        )
+        window.start_solve()
+        assert warnings and "Jacobian" in warnings[0]
+        assert window.worker is None
+    finally:
+        window.close()
