@@ -21,6 +21,8 @@ class ConsolidationInput:
     void_ratio: float
     cv: float
     drainage: str = "double"
+    method: str = "cc"
+    mv: float | None = None  # m²/kN = 1/kPa
 
     def __post_init__(self) -> None:
         values = (self.thickness, self.sigma_initial, self.delta_sigma,
@@ -33,6 +35,12 @@ class ConsolidationInput:
             raise ValueError("Invalid layer, stress, compression or consolidation coefficient.")
         if self.drainage not in ("single", "double"):
             raise ValueError("Drainage must be 'single' or 'double'.")
+        if self.method not in ("cc", "mv"):
+            raise ValueError("Method must be cc or mv.")
+        if self.method == "mv" and self.mv is None:
+            raise ValueError("mv is required for the mv method.")
+        if self.mv is not None and (not math.isfinite(self.mv) or self.mv < 0):
+            raise ValueError("mv must be finite and nonnegative (1/kPa).")
 
     @property
     def drainage_path(self) -> float:
@@ -44,6 +52,9 @@ class ConsolidationInput:
         Positive delta_sigma gives settlement; negative gives rebound according
         to the same Cc approximation. No separate recompression index is used.
         """
+        if self.method == "mv":
+            assert self.mv is not None
+            return self.mv * self.delta_sigma * self.thickness
         return (self.thickness * self.compression_index / (1 + self.void_ratio)
                 * math.log10((self.sigma_initial + self.delta_sigma)
                              / self.sigma_initial))
