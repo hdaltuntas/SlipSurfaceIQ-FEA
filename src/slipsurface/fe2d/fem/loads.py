@@ -44,18 +44,36 @@ def _edge_shape(npe: int, xi: NDArray[np.float64]) -> tuple[NDArray, NDArray]:
     return N, dN
 
 
-def _interior_points(mesh: Mesh, edges: NDArray[np.int64]) -> NDArray[np.float64]:
-    """Centroid of the continuum element adjacent to each edge (to orient normals)."""
+def _interior_points(
+    mesh: Mesh, edges: NDArray[np.int64],
+    active_masks: dict[str, NDArray[np.bool_]] | None = None,
+) -> NDArray[np.float64]:
+    """Adjacent continuum centroids for consistent outward edge normals.
+
+    For staged excavation, only active continuum elements may orient the
+    normal. A newly exposed edge has one active owner even if two elements
+    share it in the original mesh. An interior edge with two active owners
+    is not a valid exterior pressure boundary.
+    """
     nn = mesh.nn
     keys, cents = [], []
     for b in mesh.continuum_blocks():
         nc = 3 if b.etype.name.startswith("T") else 4
         corners = b.conn[:, :nc]
+        if active_masks is not None:
+            active = np.asarray(active_masks[b.tag], dtype=bool)
+            if active.shape != (b.ne,):
+                raise MeshError(f"block '{b.tag}': invalid active mask")
+            corners = corners[active]
+        if not len(corners):
+            continue
         cen = mesh.coords[corners].mean(axis=1)
         for i in range(nc):
             a, c = corners[:, i], corners[:, (i + 1) % nc]
             keys.append(np.minimum(a, c) * nn + np.maximum(a, c))
             cents.append(cen)
+    if not keys:
+        raise MeshError("loaded edge has no active continuum owner")
     k = np.concatenate(keys)
     cc = np.concatenate(cents)
     order = np.argsort(k)
@@ -64,9 +82,15 @@ def _interior_points(mesh: Mesh, edges: NDArray[np.int64]) -> NDArray[np.float64
     pos = np.searchsorted(k, q)
     pos = np.clip(pos, 0, k.size - 1)
     if np.any(k[pos] != q):
-        raise MeshError("edge set contains edges that do not belong to any element")
+        raise MeshError("loaded edge has no active continuum owner")
+    if active_masks is not None:
+        # The active owner must be unique. Internal pressure boundaries
+        # require two explicitly modelled opposing faces, not an arbitrary
+        # centroid selected by sorting equal keys.
+        end = np.searchsorted(k, q, side="right")
+        if np.any(end - np.searchsorted(k, q, side="left") != 1):
+            raise MeshError("loaded edge has more than one active continuum owner")
     return cc[pos]
-
 
 def edge_traction_forces(
     mesh: Mesh,
@@ -74,6 +98,7 @@ def edge_traction_forces(
     traction: TractionFn,
     analysis: Analysis,
     ngauss: int = 4,
+    active_masks: dict[str, NDArray[np.bool_]] | None = None,
 ) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
     """Consistent nodal forces of a traction field on ``edges``.
 
@@ -90,7 +115,7 @@ def edge_traction_forces(
     n = np.stack([T[..., 1], -T[..., 0]], axis=2) / jac[..., None]
     # orient outward: away from the adjacent element centroid
     mid = X[:, :2].mean(axis=1)
-    inner = _interior_points(mesh, edges)
+    inner = _interior_points(mesh, edges, active_masks)
     s = np.sign(np.einsum("ej,ej->e", np.mean(n, axis=1), mid - inner))
     s[s == 0] = 1.0
     n *= s[:, None, None]
@@ -119,6 +144,7 @@ def assemble_nodal_loads(
     loads: tuple[EdgeLoad | PointLoad, ...],
     analysis: Analysis,
     extra_tractions: tuple[tuple[str, TractionFn], ...] = (),
+    active_masks: dict[str, NDArray[np.bool_]] | None = None,
 ) -> NDArray[np.float64]:
     f = np.zeros(ndof)
 
@@ -142,13 +168,16 @@ def assemble_nodal_loads(
     for ld in loads:
         if isinstance(ld, EdgeLoad):
             nodes, fn = edge_traction_forces(
-                mesh, live_edges(ld.edge_set), edge_load_traction(ld), analysis
+                mesh, live_edges(ld.edge_set), edge_load_traction(ld), analysis,
+                active_masks=active_masks,
             )
             add(nodes, fn)
         elif isinstance(ld, PointLoad):
             add(np.array([ld.node]), np.array([[[ld.fx, ld.fy]]]))
     for name, fn_t in extra_tractions:
-        nodes, fn = edge_traction_forces(mesh, live_edges(name), fn_t, analysis)
+        nodes, fn = edge_traction_forces(
+            mesh, live_edges(name), fn_t, analysis, active_masks=active_masks
+        )
         add(nodes, fn)
     return f
 
