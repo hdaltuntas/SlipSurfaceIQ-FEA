@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPAIR = runpy.run_path(
     str(Path(__file__).resolve().parents[2] / "examples" /
         "repair_staged_tunnel_project.py")
