@@ -21,8 +21,8 @@ remains embedded. Interpret opens as a separate window.
    factors (0 until loading stage; 1 at final stage in the reference tutorial).
    Initial gravitational stresses must distinguish body force and pre-existing
    field stress to prevent double counting.
-5. **Mesh**: discretization controls, local refinement near excavations, quality
-   diagnostics including minimum element area, Jacobians and aspect ratios.
+5. **Mesh**: discretization controls and local refinement near excavations; quality
+   diagnostics include corner area, default-quadrature Jacobians and edge-length ratios.
    Generation should not obscure CAD structure/bolt objects.
 6. **Restraints**: select edges/nodes on the canvas to apply Free, X only, Y only,
    and X/Y. Side boundaries are X-fixed, bottom is Y-fixed with both corners
@@ -65,18 +65,21 @@ mesh and load/result equilibrium independently before comparison to RS2.
 | Geometry | Embedded CAD, tunnel designer, region draw | More consistent excavation tools |
 | Materials | Material editor + prem esh region assignments | Stage-aware direct-pick material palette |
 | Loading | CAD boundary table and stage loads | Direct edge-pick stage factor editor |
-| Mesh | CAD mesh workflow, T6 | Discretize preview, local grading controls |
+| Mesh | CAD mesh workflow, T6 + Gauss-point Jacobian preflight | Local grading controls, quality overlays and Jacobian checks between Gauss points |
 | Restraints | CAD edge pick ux/uy | Free / X / Y / XY presets and node symbols |
 | Compute | Async worker + progress dialog | Structured step-type and per-stage progress |
 | Interpret | Separate window + stage tabs and stress/displacement dropdown | Queries, animations, contour controls |
 
 ## First UI patch
 
-This patch adds an **Analysis** menu (Project Settings, Compute, Interpret),
-removes duplicate Interpret menu items, and improves the independent Interpret
-window to contain result fields, bottom stage tabs, deformation scale and a
-principal-stress toggle. All pre-existing toolbar labels remain unchanged
-to avoid changing shortcut and mouse-workflow contracts. This is a
-foundation, not an assertion that RS2 workflow parity is complete.
+The current PR includes the Analysis menu; a visible CAD model explorer and
+embedded property editor; direct edge restraint presets and stage pressure
+assignment; a mesh-quality report using the element kernels' default
+quadrature; and an independent Interpret with field controls, stage navigation,
+animation, queries and stage-comparison plots. Existing toolbar labels remain
+unchanged for shortcut compatibility. This is **not full RS2 parity**:
+local mesh sizing, curved-element validity between Gauss points, full 2D
+nonlinear model benchmarks and advanced stress-invariant result plots remain
+separate tasks.
 
 No automatic mesh quality or FEM numerical equivalence is claimed.
