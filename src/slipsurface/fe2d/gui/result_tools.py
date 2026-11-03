@@ -130,7 +130,7 @@ class StageComparisonPlot(QWidget):
 
         palette = ["#087f9b", "#a32d26", "#7952b3", "#218764",
                    "#cf7f28", "#1755ad", "#755843"]
-        for index, ((name, x, y), (xf, yf)) in enumerate(zip(self.curves, finite_sets)):
+        for index, ((name, x, y), (xf, _yf)) in enumerate(zip(self.curves, finite_sets)):
             if not xf.size:
                 continue
             color = QColor(palette[index % len(palette)])
