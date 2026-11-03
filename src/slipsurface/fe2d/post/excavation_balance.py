@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from slipsurface.fe2d.post.balance_acceptance import classify_balance
 from slipsurface.fe2d.core.enums import Analysis
 from slipsurface.fe2d.post.dry_load_balance import independent_stage_loads
 
@@ -83,8 +84,9 @@ def excavation_balance_by_stage(model, result):
     rows = []
     for index, stage in enumerate(result.stages):
         try:
-            row = excavation_stage_balance(model, result, index)
-            row["status"] = "checked"
+            row = classify_balance(
+                excavation_stage_balance(model, result, index), "relative_residual"
+            )
         except (ValueError, KeyError, IndexError) as exc:
             row = {"stage": stage.name, "status": "unsupported", "reason": str(exc)}
         rows.append(row)
