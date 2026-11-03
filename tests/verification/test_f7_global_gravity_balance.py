@@ -93,3 +93,40 @@ def test_budget_rejects_out_of_range_stage():
     mock = SimpleNamespace(stages=[])
     with pytest.raises(IndexError, match="outside"):
         gravity_equilibrium_budget(model, mock, 0)
+
+
+def test_active_liner_weight_contributes_to_independent_reaction_budget():
+    from slipsurface.fe2d.mesh import rectangle
+    from slipsurface.fe2d.mesh.structures import add_beams
+
+    width, height = 4.0, 4.0
+    mesh = rectangle(width, height, 2, 4, origin=(0., -height))
+    mesh = add_beams(mesh, "top", "liner")
+    liner = api.LinerSpec("liner", 1e7, 0.2, 0.2, 0.01, 0.16, 24.0)
+    model = api.Model(
+        api.Analysis.PLANE_STRAIN, mesh,
+        {"soil": api.MaterialSpec.elastic("soil", 20000.0, 0.3, gamma=GAMMA)},
+        {1: "soil"},
+        fixities=(
+            api.Fixity("bottom", True, True),
+            api.Fixity("left", True, False),
+            api.Fixity("right", True, False),
+        ),
+        initial=api.InitialStress("gravity", active_structures=frozenset()),
+        stages=[api.Stage("install liner", active_structures={"liner"})],
+        liners={"liner": liner},
+    )
+    solved = api.run(model)
+    budget = gravity_equilibrium_budget(model, solved, 0)
+    expected_soil = width * height * GAMMA
+    expected_beam = width * liner.A * liner.unit_weight
+    assert budget["soil_weight_kn_per_m"] == pytest.approx(
+        expected_soil, rel=1e-10,
+    )
+    assert budget["beam_weight_kn_per_m"] == pytest.approx(
+        expected_beam, rel=1e-10,
+    )
+    assert budget["reaction_fy_kn_per_m"] == pytest.approx(
+        expected_soil + expected_beam, abs=1e-5, rel=1e-7,
+    )
+    assert budget["relative_resultant_imbalance"] < 1e-7
