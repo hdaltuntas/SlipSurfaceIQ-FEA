@@ -36,6 +36,8 @@ are kept the same at each resolution. It computes and records:
 - nodes / continuum elements and mesh target h;
 - per-stage maximum displacement, reaction force resultants and load factor;
 - number of active plastic Gauss points;
+- peak absolute liner/beam bending moments and bolt/bar axial forces (in the
+  solver's structural-result units);
 - accepted and rejected increments, Newton iteration count and final accepted
   residual, when a stage history is available;
 - consecutive-mesh *relative displacement changes per stage*;
