@@ -107,3 +107,45 @@ def mesh_quality_report(mesh: Mesh, *, batch_size: int = 2048) -> MeshQualityRep
         nonpositive_jacobian_elements=gp_invalid,
         sampled_gauss_points=gp_count,
     )
+
+
+def mesh_problem_centers(mesh: Mesh, *, batch_size: int = 2048):
+    """Return tagged element centroids for invalid Jacobians and tiny corner areas.
+
+    The points are intended for model-space visualization; they do not change the
+    mesh or imply that all large-aspect elements are mathematically invalid.
+    """
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    blocks = []
+    areas = []
+    for block in mesh.continuum_blocks():
+        corners = 3 if block.etype in (ElemType.T3, ElemType.T6) else 4
+        xyz = mesh.coords[block.conn[:, :corners]]
+        follow = np.roll(xyz, -1, axis=1)
+        signed = 0.5 * np.sum(
+            xyz[..., 0] * follow[..., 1] - follow[..., 0] * xyz[..., 1],
+            axis=1,
+        )
+        blocks.append((block, xyz.mean(axis=1), signed))
+        areas.extend(np.abs(signed).tolist())
+    if not areas:
+        return {"invalid": [], "tiny": []}
+    median = float(np.median(np.asarray(areas)))
+    output = {"invalid": [], "tiny": []}
+    for block, centres, signed in blocks:
+        bad = (~np.isfinite(signed)) | (signed <= 0)
+        tiny = np.isfinite(signed) & (np.abs(signed) < 0.01 * median)
+        element = kernel(block.etype)
+        _, derivatives = element.shape(element.rule().points)
+        for start in range(0, block.ne, batch_size):
+            end = min(start + batch_size, block.ne)
+            coords = mesh.coords[block.conn[start:end]]
+            jac = np.einsum("gni,enj->egij", derivatives, coords, optimize=True)
+            det = jac[..., 0, 0] * jac[..., 1, 1] - jac[..., 0, 1] * jac[..., 1, 0]
+            bad[start:end] |= np.any(~np.isfinite(det) | (det <= 0), axis=1)
+        for index in np.flatnonzero(bad):
+            output["invalid"].append((block.tag, int(index), tuple(centres[index])))
+        for index in np.flatnonzero(tiny & ~bad):
+            output["tiny"].append((block.tag, int(index), tuple(centres[index])))
+    return output
