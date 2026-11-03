@@ -28,8 +28,8 @@ from slipsurface.fe2d import api
 from slipsurface.fe2d.cad.geometry import Drawing
 from slipsurface.fe2d.gui.demo import excavation_model
 from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
-from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
+from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
 
 
 def build_case(base, h: float):
