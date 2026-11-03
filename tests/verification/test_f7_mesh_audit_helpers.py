@@ -123,3 +123,17 @@ def test_stage_support_profiles_compare_componentwise_and_detect_missing():
     assert compared[0]["relative_rms_components"] == pytest.approx([0., 0., 0.])
     assert compared[1]["status"] == "missing"
     assert compared[1]["relative_rms_components"] is None
+
+
+def test_signed_stage_mesh_comparisons_use_separate_profile_field():
+    signed = {
+        "tag": "pile", "kind": "beam", "mode": "signed_local",
+        "s": [0., 1.], "components": [[-2., 0., -4.], [-2., 0., -1.]],
+    }
+    entries = [
+        {"stage": "Lift", "h_m": 2., "signed_profiles": {"pile": signed}},
+        {"stage": "Lift", "h_m": 1., "signed_profiles": {"pile": signed}},
+    ]
+    result = AUDIT["compare_stage_profiles"](entries, field="signed_profiles")
+    assert len(result) == 1
+    assert result[0]["relative_rms_components"] == pytest.approx([0., 0., 0.])
