@@ -701,8 +701,8 @@ class CadDialog(QDialog):
         drafting.addWidget(self.tool_strip)
         # RS2-style document tree remains in the integrated modeler, not a dialog.
         model_panel = QWidget()
-        model_panel.setMinimumWidth(190)
-        model_panel.setMaximumWidth(300)
+        model_panel.setMinimumWidth(235)
+        model_panel.setMaximumWidth(430)
         model_layout = QVBoxLayout(model_panel)
         model_layout.setContentsMargins(5, 5, 5, 5)
         model_layout.addWidget(QLabel("MODEL EXPLORER"))
@@ -798,11 +798,9 @@ class CadDialog(QDialog):
         self.support_panel.apply_requested.connect(self.apply_support)
         inspector.addTab(self.support_panel, "Support")
         self.inspector = inspector
-        # Properties open on demand (double-click / right-click) instead of a fixed side panel.
-        self.inspector_window = QDialog(self, Qt.WindowType.Tool)
-        self.inspector_window.setWindowTitle("Properties")
-        self.inspector_window.resize(380, 620)
-        QVBoxLayout(self.inspector_window).addWidget(inspector)
+        # RS2-style properties stay next to the model tree in the same CAD workspace.
+        model_layout.addWidget(QLabel("OBJECT PROPERTIES"))
+        model_layout.addWidget(inspector, 2)
         root.addWidget(self.editor, 1)
         self.status = QLabel(IDLE_HINT)
         self.status.setWordWrap(True)
@@ -1084,11 +1082,10 @@ class CadDialog(QDialog):
         menu.exec(global_pos)
 
     def show_inspector(self, tab=None):
-        """Open the floating properties window, optionally on a given tab."""
+        """Focus the integrated properties tabs (no extra CAD dialog)."""
         if tab is not None:
             self.inspector.setCurrentIndex(tab)
-        self.inspector_window.show()
-        self.inspector_window.raise_()
+        self.inspector.setFocus()
 
     def activate_entity(self, index):
         """Double-click: a meshed support opens its N–V–M diagram, anything else its properties."""
