@@ -28,6 +28,7 @@ from slipsurface.fe2d import api
 from slipsurface.fe2d.cad.geometry import Drawing
 from slipsurface.fe2d.gui.demo import excavation_model
 from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
+from slipsurface.fe2d.post.balance_acceptance import summarize_balances
 from slipsurface.fe2d.post.dry_load_balance import dry_stage_load_balance_by_stage
 from slipsurface.fe2d.post.excavation_balance import excavation_balance_by_stage
 from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
@@ -316,7 +317,12 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
             writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
+    balance_summary = {
+        key: summarize_balances([row[key] for row in rows])
+        for key in ("gravity_balance", "dry_load_balance", "excavation_balance")
+    }
     report = {
+        "force_balance_acceptance": balance_summary,
         "excavation_balance": [
             {"stage": row["stage"], "h_m": row["h_m"],
              **row.get("excavation_balance", {})}
