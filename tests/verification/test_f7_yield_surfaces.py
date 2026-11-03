@@ -31,12 +31,11 @@ def test_mc_exact_principal_yield_boundary(phi, c, s1):
     mc = MohrCoulomb(30000.0, 0.25, c, phi, 0.0)
     boundary = np.array([[s1, s3, s3, 0.0]])
     assert mc.yield_function(boundary)[0] == pytest.approx(0.0, abs=1e-9)
-    # More compressive minor principal stress moves inside the yield surface;
-    # less compressive minor principal stress moves outside.
+    # Less compressive minor stress moves inside; more compression fails in shear.
     inside = boundary.copy()
-    inside[0, 1:3] -= 1.0
+    inside[0, 1:3] += 1.0
     outside = boundary.copy()
-    outside[0, 1:3] += 1.0
+    outside[0, 1:3] -= 1.0
     assert mc.yield_function(inside)[0] < 0.0
     assert mc.yield_function(outside)[0] > 0.0
 
@@ -61,9 +60,9 @@ def test_hb_exact_generalized_principal_yield_boundary(gsi, mi, disturbance, s1)
     boundary = np.array([[s1, s3, s3, 0.0]])
     assert hb.yield_function(boundary)[0] == pytest.approx(0.0, abs=1e-7)
     inside = boundary.copy()
-    inside[0, 1:3] -= 1.0
+    inside[0, 1:3] += 1.0
     outside = boundary.copy()
-    outside[0, 1:3] += 1.0
+    outside[0, 1:3] -= 1.0
     assert hb.yield_function(inside)[0] < 0.0
     assert hb.yield_function(outside)[0] > 0.0
 
