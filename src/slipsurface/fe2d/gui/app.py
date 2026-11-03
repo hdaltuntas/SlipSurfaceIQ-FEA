@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
+    QInputDialog,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -164,6 +165,7 @@ class MainWindow(QMainWindow):
         self.cad.drawing_changed.connect(self._on_drawing_changed)
         self.cad.structure_requested.connect(self.show_structure_forces)
         self.cad.stage_menu_requested.connect(self._add_region_stage_action)
+        self.cad.stage_edge_menu_requested.connect(self._add_stage_pressure_action)
         self.model_stage_tabs = QTabBar()
         self.model_stage_tabs.setExpanding(False)
         self.model_stage_tabs.currentChanged.connect(self._on_stage_tab_changed)
@@ -687,6 +689,57 @@ class MainWindow(QMainWindow):
                 note = menu.addAction("Not active in this stage; choose a stage after installation")
                 note.setEnabled(False)
         menu.exec(global_pos)
+
+    def _add_stage_pressure_action(self, menu, edge):
+        """Offer a direct edge-pick stage pressure editor after mesh generation."""
+        stage_index = max(0, self.stages.currentRow())
+        stage_name = (
+            self.model.stages[stage_index - 1].name
+            if self.model is not None and 0 < stage_index <= len(self.model.stages)
+            else "Select a construction stage"
+        )
+        item = menu.addAction(f"Stage pressure… ({stage_name})")
+        item.setEnabled(
+            self.model is not None
+            and not self.cad.mesh_outdated
+            and edge in self.model.mesh.edge_sets
+            and 0 < stage_index <= len(self.model.stages)
+        )
+        item.triggered.connect(
+            lambda _checked=False, e=edge, i=stage_index:
+                self.assign_stage_edge_pressure(e, i)
+        )
+
+    def assign_stage_edge_pressure(self, edge, stage_index):
+        """Set normal pressure in the selected stage; do not edit initial loads."""
+        if (self.busy or self.model is None or self.cad.mesh_outdated
+                or edge not in self.model.mesh.edge_sets
+                or not 1 <= stage_index <= len(self.model.stages)):
+            return
+        from dataclasses import replace
+
+        stage = self.model.stages[stage_index - 1]
+        previous = next(
+            (load.qn for load in stage.loads
+             if isinstance(load, api.EdgeLoad) and load.edge_set == edge),
+            0.0,
+        )
+        pressure, accepted = QInputDialog.getDouble(
+            self, "Construction stage edge pressure",
+            f"{stage.name} · {edge} · qn (kPa, positive inward)",
+            previous, -1e9, 1e9, 3,
+        )
+        if not accepted:
+            return
+        retained = tuple(
+            load for load in stage.loads
+            if not (isinstance(load, api.EdgeLoad) and load.edge_set == edge)
+        )
+        loads = retained + ((api.EdgeLoad(edge, pressure, 0.0),) if pressure else ())
+        stages = list(self.model.stages)
+        stages[stage_index - 1] = replace(stage, loads=loads)
+        self._apply_stage_edit(replace(self.model, stages=stages))
+        self.stages.setCurrentRow(stage_index)
 
     def _add_region_stage_action(self, menu, region):
         action = menu.addAction("Assign materials…")
