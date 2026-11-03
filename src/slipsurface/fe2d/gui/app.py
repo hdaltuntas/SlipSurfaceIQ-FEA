@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Slot
+from PySide6.QtCore import QSize, Qt, QTimer, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
@@ -1312,6 +1312,47 @@ class MainWindow(QMainWindow):
             stage_tabs.setExpanding(False)
             stage_tabs.setUsesScrollButtons(True)
             layout.addWidget(stage_tabs)
+            nav = QHBoxLayout()
+            previous_stage = QPushButton("Previous stage")
+            next_stage = QPushButton("Next stage")
+            animate = QPushButton("Play stages")
+            nav.addWidget(previous_stage)
+            nav.addWidget(next_stage)
+            nav.addWidget(animate)
+            nav.addStretch(1)
+            layout.addLayout(nav)
+            timer = QTimer(dlg)
+            timer.setInterval(900)
+            previous_stage.clicked.connect(
+                lambda: stage_tabs.setCurrentIndex(max(0, stage_tabs.currentIndex() - 1))
+            )
+            next_stage.clicked.connect(
+                lambda: stage_tabs.setCurrentIndex(
+                    min(stage_tabs.count() - 1, stage_tabs.currentIndex() + 1)
+                )
+            )
+
+            def advance_stage():
+                if stage_tabs.currentIndex() >= stage_tabs.count() - 1:
+                    timer.stop()
+                    animate.setText("Play stages")
+                else:
+                    stage_tabs.setCurrentIndex(stage_tabs.currentIndex() + 1)
+
+            timer.timeout.connect(advance_stage)
+
+            def toggle_animation():
+                if timer.isActive():
+                    timer.stop()
+                    animate.setText("Play stages")
+                else:
+                    if stage_tabs.currentIndex() >= stage_tabs.count() - 1:
+                        stage_tabs.setCurrentIndex(0)
+                    timer.start()
+                    animate.setText("Pause animation")
+
+            animate.clicked.connect(toggle_animation)
+            dlg.finished.connect(lambda _code: timer.stop())
             dlg.viewer = (stage_tabs, fields, canvas, legend, deform, principal)
             stage_tabs.currentChanged.connect(self._refresh_interpret)
             fields.currentIndexChanged.connect(self._refresh_interpret)
