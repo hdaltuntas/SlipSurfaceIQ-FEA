@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from slipsurface.fe2d.post.balance_acceptance import classify_balance
 from slipsurface.fe2d.core.enums import Analysis
+from slipsurface.fe2d.post.balance_acceptance import classify_balance
 from slipsurface.fe2d.post.dry_load_balance import independent_stage_loads
 
 
