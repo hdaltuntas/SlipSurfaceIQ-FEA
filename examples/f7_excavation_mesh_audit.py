@@ -103,9 +103,24 @@ def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
     return rows, failures
 
 
+def attach_mesh_differences(rows: list[dict]) -> list[dict]:
+    """Consecutive relative changes are diagnostics, not acceptance tolerances."""
+    previous: dict[str, float] = {}
+    for row in rows:
+        value = float(row["max_displacement_m"])
+        prior = previous.get(row["stage"])
+        row["relative_displacement_change"] = (
+            abs(value - prior) / max(abs(value), abs(prior), 1e-12)
+            if prior is not None else None
+        )
+        previous[row["stage"]] = value
+    return rows
+
+
 def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
     output.mkdir(parents=True, exist_ok=True)
     rows, failures = run_audit(sizes)
+    attach_mesh_differences(rows)
     with (output / "excavation_mesh_audit.csv").open("w", newline="", encoding="utf-8") as file:
         if rows:
             writer = csv.DictWriter(file, fieldnames=list(rows[0]))
