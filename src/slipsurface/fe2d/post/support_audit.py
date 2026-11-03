@@ -11,8 +11,17 @@ from __future__ import annotations
 import numpy as np
 
 
-def sample_support_profile(mesh, stage, tag, endpoints, *, kind="beam", count=51):
-    """Return force magnitude on a fixed 0..1 support-length coordinate."""
+def sample_support_profile(
+    mesh, stage, tag, endpoints, *, kind="beam", count=51, signed=False
+):
+    """Sample structural forces on a fixed 0..1 support-length coordinate.
+
+    signed=True preserves the solver's local N/V/M signs; beam elements must
+    all point along the CAD line. Reversed beams are rejected rather than
+    silently applying an unverified transformation to their local sections.
+    """
+    if not isinstance(signed, bool):
+        raise ValueError("signed must be boolean")
     if count < 2:
         raise ValueError("At least two profile samples are required.")
     start, end = np.asarray(endpoints, dtype=float)
@@ -30,6 +39,13 @@ def sample_support_profile(mesh, stage, tag, endpoints, *, kind="beam", count=51
     coords = mesh.coords[connectivity]
     values = np.asarray(sources[tag], dtype=float)
     if kind == "beam":
+        if signed:
+            element_vectors = coords[:, 1] - coords[:, 0]
+            projection = element_vectors @ direction
+            if not np.all(np.isfinite(projection)) or np.any(projection <= 0):
+                raise ValueError(
+                    f"{tag}: signed beam profiles require consistent CAD orientation"
+                )
         if values.shape != (block.ne, 2, 3):
             raise ValueError(f"{tag}: beam force shape does not match mesh")
         # Project both end sections; the vector contains N, V and M.
@@ -54,23 +70,28 @@ def sample_support_profile(mesh, stage, tag, endpoints, *, kind="beam", count=51
     stations, inverse = np.unique(projected, return_inverse=True)
     if len(stations) < 2:
         raise ValueError(f"{tag}: insufficient distinct force stations")
-    magnitudes = np.abs(forces)
-    sums = np.zeros((len(stations), magnitudes.shape[1]))
-    np.add.at(sums, inverse, magnitudes)
+    sampled = forces if signed else np.abs(forces)
+    sums = np.zeros((len(stations), sampled.shape[1]))
+    np.add.at(sums, inverse, sampled)
     counts = np.bincount(inverse)
     section = sums / counts[:, None]
     target = np.linspace(0.0, 1.0, count)
     interpolated = np.column_stack([
         np.interp(target, stations, section[:, i]) for i in range(section.shape[1])
     ])
-    return {"tag": tag, "kind": kind, "s": target.tolist(),
-            "components": interpolated.tolist()}
+    return {
+        "tag": tag, "kind": kind,
+        "mode": "signed_local" if signed else "magnitude",
+        "s": target.tolist(), "components": interpolated.tolist(),
+    }
 
 
 def compare_profiles(before, after):
     """Normalized RMS differences on matching support tags and sampling stations."""
     if before["tag"] != after["tag"] or before["kind"] != after["kind"]:
         raise ValueError("Cannot compare different support identities")
+    if before.get("mode", "magnitude") != after.get("mode", "magnitude"):
+        raise ValueError("Cannot compare signed and magnitude support profiles")
     x0, x1 = np.asarray(before["s"]), np.asarray(after["s"])
     a, b = np.asarray(before["components"]), np.asarray(after["components"])
     if a.shape != b.shape or not np.array_equal(x0, x1):
