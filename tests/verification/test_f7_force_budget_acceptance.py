@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 from slipsurface.fe2d.post import dry_load_balance, excavation_balance, global_balance
@@ -26,7 +25,8 @@ from slipsurface.fe2d.post.balance_acceptance import (
 def test_relative_force_balance_has_explicit_acceptance_state(value, status):
     original = {"stage": "excavated", "relative_residual": value}
     result = classify_balance(original, "relative_residual")
-    assert original == {"stage": "excavated", "relative_residual": value} or np.isnan(value)
+    assert original["stage"] == "excavated"
+    assert result is not original
     assert result["status"] == status
     assert result["acceptance_tolerance"] == pytest.approx(1e-6)
     if status == "failed":
