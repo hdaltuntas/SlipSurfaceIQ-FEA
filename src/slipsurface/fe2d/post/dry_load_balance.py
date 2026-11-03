@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from slipsurface.fe2d.post.balance_acceptance import classify_balance
 from slipsurface.fe2d.core.enums import Analysis, ElemType
 from slipsurface.fe2d.model.boundary import EdgeLoad, PointLoad
 
@@ -176,8 +177,9 @@ def dry_stage_load_balance_by_stage(model, result):
     rows = []
     for i, stage in enumerate(result.stages):
         try:
-            entry = dry_stage_load_balance(model, result, i)
-            entry["status"] = "checked"
+            entry = classify_balance(
+                dry_stage_load_balance(model, result, i), "relative_imbalance"
+            )
         except (KeyError, ValueError, IndexError) as exc:
             entry = {"stage": stage.name, "status": "unsupported", "reason": str(exc)}
         rows.append(entry)
