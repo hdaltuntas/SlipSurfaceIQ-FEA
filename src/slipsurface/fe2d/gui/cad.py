@@ -1068,13 +1068,17 @@ class CadDialog(QDialog):
         rule = next((r for r in self.current_drawing().rules if r.edge == edge), BoundaryRule(edge))
         menu = QMenu(self)
         menu.addAction(f"Edge: {edge}").setEnabled(False)
-        for title, field in (("Fix horizontal displacement (ux)", "ux"),
-                             ("Fix vertical displacement (uy)", "uy")):
-            item = menu.addAction(title)
-            item.setCheckable(True)
-            item.setChecked(getattr(rule, field))
-            item.triggered.connect(
-                lambda checked, key=field: self.set_edge_rule(edge, **{key: checked})
+        for label, ux, uy in (
+            ("Free", False, False),
+            ("Restrain X (ux)", True, False),
+            ("Restrain Y (uy)", False, True),
+            ("Restrain X + Y", True, True),
+        ):
+            preset = menu.addAction(label)
+            preset.setCheckable(True)
+            preset.setChecked((rule.ux, rule.uy) == (ux, uy))
+            preset.triggered.connect(
+                lambda _checked=False, x=ux, y=uy: self.set_edge_rule(edge, ux=x, uy=y)
             )
         menu.exec(global_pos)
 
