@@ -121,12 +121,21 @@ class Drawing:
     loading_name: str = "CAD loading"
     material_library: tuple[dict, ...] = ()
     material_assignments: tuple[dict, ...] = ()
+    mesh_refinements: tuple[dict, ...] = ()  # {x, y, radius, h} circular local zones
 
     def __post_init__(self):
         if not np.isfinite([self.h, self.E, self.nu, self.gamma]).all():
             raise ValueError("Mesh and material values must be finite.")
         if self.h <= 0 or self.E <= 0 or self.gamma < 0 or not 0 <= self.nu < 0.5:
             raise ValueError("h and E must be positive, γ ≥ 0 and 0 ≤ ν < 0.5.")
+        refinements = tuple(dict(item) for item in self.mesh_refinements)
+        for item in refinements:
+            if not {"x", "y", "radius", "h"} <= set(item):
+                raise ValueError("Mesh refinement requires x, y, radius and h.")
+            values = np.asarray([item[k] for k in ("x", "y", "radius", "h")], dtype=float)
+            if not np.isfinite(values).all() or values[2] <= 0 or values[3] <= 0:
+                raise ValueError("Mesh refinement zone needs finite positive radius and h.")
+        object.__setattr__(self, "mesh_refinements", refinements)
         names = [self.loading_name, *(step.name for step in self.sequence)]
         if any(not n.strip() for n in names) or len({n.strip() for n in names}) != len(names):
             raise ValueError("Construction stage names must be non-empty and unique.")
@@ -152,6 +161,7 @@ class Drawing:
             str(data.get("loading_name", "CAD loading")),
             tuple(data.get("material_library", ())),
             tuple(data.get("material_assignments", ())),
+            tuple(data.get("mesh_refinements", ())),
         )
 
     def with_stage_names(self, names):
@@ -398,13 +408,40 @@ class Drawing:
                 )
         return d
 
+    def mesh_size_function(self):
+        """Global h with radial local grading, vectorized for the Delaunay refiner."""
+        if not self.mesh_refinements:
+            return self.h
+        zones = tuple(
+            (float(v["x"]), float(v["y"]), float(v["radius"]), float(v["h"]))
+            for v in self.mesh_refinements
+        )
+        global_h = float(self.h)
+
+        def size(x, y):
+            x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
+            target = np.full(x.shape, global_h)
+            for cx, cy, radius, local_h in zones:
+                distance = np.hypot(x - cx, y - cy)
+                # Full refinement inside radius, then linearly grade to global h
+                # over one more radius to avoid abrupt element size changes.
+                fraction = np.clip((distance - radius) / radius, 0.0, 1.0)
+                graded = local_h + (global_h - local_h) * fraction
+                target = np.minimum(target, graded)
+            return target
+
+        return size
+
     def build_model(self, checkpoint=None):
         """Elastic model with a K0 self-weight field.
 
         Structures stay off in the initial state, so a pile's skin interfaces remain
         tied until the pile is installed. γ = 0 keeps a weightless mesh (patch tests).
         """
-        mesh = unstructured_mesh(self.domain(), h=self.h, max_points=100000, checkpoint=checkpoint)
+        mesh = unstructured_mesh(
+            self.domain(), h=self.mesh_size_function(),
+            max_points=100000, checkpoint=checkpoint,
+        )
         if checkpoint:
             checkpoint()
         boundary = {tuple(sorted(e[:2])) for e in mesh.edge_sets["boundary"]}
