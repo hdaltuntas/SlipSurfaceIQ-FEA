@@ -38,8 +38,11 @@ A 2 m wide × 10 m deep column with
 resolutions.
 
 The initial groundwater head is 0 m, then lowered to -4 m in a
-completed stage. The tests require analytical pore and effective-stress
-agreement at every sampled Gauss point. A separate deliberately
+completed stage. T6 tests require pointwise pore and effective-stress
+agreement at Gauss points. Linear T3 triangles have constant strain
+within each element and do not exactly reproduce a linearly varying
+geostatic stress; their nonzero errors remain visible and the initial
+stress error must decrease with mesh refinement. A separate deliberately
 corrupted pore-pressure output must produce a **failed** status, not a
 false success.
 
