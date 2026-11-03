@@ -28,6 +28,7 @@ from slipsurface.fe2d import api
 from slipsurface.fe2d.cad.geometry import Drawing
 from slipsurface.fe2d.gui.demo import excavation_model
 from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
+from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
 
 
 def build_case(base, h: float):
@@ -142,6 +143,55 @@ def compare_supports_by_stage(rows: list[dict]) -> list[dict]:
     return output
 
 
+def stage_support_profiles(model, stage, count=51):
+    """Profiles for supports present in this stage; inactive supports are omitted."""
+    drawing = Drawing.from_dict(model.geometry)
+    entities = {entity.name: entity for entity in drawing.entities}
+    profiles = {}
+    for assignment in drawing.supports:
+        tag = assignment.tag
+        kind = "bar" if assignment.kind == "bolt" else "beam"
+        available = stage.bars if kind == "bar" else stage.beams
+        if tag not in available:
+            continue
+        entity = entities[assignment.entity]
+        profile = sample_support_profile(
+            model.mesh, stage, tag,
+            (entity.points[0], entity.points[-1]),
+            kind=kind, count=count,
+        )
+        profiles[tag] = profile
+    return profiles
+
+
+def compare_stage_profiles(rows):
+    """Return differences for each stage and support between successive meshes."""
+    previous = {}
+    comparisons = []
+    for row in rows:
+        stage = row["stage"]
+        current = row.get("profiles", {})
+        old = previous.get(stage)
+        if old is not None:
+            for tag in sorted(set(old) | set(current)):
+                before, after = old.get(tag), current.get(tag)
+                comparisons.append({
+                    "stage": stage,
+                    "h_m": row["h_m"],
+                    "tag": tag,
+                    "relative_rms_components": (
+                        compare_profiles(before, after)
+                        if before is not None and after is not None else None
+                    ),
+                    "status": (
+                        "compared" if before is not None and after is not None
+                        else "missing"
+                    ),
+                })
+        previous[stage] = current
+    return comparisons
+
+
 def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
     base = excavation_model()
     rows: list[dict] = []
@@ -159,6 +209,7 @@ def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
             for stage in result.stages:
                 metrics = stage_metrics(stage, h, model.mesh.nn, elements)
                 metrics["supports"] = support_force_metrics(stage)
+                metrics["profiles"] = stage_support_profiles(model, stage)
                 rows.append(metrics)
         except Exception as exc:
             failures.append({"h_m": h, "type": type(exc).__name__, "detail": str(exc)})
@@ -184,6 +235,18 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
     rows, failures = run_audit(sizes)
     attach_mesh_differences(rows)
     comparisons = compare_supports_by_stage(rows)
+    profile_comparisons = compare_stage_profiles(rows)
+    (output / "excavation_force_distributions.json").write_text(
+        json.dumps({
+            "profiles": [
+                {"stage": row["stage"], "h_m": row["h_m"],
+                 "supports": row.get("profiles", {})}
+                for row in rows
+            ],
+            "comparisons": profile_comparisons,
+        }, indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
     with (output / "excavation_support_comparison.csv").open(
         "w", newline="", encoding="utf-8"
     ) as file:
@@ -197,7 +260,7 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         writer.writerows(comparisons)
     with (output / "excavation_mesh_audit.csv").open("w", newline="", encoding="utf-8") as file:
         if rows:
-            fieldnames = [field for field in rows[0] if field != "supports"]
+            fieldnames = [field for field in rows[0] if field not in {"supports", "profiles"}]
             writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
@@ -206,6 +269,7 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         "mesh_sizes_m": list(sizes),
         "results": rows,
         "support_comparisons": comparisons,
+        "profile_comparisons": profile_comparisons,
         "failures": failures,
         "warning": (
             "Convergence and mesh sensitivity are not independent physical validation; "
