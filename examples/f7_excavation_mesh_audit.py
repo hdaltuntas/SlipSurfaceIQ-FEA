@@ -28,9 +28,9 @@ from slipsurface.fe2d import api
 from slipsurface.fe2d.cad.geometry import Drawing
 from slipsurface.fe2d.gui.demo import excavation_model
 from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
+from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
 from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
-from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
 
 
