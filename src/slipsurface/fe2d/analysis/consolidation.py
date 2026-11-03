@@ -30,9 +30,12 @@ class ConsolidationInput:
         if not all(math.isfinite(x) for x in values):
             raise ValueError("All consolidation inputs must be finite.")
         if (self.thickness <= 0 or self.sigma_initial <= 0
-                or self.sigma_initial + self.delta_sigma <= 0
-                or self.compression_index < 0 or self.void_ratio < 0 or self.cv <= 0):
-            raise ValueError("Invalid layer, stress, compression or consolidation coefficient.")
+                or self.sigma_initial + self.delta_sigma <= 0 or self.cv <= 0):
+            raise ValueError("Invalid layer, effective stress or cv.")
+        if self.method == "cc" and (
+            self.compression_index < 0 or self.void_ratio < 0
+        ):
+            raise ValueError("Cc and e0 must be nonnegative for the Cc method.")
         if self.drainage not in ("single", "double"):
             raise ValueError("Drainage must be 'single' or 'double'.")
         if self.method not in ("cc", "mv"):
