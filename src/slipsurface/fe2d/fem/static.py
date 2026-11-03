@@ -644,7 +644,8 @@ class StaticSolver:
         extra = self.extra_tractions.get(stage_name or ctx.stage.name, ())
         if loads or extra:
             f += assemble_nodal_loads(
-                self.mesh, dm.node_dofs, nd, loads, self.model.analysis, extra
+                self.mesh, dm.node_dofs, nd, loads, self.model.analysis, extra,
+                active_masks=ctx.active,
             )
         return f
 

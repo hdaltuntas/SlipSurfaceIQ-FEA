@@ -19,12 +19,17 @@ from slipsurface.fe2d.core.enums import Analysis, ElemType
 from slipsurface.fe2d.model.boundary import EdgeLoad, PointLoad
 
 
-def _boundary_edge_map(mesh):
+def _boundary_edge_map(mesh, active_masks=None):
     """Undirected corner-edge -> adjacent element-centre coordinates."""
     adjacency = {}
     for block in mesh.continuum_blocks():
         corner_count = 3 if block.etype in (ElemType.T3, ElemType.T6) else 4
         corners = block.conn[:, :corner_count]
+        if active_masks is not None:
+            mask = np.asarray(active_masks[block.tag], dtype=bool)
+            if mask.shape != (block.ne,):
+                raise ValueError(f"{block.tag}: active mask shape mismatch")
+            corners = corners[mask]
         centers = mesh.coords[corners].mean(axis=1)
         for j in range(corner_count):
             for edge_nodes, center in zip(
@@ -35,7 +40,7 @@ def _boundary_edge_map(mesh):
     return adjacency
 
 
-def independent_stage_loads(model, stage):
+def independent_stage_loads(model, stage, *, active_masks=None):
     """Return external force (Fx,Fy) from straight edge and point loads.
 
     Orientation is fixed using a unique continuum-owner centroid and does
@@ -43,7 +48,7 @@ def independent_stage_loads(model, stage):
     edges and internal surfaces are explicitly outside this reference.
     """
     mesh = model.mesh
-    neighbors = _boundary_edge_map(mesh)
+    neighbors = _boundary_edge_map(mesh, active_masks)
     total = np.zeros(2)
     for load in stage.loads:
         if isinstance(load, PointLoad):
