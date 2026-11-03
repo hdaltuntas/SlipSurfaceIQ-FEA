@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from slipsurface.fe2d.core.enums import ElemType
-from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
+from slipsurface.fe2d.gui.mesh_quality import mesh_problem_centers, mesh_quality_report
 from slipsurface.fe2d.model.mesh import ElementBlock, Mesh
 
 
@@ -129,3 +129,19 @@ def test_compute_refuses_folded_t6_before_solver_worker(qt_app, monkeypatch):
         assert window.worker is None
     finally:
         window.close()
+
+
+def test_quality_map_marks_folded_t6_element():
+    coords = np.array([
+        [0., 0.], [2., 0.], [0., 2.],
+        [1., 1.], [1., 1.], [0., 1.],
+    ])
+    mesh = Mesh(
+        coords,
+        (ElementBlock(ElemType.T6, np.array([[0, 1, 2, 3, 4, 5]]),
+                      np.array([1]), tag="ground"),),
+    )
+    marks = mesh_problem_centers(mesh, batch_size=1)
+    assert marks["invalid"][0][0:2] == ("ground", 0)
+    assert len(marks["invalid"]) == 1
+    assert not marks["tiny"]
