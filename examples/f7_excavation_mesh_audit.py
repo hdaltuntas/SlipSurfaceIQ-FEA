@@ -29,6 +29,7 @@ from slipsurface.fe2d.cad.geometry import Drawing
 from slipsurface.fe2d.gui.demo import excavation_model
 from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
+from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
 
 
@@ -234,6 +235,7 @@ def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
                 metrics = stage_metrics(stage, h, model.mesh.nn, elements)
                 metrics["supports"] = support_force_metrics(stage)
                 metrics["interface_pairs"] = stage_interface_pairs(model, stage)
+                metrics["interface_nodal_transfer"] = stage_interface_nodal_audit(model, stage)
                 metrics["profiles"] = stage_support_profiles(model, stage)
                 signed, errors = stage_signed_profiles(model, stage)
                 metrics["signed_profiles"] = signed
@@ -296,11 +298,16 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         writer.writerows(comparisons)
     with (output / "excavation_mesh_audit.csv").open("w", newline="", encoding="utf-8") as file:
         if rows:
-            fieldnames = [field for field in rows[0] if field not in {"supports", "profiles", "signed_profiles", "signed_profile_errors", "interface_pairs"}]
+            fieldnames = [field for field in rows[0] if field not in {"supports", "profiles", "signed_profiles", "signed_profile_errors", "interface_pairs", "interface_nodal_transfer"}]
             writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
     report = {
+        "interface_nodal_transfer": [
+            {"stage": row["stage"], "h_m": row["h_m"],
+             "interfaces": row.get("interface_nodal_transfer", {})}
+            for row in rows
+        ],
         "interface_force_pairs": [
             {"stage": row["stage"], "h_m": row["h_m"],
              "interfaces": row.get("interface_pairs", {})}
