@@ -30,6 +30,8 @@ def test_stage_metrics_excludes_inactive_nan_displacements():
         u=np.array([[0., -0.01], [np.nan, np.nan], [0.02, 0.]]),
         reactions=np.array([[0., 10., 0.], [1., 20., 0.], [-1., 30., 0.]]),
         plastic={"soil": np.array([[0, 1], [1, 0]], dtype=np.uint8)},
+        beams={"liner": np.array([[[0.0, 0.0, -7.0], [0.0, 0.0, 12.0]]])},
+        bars={"anchor": np.array([5.0, -9.0])},
         history=history,
         lam=1.0,
     )
@@ -37,6 +39,8 @@ def test_stage_metrics_excludes_inactive_nan_displacements():
     assert result["max_displacement_m"] == pytest.approx(0.02)
     assert result["reaction_fy_kn_per_m"] == pytest.approx(60.0)
     assert result["active_plastic_gauss_points"] == 2
+    assert result["max_abs_beam_moment"] == pytest.approx(12.0)
+    assert result["max_abs_bar_axial_force"] == pytest.approx(9.0)
     assert result["accepted_steps"] == 2
     assert result["rejected_steps"] == 1
     assert result["newton_iterations"] == 14
@@ -57,3 +61,10 @@ def test_mesh_difference_report_preserves_stages_and_coarse_baseline():
     assert rows[2]["relative_displacement_change"] == pytest.approx(0.001 / 0.011)
     assert rows[3]["relative_displacement_change"] == pytest.approx(0.002 / 0.022)
     assert rows[4]["relative_displacement_change"] == pytest.approx(0.0001 / 0.0111)
+
+
+def test_magnitude_metric_ignores_inactive_structural_nan():
+    metric = AUDIT["maximum_finite_magnitude"]
+    assert metric([np.array([np.nan, -3.0]), np.array([np.nan, 5.0])]) == 5.0
+    assert metric([np.array([np.nan])]) == 0.0
+    assert metric([]) == 0.0
