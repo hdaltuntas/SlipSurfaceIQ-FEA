@@ -47,6 +47,8 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QToolBar,
     QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -77,6 +79,7 @@ class CadCanvas(QGraphicsView):
     vertex_moved = Signal(object, object)
     bolt_range_selected = Signal(str, object)
     fixity_edge_selected = Signal(str, object)
+    fixity_vertex_selected = Signal(object, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -113,6 +116,10 @@ class CadCanvas(QGraphicsView):
         self.supports = {}
         self.stage_materials = {}
         self.material_colors = {}
+        self.hidden_entities = set()
+        self.fixity_rules = {}
+        self.point_fixities = ()
+        self.mesh_refinements = ()
         self._region_labels = []
         self.setSceneRect(-4, -12, 28, 18)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -134,6 +141,8 @@ class CadCanvas(QGraphicsView):
         shapes = {e.name: e.shape() for e in entities if e.kind != "line"}
         region_palette = ("#65b4c8", "#e2b878", "#82c39b", "#b39ddb", "#e5989b", "#80cbc4")
         for e in entities:
+            if e.name in self.hidden_entities:
+                continue
             path = QPainterPath(QPointF(e.points[0][0], -e.points[0][1]))
             for x, y in e.points[1:]:
                 path.lineTo(x, -y)
@@ -185,6 +194,43 @@ class CadCanvas(QGraphicsView):
                 label.setPos(float(mid[0]), float(-mid[1]))
                 label.setBrush(QColor("#34566a"))
                 label.setZValue(2)
+        for rule in self.point_fixities:
+            if not (rule["ux"] or rule["uy"]):
+                continue
+            glyph = self.scene().addSimpleText(
+                "XY" if rule["ux"] and rule["uy"]
+                else "X" if rule["ux"] else "Y"
+            )
+            glyph.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+            glyph.setBrush(QColor("#b42331"))
+            glyph.setPos(float(rule["x"]), -float(rule["y"]))
+            glyph.setZValue(5)
+            glyph.setToolTip("CAD vertex restraint")
+        # Keep direct-pick restraint symbols visible after each CAD redraw.
+        for entity in entities:
+            if entity.name in self.hidden_entities:
+                continue
+            for edge, (start, end) in zip(entity.edge_names(), entity.segments()):
+                ux, uy = self.fixity_rules.get(edge, (False, False))
+                if not (ux or uy):
+                    continue
+                midpoint = (np.asarray(start, dtype=float) +
+                            np.asarray(end, dtype=float)) / 2
+                label = self.scene().addSimpleText("XY" if ux and uy else "X" if ux else "Y")
+                label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+                label.setBrush(QColor("#a32d26" if ux and uy else "#156798"))
+                label.setPos(float(midpoint[0]), float(-midpoint[1]))
+                label.setZValue(4)
+                label.setToolTip(f"{edge}: ux={ux}, uy={uy}")
+        # Dashed local mesh sizing zones show the actual persisted CAD parameters.
+        for zone in self.mesh_refinements:
+            cx, cy, radius = (float(zone[k]) for k in ("x", "y", "radius"))
+            outline = self.scene().addEllipse(
+                cx - radius, -cy - radius, 2 * radius, 2 * radius,
+                QPen(QColor("#8b5cf6"), 0, Qt.PenStyle.DashLine),
+            )
+            outline.setZValue(2.8)
+            outline.setToolTip(f"Local target h = {zone['h']:g} m")
         if pending:
             path = QPainterPath(QPointF(*[pending[0][0], -pending[0][1]]))
             for x, y in pending[1:]:
@@ -276,6 +322,8 @@ class CadCanvas(QGraphicsView):
         tolerance = self._tolerance(8)
         hits = []
         for index, entity in enumerate(self.entities):
+            if entity.name in self.hidden_entities:
+                continue
             shape = entity.shape()
             boundary = shape if entity.kind == "line" else shape.boundary
             distance = boundary.distance(point)
@@ -455,10 +503,14 @@ class CadCanvas(QGraphicsView):
             event.accept()
         elif self.fixity_pick_enabled and event.button() == Qt.MouseButton.LeftButton:
             position = event.position().toPoint()
-            index = self.hit_entity(position)
-            edge = self.hit_edge(position, index)
-            if edge:
-                self.fixity_edge_selected.emit(edge, self.mapToGlobal(position))
+            vertex = self.hit_vertex(position)
+            if vertex is not None:
+                self.fixity_vertex_selected.emit(vertex, self.mapToGlobal(position))
+            else:
+                index = self.hit_entity(position)
+                edge = self.hit_edge(position, index)
+                if edge:
+                    self.fixity_edge_selected.emit(edge, self.mapToGlobal(position))
             event.accept()
         elif self.bolt_drag.enabled and event.button() == Qt.MouseButton.LeftButton:
             self.bolt_drag.press(event.position().toPoint())
@@ -581,6 +633,7 @@ class CadDialog(QDialog):
     drawing_changed = Signal()
     structure_requested = Signal(str)
     stage_menu_requested = Signal(object, int)
+    stage_edge_menu_requested = Signal(object, str)
 
     def __init__(self, model=None, parent=None, *, embedded=False):
         super().__init__(parent)
@@ -691,6 +744,20 @@ class CadDialog(QDialog):
         drafting.setContentsMargins(0, 0, 0, 0)
         drafting.setSpacing(0)
         drafting.addWidget(self.tool_strip)
+        # RS2-style document tree remains in the integrated modeler, not a dialog.
+        model_panel = QWidget()
+        model_panel.setMinimumWidth(235)
+        model_panel.setMaximumWidth(430)
+        model_layout = QVBoxLayout(model_panel)
+        model_layout.setContentsMargins(5, 5, 5, 5)
+        model_layout.addWidget(QLabel("MODEL EXPLORER"))
+        self.model_tree = QTreeWidget()
+        self.model_tree.setHeaderLabels(["Objects / visibility"])
+        self.model_tree.itemChanged.connect(self._tree_visibility_changed)
+        self.model_tree.itemSelectionChanged.connect(self._tree_selection_changed)
+        model_layout.addWidget(self.model_tree, 1)
+        model_layout.addWidget(QLabel("Double-click a model object to edit its properties."))
+        drafting.addWidget(model_panel)
         drafting.addWidget(ruled_canvas(self.canvas), 1)
         editor_layout.addLayout(drafting, 1)
         settings = QHBoxLayout()
@@ -776,11 +843,9 @@ class CadDialog(QDialog):
         self.support_panel.apply_requested.connect(self.apply_support)
         inspector.addTab(self.support_panel, "Support")
         self.inspector = inspector
-        # Properties open on demand (double-click / right-click) instead of a fixed side panel.
-        self.inspector_window = QDialog(self, Qt.WindowType.Tool)
-        self.inspector_window.setWindowTitle("Properties")
-        self.inspector_window.resize(380, 620)
-        QVBoxLayout(self.inspector_window).addWidget(inspector)
+        # RS2-style properties stay next to the model tree in the same CAD workspace.
+        model_layout.addWidget(QLabel("OBJECT PROPERTIES"))
+        model_layout.addWidget(inspector, 2)
         root.addWidget(self.editor, 1)
         self.status = QLabel(IDLE_HINT)
         self.status.setWordWrap(True)
@@ -975,6 +1040,7 @@ class CadDialog(QDialog):
         strip.insertAction(fit, fixity)
         self.fixity_action = fixity
         self.canvas.fixity_edge_selected.connect(self.show_edge_fixity_menu)
+        self.canvas.fixity_vertex_selected.connect(self.show_vertex_fixity_menu)
         self.tool_actions["select"].setChecked(True)
         return strip
 
@@ -983,32 +1049,124 @@ class CadDialog(QDialog):
         if action is not None and not action.isChecked():
             action.setChecked(True)
 
+    def _refresh_model_tree(self):
+        """Synchronize model groups and checkable entity visibility after edits."""
+        tree = self.model_tree
+        previous = {item.data(0, Qt.ItemDataRole.UserRole)
+                    for item in tree.selectedItems()}
+        tree.blockSignals(True)
+        tree.clear()
+        roots = {
+            "region": QTreeWidgetItem(tree, ["Material regions"]),
+            "hole": QTreeWidgetItem(tree, ["Excavations / voids"]),
+            "line": QTreeWidgetItem(tree, ["Geometry lines"]),
+            "support": QTreeWidgetItem(tree, ["Supports"]),
+        }
+        supports = {item.entity for item in self.document.supports}
+        for entity in self.document.entities:
+            category = "support" if entity.name in supports else entity.kind
+            parent = roots.get(category, roots["line"])
+            child = QTreeWidgetItem(parent, [entity.name])
+            child.setData(0, Qt.ItemDataRole.UserRole, entity.name)
+            child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            child.setCheckState(
+                0, Qt.CheckState.Unchecked if entity.name in self.canvas.hidden_entities
+                else Qt.CheckState.Checked
+            )
+            if entity.name in previous:
+                child.setSelected(True)
+        for parent in roots.values():
+            parent.setExpanded(True)
+        tree.blockSignals(False)
+
+    def _tree_visibility_changed(self, item, column):
+        if column != 0:
+            return
+        name = item.data(0, Qt.ItemDataRole.UserRole)
+        if name is None:
+            return
+        if item.checkState(0) == Qt.CheckState.Checked:
+            self.canvas.hidden_entities.discard(name)
+        else:
+            self.canvas.hidden_entities.add(name)
+        self.canvas.redraw(
+            self.document.entities, self.pending,
+            self.document.entities[self.entities.currentRow()].name
+            if 0 <= self.entities.currentRow() < len(self.document.entities) else None,
+        )
+
+    def _tree_selection_changed(self):
+        for item in self.model_tree.selectedItems():
+            name = item.data(0, Qt.ItemDataRole.UserRole)
+            for index, entity in enumerate(self.document.entities):
+                if name == entity.name:
+                    self.select_from_canvas(index)
+                    return
+
     def toggle_fixity_pick(self, enabled):
         self.cancel_drawing()
         self.canvas.fixity_pick_enabled = enabled
         self.canvas.setCursor(Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.ArrowCursor)
         self.status.setText("Click a model edge to assign ux/uy fixities" if enabled else IDLE_HINT)
 
+    def show_vertex_fixity_menu(self, point, global_pos):
+        """Apply explicit node restraint at a drawn shared vertex."""
+        x, y = map(float, point)
+        rule = next(
+            (r for r in self.current_drawing().point_fixities
+             if (r["x"], r["y"]) == (x, y)), None,
+        )
+        current = (rule["ux"], rule["uy"]) if rule else (False, False)
+        menu = QMenu(self)
+        menu.addAction(f"Vertex ({x:g}, {y:g})").setEnabled(False)
+        for title, ux, uy in (
+            ("Free", False, False),
+            ("Restrain X", True, False),
+            ("Restrain Y", False, True),
+            ("Restrain X + Y", True, True),
+        ):
+            action = menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(current == (ux, uy))
+            action.triggered.connect(
+                lambda _checked=False, a=ux, b=uy:
+                    self.set_vertex_rule(x, y, a, b)
+            )
+        menu.exec(global_pos)
+
+    def set_vertex_rule(self, x, y, ux, uy):
+        drawing = self.current_drawing()
+        others = tuple(
+            r for r in drawing.point_fixities
+            if (r["x"], r["y"]) != (x, y)
+        )
+        rule = ({"x": x, "y": y, "ux": ux, "uy": uy},) if ux or uy else ()
+        self.commit(replace(drawing, point_fixities=others + rule))
+        self.status.setText(f"Vertex ({x:g}, {y:g}): ux={ux}, uy={uy}; remesh required.")
+
     def show_edge_fixity_menu(self, edge, global_pos):
         rule = next((r for r in self.current_drawing().rules if r.edge == edge), BoundaryRule(edge))
         menu = QMenu(self)
         menu.addAction(f"Edge: {edge}").setEnabled(False)
-        for title, field in (("Fix horizontal displacement (ux)", "ux"),
-                             ("Fix vertical displacement (uy)", "uy")):
-            item = menu.addAction(title)
-            item.setCheckable(True)
-            item.setChecked(getattr(rule, field))
-            item.triggered.connect(
-                lambda checked, key=field: self.set_edge_rule(edge, **{key: checked})
+        for label, ux, uy in (
+            ("Free", False, False),
+            ("Restrain X (ux)", True, False),
+            ("Restrain Y (uy)", False, True),
+            ("Restrain X + Y", True, True),
+        ):
+            preset = menu.addAction(label)
+            preset.setCheckable(True)
+            preset.setChecked((rule.ux, rule.uy) == (ux, uy))
+            preset.triggered.connect(
+                lambda _checked=False, x=ux, y=uy: self.set_edge_rule(edge, ux=x, uy=y)
             )
         menu.exec(global_pos)
 
     def show_inspector(self, tab=None):
-        """Open the floating properties window, optionally on a given tab."""
+        """Focus the integrated properties tabs (no extra CAD dialog)."""
         if tab is not None:
             self.inspector.setCurrentIndex(tab)
-        self.inspector_window.show()
-        self.inspector_window.raise_()
+        self.inspector.setFocus()
 
     def activate_entity(self, index):
         """Double-click: a meshed support opens its N–V–M diagram, anything else its properties."""
@@ -1030,7 +1188,14 @@ class CadDialog(QDialog):
             entity = self.document.entities[index]
             support = next((s for s in self.document.supports if s.entity == entity.name), None)
             if entity.kind == "region":
+                menu.addAction(
+                    "Refine mesh near this region…",
+                    lambda _checked=False, i=index: self.add_region_refinement(i),
+                )
                 self.stage_menu_requested.emit(menu, entity.region)
+                if edge:
+                    menu.addSeparator()
+                    self.stage_edge_menu_requested.emit(menu, edge)
                 menu.exec(global_pos)
                 return
             header = menu.addAction(entity.name)
@@ -1080,9 +1245,48 @@ class CadDialog(QDialog):
                 menu.addAction(tool.icon(), tool.text(), tool.trigger)
             menu.addSeparator()
             menu.addAction("Fit all", self.canvas.fit_drawing)
+            menu.addAction("Clear local mesh refinements", self.clear_mesh_refinements)
             menu.addAction("Pressure / load table…", lambda: self.show_inspector(1))
             menu.addAction("Mesh settings (h, E, ν)…", lambda: self.show_inspector(0))
         menu.exec(global_pos)
+
+    def add_region_refinement(self, index):
+        """Local circular size zone around selected region's interior point."""
+        if not 0 <= index < len(self.document.entities):
+            return
+        entity = self.document.entities[index]
+        if entity.kind != "region":
+            return
+        centre = entity.shape().representative_point()
+        radius, accepted = QInputDialog.getDouble(
+            self, "Local mesh refinement", "Influence radius (m)",
+            max(self.document.h * 3, 0.01), 0.000001, 1e6, 4,
+        )
+        if not accepted:
+            return
+        size, accepted = QInputDialog.getDouble(
+            self, "Local mesh refinement", "Local target element size h (m)",
+            max(0.001, self.document.h / 2), 0.000001, self.document.h, 6,
+        )
+        if not accepted:
+            return
+        zone = {
+            "x": float(centre.x), "y": float(centre.y),
+            "radius": radius, "h": size,
+        }
+        drawing = self.current_drawing()
+        self.commit(replace(
+            drawing, mesh_refinements=(*drawing.mesh_refinements, zone),
+        ))
+        self.status.setText(
+            f"Local refinement: h={size:g} m, radius={radius:g} m. Remesh required."
+        )
+
+    def clear_mesh_refinements(self):
+        drawing = self.current_drawing()
+        if drawing.mesh_refinements:
+            self.commit(replace(drawing, mesh_refinements=()))
+            self.status.setText("Local mesh refinement zones cleared; remesh required.")
 
     def set_edge_rule(self, edge, **changes):
         current = self.current_drawing()
@@ -1125,7 +1329,17 @@ class CadDialog(QDialog):
         index = self.entities.currentRow()
         try:
             entities = tuple(replace(e, points=moved(e.points)) for e in current.entities)
-            updated = replace(current, entities=entities)
+            fixities = tuple(
+                {
+                    **rule,
+                    "x": float(new[0]),
+                    "y": float(new[1]),
+                } if np.allclose(
+                    [rule["x"], rule["y"]], old, rtol=0, atol=1e-9
+                ) else rule
+                for rule in current.point_fixities
+            )
+            updated = replace(current, entities=entities, point_fixities=fixities)
             if any(e.kind == "region" for e in updated.entities):
                 updated.validate()
         except ValueError as exc:
@@ -1284,7 +1498,16 @@ class CadDialog(QDialog):
                 min(self.values[k].minimum(), value), max(self.values[k].maximum(), value)
             )
             self.values[k].setValue(value)
+        self.canvas.hidden_entities.intersection_update(
+            {entity.name for entity in self.document.entities}
+        )
+        self.canvas.fixity_rules = {
+            rule.edge: (rule.ux, rule.uy) for rule in self.document.rules
+        }
+        self.canvas.mesh_refinements = self.document.mesh_refinements
+        self.canvas.point_fixities = self.document.point_fixities
         self.canvas.redraw(self.document.entities, self.pending)
+        self._refresh_model_tree()
         if fit:
             self.canvas.fit_drawing()
         self.drawing_changed.emit()
@@ -1350,6 +1573,9 @@ class CadDialog(QDialog):
         self.canvas.redraw(self.document.entities, self.pending, e.name)
 
     def begin_drawing(self):
+        # Drawing tools and fixity picking must not compete for left-clicks.
+        if hasattr(self, "fixity_action") and self.fixity_action.isChecked():
+            self.fixity_action.setChecked(False)
         self.canvas.bolt_drag.reset()
         self.placing = self.canvas.placement = None
         self.circle_mode = self.canvas.circle = False

@@ -16,8 +16,8 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Slot
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QSize, Qt, QTimer, Slot
+from PySide6.QtGui import QAction, QBrush, QColor, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -26,7 +26,9 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
+    QGraphicsItem,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QMainWindow,
@@ -164,6 +166,7 @@ class MainWindow(QMainWindow):
         self.cad.drawing_changed.connect(self._on_drawing_changed)
         self.cad.structure_requested.connect(self.show_structure_forces)
         self.cad.stage_menu_requested.connect(self._add_region_stage_action)
+        self.cad.stage_edge_menu_requested.connect(self._add_stage_pressure_action)
         self.model_stage_tabs = QTabBar()
         self.model_stage_tabs.setExpanding(False)
         self.model_stage_tabs.currentChanged.connect(self._on_stage_tab_changed)
@@ -497,6 +500,15 @@ class MainWindow(QMainWindow):
             self.edit_actions.append(a)
         model_menu.addSeparator()
         model_menu.addAction(action("Consolidation settlement…", self.open_consolidation))
+        model_menu.addAction(action("Mesh quality report…", self.show_mesh_quality))
+        # RS2-style top-level analysis workflow; the existing commands remain
+        # available so saved shortcuts and existing user workflows keep working.
+        analysis_menu = self.menuBar().addMenu("Analysis")
+        analysis_menu.addAction(action("Project Settings…", self.edit_project_properties))
+        analysis_menu.addSeparator()
+        analysis_menu.addAction(action("Compute", self.start_solve))
+        analysis_menu.addAction(action("Interpret…", self.open_interpret))
+
         toolbar.addSeparator()
         self.mesh_action = action("Generate mesh", self.build_mesh, "Ctrl+M", "mesh")
         self.mesh_action.setToolTip("Generate mesh (Ctrl+M)")
@@ -549,7 +561,6 @@ class MainWindow(QMainWindow):
             lambda _=False: self.drawing_file_action("open_tunnel_designer"),
         ))
         result_menu = self.menuBar().addMenu("Inspect results")
-        result_menu.addAction(action("Open Interpret window…", self.open_interpret))
         result_menu.addAction(action("Open Interpret window…", self.open_interpret))
         for title, slot in [
             ("Query line", self.query_line),
@@ -680,6 +691,62 @@ class MainWindow(QMainWindow):
                 note.setEnabled(False)
         menu.exec(global_pos)
 
+    def _add_stage_pressure_action(self, menu, edge):
+        """Offer a direct edge-pick stage pressure editor after mesh generation."""
+        stage_index = max(0, self.stages.currentRow())
+        stage_name = (
+            self.model.stages[stage_index - 1].name
+            if self.model is not None and 0 < stage_index <= len(self.model.stages)
+            else "Select a construction stage"
+        )
+        item = menu.addAction(f"Stage pressure… ({stage_name})")
+        item.setEnabled(
+            self.model is not None
+            and not self.cad.mesh_outdated
+            and edge in self.model.mesh.edge_sets
+            and 0 < stage_index <= len(self.model.stages)
+        )
+        item.triggered.connect(
+            lambda _checked=False, e=edge, i=stage_index:
+                self.assign_stage_edge_pressure(e, i)
+        )
+
+    def assign_stage_edge_pressure(self, edge, stage_index):
+        """Set normal pressure in the selected stage; do not edit initial loads."""
+        if (self.busy or self.model is None or self.cad.mesh_outdated
+                or edge not in self.model.mesh.edge_sets
+                or not 1 <= stage_index <= len(self.model.stages)):
+            return
+        from dataclasses import replace
+
+        stage = self.model.stages[stage_index - 1]
+        existing = next(
+            (load for load in stage.loads
+             if isinstance(load, api.EdgeLoad) and load.edge_set == edge),
+            None,
+        )
+        previous = existing.qn if existing is not None else 0.0
+        pressure, accepted = QInputDialog.getDouble(
+            self, "Construction stage edge pressure",
+            f"{stage.name} · {edge} · qn (kPa, positive inward)",
+            previous, -1e9, 1e9, 3,
+        )
+        if not accepted:
+            return
+        retained = tuple(
+            load for load in stage.loads
+            if not (isinstance(load, api.EdgeLoad) and load.edge_set == edge)
+        )
+        tangential = existing.qt if existing is not None else 0.0
+        loads = retained + (
+            (api.EdgeLoad(edge, pressure, tangential),)
+            if pressure or tangential else ()
+        )
+        stages = list(self.model.stages)
+        stages[stage_index - 1] = replace(stage, loads=loads)
+        self._apply_stage_edit(replace(self.model, stages=stages))
+        self.stages.setCurrentRow(stage_index)
+
     def _add_region_stage_action(self, menu, region):
         action = menu.addAction("Assign materials…")
         ready = not self.busy and (
@@ -744,6 +811,45 @@ class MainWindow(QMainWindow):
             self.cad.canvas.setTransform(transform)
             self.cad.canvas.centerOn(center)
         self.status.showMessage("Stage settings updated · Recalculate to view results.")
+
+    def show_mesh_quality(self):
+        """Visual preflight: show element quality marks on an independent mesh canvas."""
+        if self.model is None:
+            QMessageBox.information(self, "Mesh quality", "Generate a mesh first.")
+            return
+        from .mesh_quality import mesh_problem_centers, mesh_quality_report
+
+        report = mesh_quality_report(self.model.mesh)
+        problems = mesh_problem_centers(self.model.mesh)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Mesh quality · element diagnostics")
+        dialog.resize(1000, 720)
+        layout = QVBoxLayout(dialog)
+        summary = QLabel(report.summary())
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+        legend = QLabel(
+            f"Red: invalid Gauss-point Jacobians ({len(problems['invalid'])}) · "
+            f"Purple: tiny corner areas ({len(problems['tiny'])})"
+        )
+        layout.addWidget(legend)
+        canvas = MeshCanvas()
+        layout.addWidget(canvas, 1)
+        canvas.show_model(self.model, field="|u|", stage_index=0)
+        for category, color in (("tiny", "#8b5cf6"), ("invalid", "#b42331")):
+            for tag, index, (x, y) in problems[category]:
+                mark = canvas.scene().addEllipse(
+                    -5, -5, 10, 10,
+                    QPen(QColor(color), 1),
+                    QBrush(QColor(color)),
+                )
+                mark.setFlag(
+                    QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+                )
+                mark.setPos(float(x), float(-y))
+                mark.setZValue(10)
+                mark.setToolTip(f"{tag} element {index}: {category}")
+        dialog.exec()
 
     def open_consolidation(self):
         """Standalone Terzaghi 1D settlement tool; no FEM state is mutated."""
@@ -1200,55 +1306,145 @@ class MainWindow(QMainWindow):
         self.cad.canvas.viewport().update()
 
     def open_interpret(self):
-        """Open an independent results window without replacing the CAD workspace."""
+        """Independent RS2-style postprocessor with stage tabs and stress fields."""
         if self.model is None:
+            self.status.showMessage("Generate a mesh before opening Interpret.", 5000)
             return
         dlg = getattr(self, "_interpret_window", None)
         if dlg is None:
             dlg = QDialog(self)
             dlg.setWindowTitle("SlipSurfaceIQ-FEA · Interpret")
-            dlg.resize(1100, 760)
+            dlg.resize(1200, 800)
             layout = QVBoxLayout(dlg)
             controls = QHBoxLayout()
-            stages = QComboBox()
             fields = QComboBox()
-            fields.addItems(["|u|", "ux", "uy"])
-            controls.addWidget(QLabel("Stage"))
-            controls.addWidget(stages)
-            controls.addWidget(QLabel("Field"))
-            controls.addWidget(fields)
+            fields.addItems([
+                "s1", "s3", "sxx", "syy", "szz", "txy", "q",
+                "|u|", "ux", "uy", "pore", "excess_pore", "plastic",
+            ])
+            controls.addWidget(QLabel("Result field"))
+            controls.addWidget(fields, 1)
+            controls.addWidget(QLabel("Deformation ×"))
+            deform = QDoubleSpinBox()
+            deform.setRange(0, 1e6)
+            deform.setValue(1.0)
+            deform.setDecimals(2)
+            controls.addWidget(deform)
+            principal = QCheckBox("Principal stress directions")
+            controls.addWidget(principal)
+            query_button = QPushButton("Query / stage graph…")
+            controls.addWidget(query_button)
             layout.addLayout(controls)
             canvas = MeshCanvas()
             layout.addWidget(canvas, 1)
             legend = QLabel()
+            legend.setWordWrap(True)
             layout.addWidget(legend)
-            dlg.viewer = (stages, fields, canvas, legend)
-            stages.currentIndexChanged.connect(self._refresh_interpret)
+            stage_tabs = QTabBar()
+            stage_tabs.setExpanding(False)
+            stage_tabs.setUsesScrollButtons(True)
+            layout.addWidget(stage_tabs)
+            nav = QHBoxLayout()
+            previous_stage = QPushButton("Previous stage")
+            next_stage = QPushButton("Next stage")
+            animate = QPushButton("Play stages")
+            nav.addWidget(previous_stage)
+            nav.addWidget(next_stage)
+            nav.addWidget(animate)
+            nav.addStretch(1)
+            layout.addLayout(nav)
+            timer = QTimer(dlg)
+            timer.setInterval(900)
+            previous_stage.clicked.connect(
+                lambda: stage_tabs.setCurrentIndex(max(0, stage_tabs.currentIndex() - 1))
+            )
+            next_stage.clicked.connect(
+                lambda: stage_tabs.setCurrentIndex(
+                    min(stage_tabs.count() - 1, stage_tabs.currentIndex() + 1)
+                )
+            )
+
+            def advance_stage():
+                if stage_tabs.currentIndex() >= stage_tabs.count() - 1:
+                    timer.stop()
+                    animate.setText("Play stages")
+                else:
+                    stage_tabs.setCurrentIndex(stage_tabs.currentIndex() + 1)
+
+            timer.timeout.connect(advance_stage)
+
+            def toggle_animation():
+                if timer.isActive():
+                    timer.stop()
+                    animate.setText("Play stages")
+                else:
+                    if stage_tabs.currentIndex() >= stage_tabs.count() - 1:
+                        stage_tabs.setCurrentIndex(0)
+                    timer.start()
+                    animate.setText("Pause animation")
+
+            animate.clicked.connect(toggle_animation)
+            dlg.finished.connect(lambda _code: timer.stop())
+            dlg.viewer = (stage_tabs, fields, canvas, legend, deform, principal)
+            query_button.clicked.connect(self._query_interpret)
+            stage_tabs.currentChanged.connect(self._refresh_interpret)
             fields.currentIndexChanged.connect(self._refresh_interpret)
-            dlg.finished.connect(lambda _code: setattr(self, "_interpret_window", None))
+            deform.valueChanged.connect(self._refresh_interpret)
+            principal.toggled.connect(self._refresh_interpret)
+            dlg.finished.connect(
+                lambda _code: setattr(self, "_interpret_window", None)
+            )
             self._interpret_window = dlg
-        stages = dlg.viewer[0]
-        stages.blockSignals(True)
-        stages.clear()
-        stages.addItems(["Initial", *[stage.name for stage in self.model.stages]])
-        stages.setCurrentIndex(min(max(0, self.stages.currentRow()), stages.count() - 1))
-        stages.blockSignals(False)
+        tabs = dlg.viewer[0]
+        tabs.blockSignals(True)
+        while tabs.count():
+            tabs.removeTab(0)
+        tabs.addTab("Initial")
+        for i, stage in enumerate(self.model.stages, start=1):
+            tabs.addTab(f"{i}. {stage.name}")
+        tabs.setCurrentIndex(min(max(0, self.stages.currentRow()), tabs.count() - 1))
+        tabs.blockSignals(False)
         self._refresh_interpret()
         dlg.show()
         dlg.raise_()
+
+    def _query_interpret(self):
+        dlg = getattr(self, "_interpret_window", None)
+        if dlg is None or self.result is None:
+            self.status.showMessage("Compute results before querying the model.", 6000)
+            return
+        from .result_tools import QueryDialog
+
+        tabs, fields, canvas, _, deform, _ = dlg.viewer
+        index = max(0, tabs.currentIndex())
+        stage = self.result.initial if index == 0 else self.result.stages[index - 1]
+        query = QueryDialog(self.result, stage, dlg, deform=deform.value())
+        if query.field.findText(fields.currentText()) >= 0:
+            query.field.setCurrentText(fields.currentText())
+        query.line_changed.connect(canvas.show_query_line)
+        query.exec()
 
     def _refresh_interpret(self, *_):
         dlg = getattr(self, "_interpret_window", None)
         if dlg is None or self.model is None:
             return
-        stages, fields, canvas, legend = dlg.viewer
-        idx = stages.currentIndex()
-        stage = None if self.result is None else (
-            self.result.initial if idx == 0 else self.result.stages[idx - 1]
+        tabs, fields, canvas, legend, deform, principal = dlg.viewer
+        index = max(0, tabs.currentIndex())
+        result_stage = None
+        if self.result is not None:
+            result_stage = (
+                self.result.initial if index == 0 else self.result.stages[index - 1]
+            )
+        field = fields.currentText()
+        canvas.show_model(
+            self.model, result_stage, field, deform.value(),
+            result=self.result, stage_index=index,
+            principal=principal.isChecked() and field not in ("plastic",),
         )
-        canvas.show_model(self.model, stage, fields.currentText(), 1.0,
-                          result=self.result, stage_index=idx)
-        legend.setText(canvas.legend)
+        legend.setText(
+            canvas.legend if result_stage is not None
+            else "No computed results: mesh view only. Run Analysis > Compute."
+        )
 
     def show_results(self):
         self.workspace.setCurrentWidget(self.result_page)
@@ -1335,6 +1531,17 @@ class MainWindow(QMainWindow):
 
     def start_solve(self):
         if self.busy or not self._require_model():
+            return
+        from .mesh_quality import mesh_quality_report
+
+        quality = mesh_quality_report(self.model.mesh)
+        if quality.nonpositive_jacobian_elements:
+            QMessageBox.warning(
+                self,
+                "Cannot compute · invalid element Jacobian",
+                quality.summary()
+                + "\n\nRegenerate or repair the mesh before solving.",
+            )
             return
         self.show_results()
         self.cad.setEnabled(False)

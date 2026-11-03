@@ -278,8 +278,9 @@ def test_assign_materials_void_scope_and_geometry(
     def choose():
         menu = qt_app.activePopupWidget()
         try:
-            assert [a.text() for a in menu.actions()] == [title]
-            action = menu.actions()[0]
+            matches = [a for a in menu.actions() if a.text() == title]
+            assert len(matches) == 1
+            action = matches[0]
             selected.append(action.isEnabled())
             action.trigger()
         finally:

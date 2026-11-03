@@ -87,6 +87,79 @@ class TracePlot(QWidget):
         p.drawText(int(box.center().x()) - 65, self.height() - 12, "Path distance s (m)")
 
 
+class StageComparisonPlot(QWidget):
+    """Overlay line-query values from multiple construction stages."""
+
+    def __init__(self, curves, title, unit, parent=None):
+        super().__init__(parent)
+        self.curves = curves
+        self.title, self.unit = title, unit
+        self.setMinimumSize(650, 380)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor("white"))
+        p.setPen(QColor("#213547"))
+        p.drawText(16, 25, f"Stage comparison · {self.title} ({self.unit})")
+        bounds = QRectF(90, 55, max(1, self.width() - 125),
+                        max(1, self.height() - 125))
+        p.drawRect(bounds)
+        finite_sets = [
+            (x[np.isfinite(x) & np.isfinite(y)],
+             y[np.isfinite(x) & np.isfinite(y)])
+            for _, x, y in self.curves
+        ]
+        valid = [(x, y) for x, y in finite_sets if x.size]
+        if not valid:
+            p.drawText(bounds, Qt.AlignmentFlag.AlignCenter, "No active data")
+            return
+        xmin = min(float(x.min()) for x, _ in valid)
+        xmax = max(float(x.max()) for x, _ in valid)
+        ymin = min(0.0, *(float(y.min()) for _, y in valid))
+        ymax = max(0.0, *(float(y.max()) for _, y in valid))
+        padding = max((ymax - ymin) * 0.05, 1e-12)
+        ymin -= padding
+        ymax += padding
+
+        def point(x, y):
+            return QPointF(
+                bounds.left() + (x - xmin) / max(xmax - xmin, 1e-15) * bounds.width(),
+                bounds.bottom() - (y - ymin) / (ymax - ymin) * bounds.height(),
+            )
+
+        palette = ["#087f9b", "#a32d26", "#7952b3", "#218764",
+                   "#cf7f28", "#1755ad", "#755843"]
+        for index, ((name, x, y), (xf, _yf)) in enumerate(zip(self.curves, finite_sets)):
+            if not xf.size:
+                continue
+            color = QColor(palette[index % len(palette)])
+            p.setPen(QPen(color, 2))
+            path = QPainterPath()
+            connected = False
+            for distance, value in zip(x, y):
+                if not (np.isfinite(distance) and np.isfinite(value)):
+                    connected = False
+                    continue
+                pos = point(float(distance), float(value))
+                if connected:
+                    path.lineTo(pos)
+                else:
+                    path.moveTo(pos)
+                connected = True
+            p.drawPath(path)
+            p.drawText(int(bounds.left()) + 8, 76 + 16 * index, name)
+        p.setPen(QColor("#213547"))
+        for tick in range(5):
+            value = ymin + (ymax - ymin) * tick / 4
+            p.drawText(5, int(point(xmin, value).y()) + 5, f"{value:.4g}")
+        p.drawText(int(bounds.left()), int(bounds.bottom()) + 20, f"{xmin:.4g}")
+        p.drawText(int(bounds.right()) - 65, int(bounds.bottom()) + 20,
+                   f"{xmax:.4g}")
+        p.drawText(int(bounds.center().x()) - 55, self.height() - 12,
+                   "Path distance (m)")
+
+
 class QueryDialog(QDialog):
     line_changed = Signal(object)
 
@@ -154,11 +227,43 @@ class QueryDialog(QDialog):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         row = QHBoxLayout()
-        for label, slot in [("Query", self.query), ("CSV", self.export), ("Close", self.accept)]:
+        for label, slot in [
+            ("Query", self.query),
+            ("Compare stages…", self.compare_stages),
+            ("CSV", self.export),
+            ("Close", self.accept),
+        ]:
             button = QPushButton(label)
             button.clicked.connect(slot)
             row.addWidget(button)
         layout.addLayout(row)
+
+    def compare_stages(self):
+        """Query the same line in each computed stage on a shared plot."""
+        try:
+            start = tuple(map(float, self.start.text().replace(",", " ").split()))
+            end = tuple(map(float, self.end.text().replace(",", " ").split()))
+            field = self.field.currentText()
+            stages = [self.result.initial, *self.result.stages]
+            curves = []
+            for stage in stages:
+                sample = line_profile(
+                    self.result, start, end, field, self.count.value(),
+                    stage, self.region.currentData(), deform=self.deform,
+                )
+                curves.append((stage.name, sample.distance, sample.values))
+        except (ValueError, IndexError) as exc:
+            self.status.setText(f"Cannot compare stages: {exc}")
+            return
+        chart = QDialog(self)
+        chart.setWindowTitle(f"Stage comparison · {field}")
+        chart.resize(850, 580)
+        layout = QVBoxLayout(chart)
+        layout.addWidget(StageComparisonPlot(curves, field, field_unit(field)))
+        close = QPushButton("Close")
+        close.clicked.connect(chart.accept)
+        layout.addWidget(close)
+        chart.exec()
 
     def query(self):
         try:
