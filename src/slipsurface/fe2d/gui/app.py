@@ -495,6 +495,8 @@ class MainWindow(QMainWindow):
             a = action(title, slot)
             model_menu.addAction(a)
             self.edit_actions.append(a)
+        model_menu.addSeparator()
+        model_menu.addAction(action("Consolidation settlement…", self.open_consolidation))
         toolbar.addSeparator()
         self.mesh_action = action("Generate mesh", self.build_mesh, "Ctrl+M", "mesh")
         self.mesh_action.setToolTip("Generate mesh (Ctrl+M)")
@@ -742,6 +744,13 @@ class MainWindow(QMainWindow):
             self.cad.canvas.setTransform(transform)
             self.cad.canvas.centerOn(center)
         self.status.showMessage("Stage settings updated · Recalculate to view results.")
+
+    def open_consolidation(self):
+        """Standalone Terzaghi 1D settlement tool; no FEM state is mutated."""
+        from .consolidation_dialog import ConsolidationDialog
+
+        dialog = ConsolidationDialog(self)
+        dialog.exec()
 
     def edit_project_properties(self):
         from .project_properties import ProjectPropertiesDialog
