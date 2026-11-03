@@ -1,8 +1,8 @@
 """Regression tests for the uploaded staged tunnel example correction."""
 
+import runpy
 from copy import deepcopy
 from pathlib import Path
-import runpy
 
 import pytest
 
