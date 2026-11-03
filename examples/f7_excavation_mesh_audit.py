@@ -304,7 +304,12 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         writer.writerows(comparisons)
     with (output / "excavation_mesh_audit.csv").open("w", newline="", encoding="utf-8") as file:
         if rows:
-            fieldnames = [field for field in rows[0] if field not in {"supports", "profiles", "signed_profiles", "signed_profile_errors", "interface_pairs", "interface_nodal_transfer", "gravity_balance", "dry_load_balance"}]
+            nested = {
+                "supports", "profiles", "signed_profiles", "signed_profile_errors",
+                "interface_pairs", "interface_nodal_transfer",
+                "gravity_balance", "dry_load_balance",
+            }
+            fieldnames = [field for field in rows[0] if field not in nested]
             writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
