@@ -1,0 +1,57 @@
+"""RS2-style mesh preflight and native CAD model explorer."""
+
+import numpy as np
+import pytest
+
+from slipsurface.fe2d.core.enums import ElemType
+from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
+from slipsurface.fe2d.model.mesh import ElementBlock, Mesh
+
+
+def test_triangular_mesh_geometry_quality():
+    mesh = Mesh(
+        np.array([[0., 0.], [2., 0.], [0., 2.], [2., 2.]]),
+        (ElementBlock(ElemType.T3, np.array([[0, 1, 2], [1, 3, 2]]),
+                      np.array([1, 1])),),
+    )
+    result = mesh_quality_report(mesh)
+    assert result.elements == 2
+    assert result.minimum_area == pytest.approx(2.0)
+    assert result.median_area == pytest.approx(2.0)
+    assert result.inverted_or_degenerate == 0
+    assert result.tiny_elements == 0
+
+
+def test_area_preflight_handles_quadrilateral():
+    mesh = Mesh(
+        np.array([[0., 0.], [3., 0.], [3., 2.], [0., 2.]]),
+        (ElementBlock(ElemType.Q4, np.array([[0, 1, 2, 3]]),
+                      np.array([1])),),
+    )
+    assert mesh_quality_report(mesh).minimum_area == pytest.approx(6.0)
+
+
+def test_model_explorer_selects_and_hides_a_region(qt_app):
+    pytest.importorskip("PySide6")
+    pytest.importorskip("shapely")
+    from PySide6.QtCore import Qt
+
+    from slipsurface.fe2d.cad.geometry import Drawing, Entity
+    from slipsurface.fe2d.gui.app import MainWindow
+
+    window = MainWindow()
+    try:
+        window.cad.commit(Drawing(entities=(
+            Entity("Ground", "region", ((0, 0), (8, 0), (8, 5), (0, 5)), 1),
+        )))
+        tree = window.cad.model_tree
+        root = tree.topLevelItem(0)
+        assert root.childCount() == 1
+        entity = root.child(0)
+        assert entity.text(0) == "Ground"
+        entity.setCheckState(0, Qt.CheckState.Unchecked)
+        assert "Ground" in window.cad.canvas.hidden_entities
+        entity.setCheckState(0, Qt.CheckState.Checked)
+        assert "Ground" not in window.cad.canvas.hidden_entities
+    finally:
+        window.close()
