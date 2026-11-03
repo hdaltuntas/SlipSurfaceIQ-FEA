@@ -588,6 +588,7 @@ class CadDialog(QDialog):
     drawing_changed = Signal()
     structure_requested = Signal(str)
     stage_menu_requested = Signal(object, int)
+    stage_edge_menu_requested = Signal(object, str)
 
     def __init__(self, model=None, parent=None, *, embedded=False):
         super().__init__(parent)
@@ -1110,6 +1111,9 @@ class CadDialog(QDialog):
             support = next((s for s in self.document.supports if s.entity == entity.name), None)
             if entity.kind == "region":
                 self.stage_menu_requested.emit(menu, entity.region)
+                if edge:
+                    menu.addSeparator()
+                    self.stage_edge_menu_requested.emit(menu, edge)
                 menu.exec(global_pos)
                 return
             header = menu.addAction(entity.name)
