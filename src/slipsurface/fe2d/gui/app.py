@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Slot
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QBrush, QColor, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
+    QGraphicsItem,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -812,14 +813,43 @@ class MainWindow(QMainWindow):
         self.status.showMessage("Stage settings updated · Recalculate to view results.")
 
     def show_mesh_quality(self):
-        """Show mesh preflight diagnostics before trusting computed results."""
+        """Visual preflight: show element quality marks on an independent mesh canvas."""
         if self.model is None:
             QMessageBox.information(self, "Mesh quality", "Generate a mesh first.")
             return
-        from .mesh_quality import mesh_quality_report
+        from .mesh_quality import mesh_problem_centers, mesh_quality_report
 
         report = mesh_quality_report(self.model.mesh)
-        QMessageBox.information(self, "Mesh quality · preflight", report.summary())
+        problems = mesh_problem_centers(self.model.mesh)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Mesh quality · element diagnostics")
+        dialog.resize(1000, 720)
+        layout = QVBoxLayout(dialog)
+        summary = QLabel(report.summary())
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+        legend = QLabel(
+            f"Red: invalid Gauss-point Jacobians ({len(problems['invalid'])}) · "
+            f"Purple: tiny corner areas ({len(problems['tiny'])})"
+        )
+        layout.addWidget(legend)
+        canvas = MeshCanvas()
+        layout.addWidget(canvas, 1)
+        canvas.show_model(self.model, field="|u|", stage_index=0)
+        for category, color in (("tiny", "#8b5cf6"), ("invalid", "#b42331")):
+            for tag, index, (x, y) in problems[category]:
+                mark = canvas.scene().addEllipse(
+                    -5, -5, 10, 10,
+                    QPen(QColor(color), 1),
+                    QBrush(QColor(color)),
+                )
+                mark.setFlag(
+                    QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+                )
+                mark.setPos(float(x), float(-y))
+                mark.setZValue(10)
+                mark.setToolTip(f"{tag} element {index}: {category}")
+        dialog.exec()
 
     def open_consolidation(self):
         """Standalone Terzaghi 1D settlement tool; no FEM state is mutated."""
