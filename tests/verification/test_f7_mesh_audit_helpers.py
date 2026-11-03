@@ -68,3 +68,41 @@ def test_magnitude_metric_ignores_inactive_structural_nan():
     assert metric([np.array([np.nan, -3.0]), np.array([np.nan, 5.0])]) == 5.0
     assert metric([np.array([np.nan])]) == 0.0
     assert metric([]) == 0.0
+
+
+def test_structural_peak_metrics_are_tagged_and_ignore_nan():
+    stage = SimpleNamespace(
+        beams={
+            "pile": np.array([[[0.0, 0.0, -4.0], [0.0, 0.0, 8.0]]]),
+            "liner": np.array([[[0.0, 0.0, np.nan], [0.0, 0.0, -3.0]]]),
+        },
+        bars={"bolt": np.array([np.nan, -12.0, 5.0])},
+    )
+    result = AUDIT["support_force_metrics"](stage)
+    assert result == {
+        "beam_moments": {"liner": 3.0, "pile": 8.0},
+        "bar_axial_forces": {"bolt": 12.0},
+    }
+
+
+def test_support_comparison_preserves_activation_and_missing_tags():
+    data = [
+        {"stage": "Head", "h_m": 2.0, "supports": {
+            "beam_moments": {"liner": 10.0}, "bar_axial_forces": {},
+        }},
+        {"stage": "Head", "h_m": 1.0, "supports": {
+            "beam_moments": {"liner": 11.0}, "bar_axial_forces": {"bolt": 5.0},
+        }},
+        {"stage": "Head", "h_m": 0.5, "supports": {
+            "beam_moments": {"liner": 11.5}, "bar_axial_forces": {"bolt": 4.5},
+        }},
+    ]
+    result = AUDIT["compare_supports_by_stage"](data)
+    liner = [row for row in result if row["tag"] == "liner"]
+    bolt = [row for row in result if row["tag"] == "bolt"]
+    assert [x["relative_change"] for x in liner] == pytest.approx(
+        [1.0 / 11.0, 0.5 / 11.5]
+    )
+    assert bolt[0]["status"] == "missing"
+    assert bolt[0]["relative_change"] is None
+    assert bolt[1]["relative_change"] == pytest.approx(0.5 / 5.0)
