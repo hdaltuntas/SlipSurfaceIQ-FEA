@@ -32,15 +32,15 @@ def test_cad_has_icon_strip_and_no_side_panel_or_convergence_tab(qt_app):
     qt_app.processEvents()
     cad = window.cad
     assert not hasattr(window, "plot")
-    assert cad.inspector.window() is cad.inspector_window
-    assert not cad.inspector_window.isVisible()
+    assert cad.inspector.parentWidget() is not None
+    assert cad.inspector.window() is window
     assert {"select", "region", "rect", "pile", "tunnel", "bolt"} <= set(cad.tool_actions)
     window.draft_tool("pile")
     assert cad.tool_actions["pile"].isChecked() and cad.canvas.drawing
     cad.cancel_drawing()
     assert cad.tool_actions["select"].isChecked() and not cad.canvas.drawing
     window.edit_drawing_conditions()
-    assert cad.inspector_window.isVisible() and cad.inspector.currentIndex() == 1
+    assert cad.inspector.isVisible() and cad.inspector.currentIndex() == 1
     window.close()
 
 
