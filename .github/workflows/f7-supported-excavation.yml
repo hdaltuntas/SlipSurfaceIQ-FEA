@@ -8,6 +8,9 @@ on:
       - "examples/f7_excavation_mesh_audit.py"
       - "src/slipsurface/fe2d/post/excavation_coverage.py"
       - "src/slipsurface/fe2d/post/support_coverage_acceptance.py"
+      - "src/slipsurface/fe2d/post/support_result_coverage.py"
+      - "tests/verification/test_f7_support_result_coverage.py"
+      - "tests/verification/test_f7_excavation_inactive_profiles.py"
       - "src/slipsurface/fe2d/post/interface_moment_acceptance.py"
 
 permissions:
