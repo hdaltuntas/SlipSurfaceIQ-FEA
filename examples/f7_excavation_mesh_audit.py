@@ -35,6 +35,7 @@ from slipsurface.fe2d.post.excavation_balance import excavation_balance_by_stage
 from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
 from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
+from slipsurface.fe2d.post.stage_interface_moment import stage_effective_interface_moment_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
 from slipsurface.fe2d.post.support_coverage_acceptance import support_coverage_acceptance
 from slipsurface.fe2d.post.support_result_coverage import stage_support_result_coverage
@@ -252,6 +253,9 @@ def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
                 )
                 metrics["interface_pairs"] = stage_interface_pairs(model, stage)
                 metrics["interface_nodal_transfer"] = stage_interface_nodal_audit(model, stage)
+                metrics["interface_moment_transfer"] = stage_effective_interface_moment_audit(
+                    model, stage,
+                )
                 metrics["profiles"] = stage_support_profiles(model, stage)
                 signed, errors = stage_signed_profiles(model, stage)
                 metrics["signed_profiles"] = signed
@@ -322,6 +326,7 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
             nested = {
                 "supports", "profiles", "signed_profiles", "signed_profile_errors",
                 "interface_pairs", "interface_nodal_transfer",
+                "interface_moment_transfer",
                 "support_result_coverage",
                 "gravity_balance", "dry_load_balance", "excavation_balance",
             }
@@ -363,6 +368,11 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         "interface_nodal_transfer": [
             {"stage": row["stage"], "h_m": row["h_m"],
              "interfaces": row.get("interface_nodal_transfer", {})}
+            for row in rows
+        ],
+        "interface_moment_transfer": [
+            {"stage": row["stage"], "h_m": row["h_m"],
+             "interfaces": row.get("interface_moment_transfer", {})}
             for row in rows
         ],
         "interface_force_pairs": [
