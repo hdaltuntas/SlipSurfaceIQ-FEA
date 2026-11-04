@@ -53,3 +53,22 @@ The `diagnostic_only` status is **not** a passed convergence threshold:
 spatial peak locations may differ between meshes. These descriptors do not
 change the pre-existing execution integrity gate or imply external validation.
 No acceptance tolerance is imposed until a justified benchmark is available.
+
+## Engineering evidence review after execution
+
+The workflow now runs `scripts/f7_evidence_review.py` against the *actual*
+`f7_audit/excavation_mesh_audit.json`. It preserves
+`f7_audit/f7_evidence_review.json` and `f7_audit/f7_evidence_review.md`
+in the uploaded artifact and appends the Markdown review to the Actions
+job summary. The review distinguishes gravity-balance passes from
+unsupported dry-load and coupled excavation-force budgets, groups the
+unsupported reasons, and lists measured structural profile differences.
+
+A finest-pair beam-peak relative difference of at least 25% is highlighted
+as an **investigation priority only**, not an acceptance or rejection
+criterion. The magnitude of the corresponding peak is retained to avoid
+misinterpreting a large ratio between small forces/moments. The review
+never reports independent physical validation as achieved, and it does
+not change the pre-existing solver acceptance exit status. Future work
+must establish a complete coupled force budget and an independent
+reference before defining engineering tolerances.
