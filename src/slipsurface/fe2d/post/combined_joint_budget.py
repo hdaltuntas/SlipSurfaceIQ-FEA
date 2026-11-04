@@ -56,7 +56,6 @@ def combined_joint_force_moment(
     water_forces = hydraulic.reshape(block.ne, 2 * n, 2)
     combined = effective_forces + water_forces
     x = mesh.coords[block.conn]
-    effective_face2 = effective_forces[:, n:]
     actual_face2 = combined[:, n:]
     actual_face1 = combined[:, :n]
     effective_reference = np.einsum(
