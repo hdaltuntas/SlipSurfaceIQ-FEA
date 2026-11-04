@@ -33,9 +33,6 @@ def interface_moment_acceptance(rows, sizes, stages, interface_tags):
         raise ValueError("Stage names must be nonempty and distinct")
     if not declared or any(not isinstance(tag, str) or not tag for tag in declared):
         raise ValueError("At least one declared interface tag is required")
-    if any(not set(stage.active_structures & declared) <= declared for stage in steps):
-        raise ValueError("Invalid expected interface activation")
-
     findings = []
     for h in meshes:
         for step in steps:
