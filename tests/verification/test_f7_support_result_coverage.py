@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from slipsurface.fe2d.core.enums import ElemType
 from slipsurface.fe2d.model.mesh import ElementBlock, Mesh
@@ -89,8 +90,6 @@ def test_incorrect_structural_result_shape_is_rejected():
 
 
 def test_unknown_expected_support_is_rejected():
-    import pytest
-
     model, stage = case()
     with pytest.raises(ValueError, match="not declared"):
         stage_support_result_coverage(model, stage, {"unknown"})
