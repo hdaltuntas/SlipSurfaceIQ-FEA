@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 from slipsurface.fe2d.post.interface_ledger_acceptance import interface_ledger_acceptance
 
-
 SIZES = (2.5, 1.8, 1.2)
 STAGES = (
     SimpleNamespace(name="initial", active_structures=frozenset()),
