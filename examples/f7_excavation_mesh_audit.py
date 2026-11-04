@@ -34,6 +34,7 @@ from slipsurface.fe2d.post.excavation_coverage import excavation_audit_coverage
 from slipsurface.fe2d.post.excavation_balance import excavation_balance_by_stage
 from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
+from slipsurface.fe2d.post.interface_moment_acceptance import interface_moment_acceptance
 from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
 from slipsurface.fe2d.post.stage_interface_moment import stage_effective_interface_moment_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
@@ -341,9 +342,14 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
     expected_stages = tuple(stage.name for stage in base_stages())
     coverage = excavation_audit_coverage(rows, failures, sizes, expected_stages)
     support_acceptance = support_coverage_acceptance(rows, sizes, expected_stages)
+    base = excavation_model()
+    moment_acceptance = interface_moment_acceptance(
+        rows, sizes, base.stages, base.interfaces,
+    )
     report = {
         "mesh_stage_coverage": coverage,
         "support_coverage_acceptance": support_acceptance,
+        "interface_moment_acceptance": moment_acceptance,
         "force_balance_acceptance": balance_summary,
         "excavation_balance": [
             {"stage": row["stage"], "h_m": row["h_m"],
@@ -395,7 +401,11 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
     (output / "excavation_mesh_audit.json").write_text(
         json.dumps(report, indent=2, allow_nan=False), encoding="utf-8"
     )
-    return 0 if (coverage["complete"] and support_acceptance["status"] == "passed") else 1
+    return 0 if (
+        coverage["complete"]
+        and support_acceptance["status"] == "passed"
+        and moment_acceptance["status"] == "passed"
+    ) else 1
 
 
 def main() -> int:
