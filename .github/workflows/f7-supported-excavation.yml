@@ -17,6 +17,8 @@ on:
       - "src/slipsurface/fe2d/post/interface_moment_acceptance.py"
       - "src/slipsurface/fe2d/post/mesh_sensitivity_diagnostics.py"
       - "tests/verification/test_f7_mesh_sensitivity_diagnostics.py"
+      - "scripts/f7_evidence_review.py"
+      - "tests/verification/test_f7_evidence_review.py"
 
 permissions:
   contents: read
@@ -51,6 +53,16 @@ jobs:
           python -u examples/f7_excavation_mesh_audit.py \
             --sizes 2.5 1.8 1.2 \
             --output-dir f7_audit 2>&1 | tee f7_audit/solver.log
+      - name: Produce conservative engineering evidence review
+        if: always()
+        shell: bash
+        run: |
+          if [ -f f7_audit/excavation_mesh_audit.json ]; then
+            python scripts/f7_evidence_review.py f7_audit/excavation_mesh_audit.json
+            cat f7_audit/f7_evidence_review.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "F7 evidence report unavailable; see solver log." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Summarize actual FEM findings
         if: always()
         shell: bash
