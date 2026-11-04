@@ -1,0 +1,28 @@
+{
+  "case": "Loaded excavation with prescribed infiltration and atmospheric seepage face",
+  "mesh_sizes_m": [
+    2.5,
+    1.8,
+    1.2
+  ],
+  "results": [],
+  "failures": [
+    {
+      "h_m": 2.5,
+      "type": "SolverError",
+      "detail": "seepage did not converge; mechanical stage was not started"
+    },
+    {
+      "h_m": 1.8,
+      "type": "SolverError",
+      "detail": "seepage did not converge; mechanical stage was not started"
+    },
+    {
+      "h_m": 1.2,
+      "type": "SolverError",
+      "detail": "seepage did not converge; mechanical stage was not started"
+    }
+  ],
+  "status": "failed",
+  "warning": "Boundary evidence and coupled transfer only; no independent Darcy residual."
+}

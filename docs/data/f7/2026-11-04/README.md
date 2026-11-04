@@ -71,3 +71,17 @@ excavation, drawdown and rewetting history at all three mesh sizes. All thirty
 incremental budgets passed, retaining target and actual applied water loads
 separately.
 [Equations, reproduction and limits](../../../f7-incremental-hydrostatic-budget.md).
+
+`seepage_excavation_audit.json` records the subsequent full-stage prescribed-
+head seepage transfer audit on the loaded three-mesh pile/anchor excavation.
+All nine mechanical budgets, reported boundary-flow balances and analytical
+weight/load references passed. Saved nodal heads and boundary inflows are
+retained separately; independent Darcy validation is not inferred.
+[Interpolation rules, reproduction and scope](../../../f7-coupled-seepage-pressure.md).
+
+`seepage_boundary_fixed_damping_failure.json` preserves the initial rejected
+infiltration/atmospheric-face run. `seepage_boundary_audit.json` records the
+same three-mesh case after adaptive Picard relaxation: all nine budgets and
+analytical imposed-flux references passed. Active/released node data, nodal
+flows and solver relaxation histories are retained.
+[Iteration fix, equations and limitations](../../../f7-seepage-boundary-evidence.md).

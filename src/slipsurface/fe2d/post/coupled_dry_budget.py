@@ -19,6 +19,7 @@ from .balance_acceptance import classify_balance
 from .dry_applied_loads import independent_dry_applied_loads
 from .hydrostatic_nodal_forces import horizontal_head, hydrostatic_nodal_forces, nodal_resultant
 from .interface_nodal_audit import interface_nodal_force_transfer
+from .seepage_pressure_evidence import seepage_pressure_evidence
 
 
 def _mask(stage, block):
@@ -35,7 +36,9 @@ def _values(source, tag, shape, mask):
     return values[mask]
 
 
-def _coupled_dry_components(model, result, index, *, require_full=True, hydrostatic=False):
+def _coupled_dry_components(
+    model, result, index, *, require_full=True, hydrostatic=False, seepage=False,
+):
     """Reconstruct target-stage terms; partial-stage interpretation is separate."""
     if model.analysis is not Analysis.PLANE_STRAIN:
         raise ValueError("Only plane strain is supported")
@@ -43,7 +46,10 @@ def _coupled_dry_components(model, result, index, *, require_full=True, hydrosta
         raise IndexError("Stage outside computed results")
     if model.initial.mode not in ("gravity", "k0_field"):
         raise ValueError("Gravity/K0 initialization required")
-    if (not hydrostatic and model.initial.water.mode != "none") or model.displacements:
+    if hydrostatic and seepage:
+        raise ValueError("Select one water reference")
+    with_water = hydrostatic or seepage
+    if (not with_water and model.initial.water.mode != "none") or model.displacements:
         raise ValueError("Water/displacement terms are outside this budget")
     if hydrostatic:
         horizontal_head(model.initial.water)
@@ -57,7 +63,7 @@ def _coupled_dry_components(model, result, index, *, require_full=True, hydrosta
             raise ValueError("Partial stages need an incremental release budget")
         if hydrostatic:
             horizontal_head(step.water)
-        if ((not hydrostatic and step.water.mode != "none") or step.displacements
+        if ((not with_water and step.water.mode != "none") or step.displacements
                 or step.seismic_kh or step.seismic_kv or step.material_override):
             raise ValueError("Water, seismic or changed properties unsupported")
     if any(spec.drainage is not Drainage.DRAINED for spec in model.materials.values()):
@@ -99,9 +105,11 @@ def _coupled_dry_components(model, result, index, *, require_full=True, hydrosta
              ("soil", "beam", "bar", "interface", "soil_body", "beam_body")}
     external = np.zeros(3)  # Fx, Fy, Mz about global origin
     head = horizontal_head(definition.water) if hydrostatic else -np.inf
+    seepage_evidence = (seepage_pressure_evidence(model, stage, definition.water)
+                        if seepage else None)
     pressure_error = 0.
     pressure_ratio = 0.
-    if hydrostatic:
+    if with_water:
         if set(stage.pore) != names["soil"]:
             raise ValueError("Missing or unexpected continuum pore-pressure blocks")
         terms["continuum_water"] = np.zeros((mesh.nn, 3))
@@ -115,8 +123,13 @@ def _coupled_dry_components(model, result, index, *, require_full=True, hydrosta
         for source in (stage.pore, stage.excess_pore):
             if block.tag in source:
                 pressure = _values(source, block.tag, geom.wdet.shape, mask)
-                if source is stage.pore and hydrostatic:
-                    expected_p = GAMMA_W * np.maximum(head - geom.xg[mask, :, 1], 0.)
+                if source is stage.pore and with_water:
+                    if seepage:
+                        gp_head = np.einsum("gn,en->eg", geom.N,
+                                            seepage_evidence["head"][block.conn[mask]])
+                        expected_p = GAMMA_W * np.maximum(gp_head - geom.xg[mask, :, 1], 0.)
+                    else:
+                        expected_p = GAMMA_W * np.maximum(head - geom.xg[mask, :, 1], 0.)
                     error = float(np.max(np.abs(pressure - expected_p), initial=0.))
                     pressure_error = max(pressure_error, error)
                     pressure_ratio = max(pressure_ratio, error / max(
@@ -130,10 +143,12 @@ def _coupled_dry_components(model, result, index, *, require_full=True, hydrosta
         np.add.at(terms["soil"][:, :2], conn.ravel(), force.reshape(-1, 2))
         gamma = np.array([model.materials[model.region_material[int(r)]].gamma_unsat
                           for r in block.region[mask]])
-        if hydrostatic:
+        if with_water:
             saturated = np.array([model.materials[model.region_material[int(r)]].gamma_sat
                                   for r in block.region[mask]])
-            gamma_gp = np.where(head - geom.xg[mask, :, 1] > 1e-9,
+            below = (expected_p > GAMMA_W * 1e-9 if seepage
+                     else head - geom.xg[mask, :, 1] > 1e-9)
+            gamma_gp = np.where(below,
                                 saturated[:, None], gamma[:, None])
             pore_stress = expected_p[..., None] * np.array([1., 1., 1., 0.])
             pore_force = np.einsum("egki,egk,eg->ei", geom.B[mask], pore_stress, weights)
@@ -192,8 +207,11 @@ def _coupled_dry_components(model, result, index, *, require_full=True, hydrosta
     terms["applied_load"] = applied["nodal"]
     weight_resultant = external.copy()
     external += applied["resultant"]
-    if hydrostatic:
-        water = hydrostatic_nodal_forces(mesh, stage.active, head)
+    if with_water:
+        water = hydrostatic_nodal_forces(
+            mesh, stage.active, head,
+            nodal_pressure=seepage_evidence["nodal_pressure"] if seepage else None,
+        )
         terms["boundary_water"] = water["boundary"]
         terms["joint_water"] = water["joint"]
     for key, value in terms.items():
@@ -205,7 +223,7 @@ def _coupled_dry_components(model, result, index, *, require_full=True, hydrosta
     reactions = mapped_reactions
     annotations = {}
     effective = terms["soil_body"] + terms["beam_body"] + terms["applied_load"]
-    if hydrostatic:
+    if with_water:
         boundary_physical = terms["boundary_water"].copy()
         prescribed = np.isin(dm.node_dofs, dm.prescribed) & (dm.node_dofs >= 0)
         terms["boundary_water"][prescribed] = 0.
@@ -230,6 +248,15 @@ def _coupled_dry_components(model, result, index, *, require_full=True, hydrosta
                 "Horizontal-head full-stage water assembly only; no seepage or physical validation."
             ),
         }
+        if seepage:
+            annotations.update(seepage_evidence["annotations"])
+            annotations["pressure_reference"] = "interpolated_head_then_gp_pressure_clip"
+            annotations["boundary_pressure_reference"] = "clipped_nodal_pressure_then_interpolation"
+            annotations["warning"] = (
+                "Full-stage seepage head/pressure transfer and reported flux balance only; "
+                "not independent Darcy or physical validation."
+            )
+            pressure_ratio = max(pressure_ratio, seepage_evidence["relative_residual"])
     return {
         "terms": terms, "reactions": reactions, "external": external,
         "weight_resultant": weight_resultant, "applied": applied, "dm": dm, "ties": ties,

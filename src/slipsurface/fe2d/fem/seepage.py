@@ -10,7 +10,8 @@ pressure head ``psi = h - y``; continuity ``div v = 0`` gives
   ``k_r = Se^(1/2) [1 - (1 - Se^(1/m))^m]^2``, ``Se = [1 + (alpha |psi|)^n]^-m``,
   ``m = 1 - 1/n`` for ``psi < 0`` (``k_r = 1`` below the phreatic surface), with a floor
   ``k_r,min``. The free surface is the ``p = 0`` iso-line; the mesh is not deformed.
-* **Picard iteration** on ``k_r`` with 0.5 damping.
+* **Picard iteration** on ``k_r`` starts with 0.5 damping and reduces it on
+  increasing conductivity residuals; convergence checks the undamped residual.
 * **Boundary conditions**: prescribed head on node sets, prescribed normal inflow on edge
   sets (``q > 0`` into the domain, m/s), impermeable elsewhere (natural BC). Seepage
   faces: nodes start with ``p = 0`` (``h = y``); a node through which water would enter
@@ -105,6 +106,9 @@ class SeepageResult:
     iterations: int
     converged: bool
     velocity: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, ngp, 2)
+    damping_history: list[float] = field(default_factory=list)
+    conductivity_residual: float = 0.0  # undamped max |kr(head)-kr_used|
+    adaptive_damping: bool = True
 
     def gp_pressure(self, tag: str) -> NDArray[np.float64]:
         """Pore pressure at the Gauss points (compression positive, suction < 0)."""
@@ -130,12 +134,15 @@ def solve_seepage(
     max_iter: int = 200,
     damping: float = 0.5,
     checkpoint: Callable[[], None] | None = None,
+    adaptive_damping: bool = True,
 ) -> SeepageResult:
     """Solve steady seepage on ``blocks``.
 
     ``head_bcs``: ``(name, nodes, head)`` with ``head`` a scalar or per-node array.
     ``flux_bcs``: ``(edges, q)`` normal inflow [m/s] on edges ``(m, 2|3)``.
     ``seepage_faces``: ``(name, nodes)`` potential seepage nodes.
+    ``damping`` is the starting relaxation; adaptive reductions are retained
+    in the result. Set ``adaptive_damping=False`` for fixed-relaxation diagnosis.
     """
     if not np.isfinite(tol) or tol <= 0 or max_iter < 1 or not 0 < damping <= 1:
         raise ModelError("seepage: need tol > 0, max_iter >= 1 and 0 < damping <= 1")
@@ -233,6 +240,12 @@ def solve_seepage(
     kr_list = [np.ones(g[2].shape) for g in geo]
     h_nodal = np.zeros(nn)
     converged = False
+    relaxation = damping
+    minimum_relaxation = min(damping, 0.125)
+    previous_kr_error = np.inf
+    last_reduction = -8
+    damping_history = []
+    conductivity_error = np.inf
     it = 0
     for it in range(1, max_iter + 1):
         if checkpoint is not None:
@@ -278,18 +291,28 @@ def solve_seepage(
                 sf_on = (sf_on & ~inflow) | reenter
                 changed = True
         # ---- relative conductivity update (Picard, damped)
-        kr_new = []
+        targets = []
         dh = np.nanmax(np.abs(h_new - h_nodal)) if it > 1 else np.inf
-        for b, (_, _, _, N, xg), kr_old in zip(blocks, geo, kr_list):
+        for b, (_, _, _, N, xg) in zip(blocks, geo):
             hg = np.einsum("gn,en->eg", N, h_new[b.conn])
             psi = hg - xg[..., 1]
             target = relative_conductivity(psi, b.vg[:, 0][:, None], b.vg[:, 1][:, None],
                                            b.vg[:, 2][:, None])  # fmt: skip
-            kr_new.append((1 - damping) * kr_old + damping * target)
-        dkr = max(np.abs(a - b_).max() for a, b_ in zip(kr_new, kr_list))
+            targets.append(target)
+        conductivity_error = max(np.abs(a - b_).max() for a, b_ in zip(targets, kr_list))
+        if (adaptive_damping and it >= 3 and it - last_reduction >= 8
+                and previous_kr_error > 1e-12
+                and conductivity_error > 1.2 * previous_kr_error
+                and relaxation > minimum_relaxation):
+            relaxation = max(minimum_relaxation, relaxation * 0.5)
+            last_reduction = it
+        damping_history.append(relaxation)
+        previous_kr_error = conductivity_error
+        kr_new = [(1 - relaxation)*old + relaxation*target
+                  for old, target in zip(kr_list, targets)]
         h_nodal = h_new
         href = max(np.nanmax(np.abs(h_new)), 1.0)
-        if not changed and dh < tol * href and dkr < 1e3 * tol:
+        if not changed and dh < tol * href and conductivity_error < 1e3 * tol:
             converged = True
             break
         if it < max_iter:
@@ -332,4 +355,7 @@ def solve_seepage(
         iterations=it,
         converged=converged,
         velocity=vel,
+        damping_history=damping_history,
+        conductivity_residual=float(conductivity_error),
+        adaptive_damping=adaptive_damping,
     )

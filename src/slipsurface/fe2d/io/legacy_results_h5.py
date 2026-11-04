@@ -141,12 +141,16 @@ def _write_stage(g: Any, st: StageResult) -> None:
     g.attrs["timings"] = json.dumps(st.timings)
     g.attrs["history"] = _history_json(st.history)
     g.attrs["flow"] = json.dumps(st.flow)
+    g.attrs["seepage_diagnostics"] = json.dumps(st.seepage_diagnostics)
     _put(g, "u", st.u)
     _put(g, "reactions", st.reactions)
     if st.rotation is not None:
         _put(g, "rotation", st.rotation)
     if st.head is not None:
         _put(g, "head", st.head)
+    for name in ("seepage_nodal_flux", "seepage_nodes"):
+        if getattr(st, name) is not None:
+            _put(g, name, getattr(st, name))
     for fld in _DICT_FIELDS:
         d = getattr(st, fld)
         if d:
@@ -182,6 +186,7 @@ class LazyStage:
         self.lam: float = float(g.attrs["lam"])
         self.timings: dict[str, float] = json.loads(g.attrs["timings"])
         self.flow: dict[str, float] = json.loads(g.attrs.get("flow", "{}"))
+        self.seepage_diagnostics: dict = json.loads(g.attrs.get("seepage_diagnostics", "{}"))
 
     @property
     def history(self) -> StageHistory | None:
@@ -195,7 +200,7 @@ class LazyStage:
             if item not in g:
                 return {}
             return {_unkey(k): v[()] for k, v in g[item].items()}
-        if item in ("u", "reactions", "rotation", "head"):
+        if item in ("u", "reactions", "rotation", "head", "seepage_nodal_flux", "seepage_nodes"):
             return g[item][()] if item in g else None
         raise AttributeError(item)
 
@@ -209,6 +214,8 @@ class LazyStage:
             name=self.name, u=self.u, reactions=self.reactions, timings=self.timings,
             history=self.history, rotation=self.rotation, lam=self.lam, head=self.head,
             flow=self.flow, **kw,
+            seepage_nodal_flux=self.seepage_nodal_flux, seepage_nodes=self.seepage_nodes,
+            seepage_diagnostics=self.seepage_diagnostics,
         )  # fmt: skip
 
 

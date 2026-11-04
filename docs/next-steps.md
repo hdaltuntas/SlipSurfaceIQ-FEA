@@ -50,8 +50,21 @@ and retained release forces. A ten-stage loaded excavation/drawdown/rewetting
 program passed all thirty mesh/stage checks. Next: seepage-derived pressure
 evidence. Partial-stage activation, independent physical benchmarks and mesh
 convergence remain open.
-Dry-load/excavation budgets remain unsupported; no independent physical
+The [full-stage prescribed-head seepage audit](f7-coupled-seepage-pressure.md)
+now verifies head-to-pressure transfer, coupled force budgets and reported
+boundary-flow conservation. All nine loaded three-mesh stages passed.
+Next: flux/seepage-face evidence and independent hydraulic residuals, then
+partial seepage history. The older simplified dry-load/excavation audits
+remain unsupported for coupled cases; no independent physical
 validation or release acceptance follows from this run.
+The [flux/seepage-face evidence extension](f7-seepage-boundary-evidence.md)
+now integrates imposed flux and checks atmospheric nodes individually, with
+persisted node IDs, nodal flux and Picard diagnostics. The actual infiltration
+case exposed fixed-relaxation oscillation; adaptive relaxation and an undamped
+conductivity criterion corrected it without changed physical inputs or an
+increased iteration limit. All nine mesh/stage budgets now pass. The original
+failed run is retained. Next: independent hydraulic residual reconstruction,
+including nonlinear conductivity lag; partial seepage histories remain open.
 
 ## 2 November 2026 review follow-up
 

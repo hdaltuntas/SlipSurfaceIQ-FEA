@@ -98,8 +98,12 @@ def _write_stage(group, stage):
     if stage.rotation is not None:
         _array(group, "rotation", stage.rotation)
     _json(group, "flow", stage.flow)
+    _json(group, "seepage_diagnostics", stage.seepage_diagnostics)
     if stage.head is not None:
         _array(group, "head", stage.head)
+    for name in ("seepage_nodal_flux", "seepage_nodes"):
+        if getattr(stage, name) is not None:
+            _array(group, name, getattr(stage, name))
     _json(group, "timings", stage.timings)
     if stage.history is not None:
         _json(group, "history", asdict(stage.history))
@@ -121,6 +125,11 @@ def _read_stage(group):
         history=history,
         head=group["head"][()] if "head" in group else None,
         flow=_read_json(group, "flow") if "flow" in group else {},
+        seepage_nodal_flux=(group["seepage_nodal_flux"][()]
+                            if "seepage_nodal_flux" in group else None),
+        seepage_nodes=group["seepage_nodes"][()] if "seepage_nodes" in group else None,
+        seepage_diagnostics=(_read_json(group, "seepage_diagnostics")
+                             if "seepage_diagnostics" in group else {}),
         **{name: _read_mapping(group[name]) if name in group else {} for name in _MAPS},
     )
 

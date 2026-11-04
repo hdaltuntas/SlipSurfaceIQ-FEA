@@ -21,6 +21,15 @@ on:
       - "tests/verification/test_f7_evidence_review.py"
       - "src/slipsurface/fe2d/post/interface_transfer_ledger.py"
       - "src/slipsurface/fe2d/post/coupled_dry_budget.py"
+      - "src/slipsurface/fe2d/post/coupled_seepage_budget.py"
+      - "src/slipsurface/fe2d/post/seepage_pressure_evidence.py"
+      - "src/slipsurface/fe2d/post/seepage_boundary_evidence.py"
+      - "scripts/f7_seepage_boundary_audit.py"
+      - "tests/verification/test_f7_seepage_boundary_evidence.py"
+      - "src/slipsurface/fe2d/fem/seepage.py"
+      - "src/slipsurface/fe2d/fem/static.py"
+      - "scripts/f7_seepage_excavation_audit.py"
+      - "tests/verification/test_f7_coupled_seepage_budget.py"
       - "src/slipsurface/fe2d/post/dry_applied_loads.py"
       - "src/slipsurface/fe2d/post/incremental_dry_budget.py"
       - "src/slipsurface/fe2d/post/incremental_hydrostatic_budget.py"
@@ -88,6 +97,14 @@ jobs:
         run: >-
           python scripts/f7_partial_hydrostatic_audit.py
           --output f7_audit/partial_hydrostatic_audit.json
+      - name: Solve prescribed-head seepage excavation and verify pressure transfer
+        run: >-
+          python scripts/f7_seepage_excavation_audit.py
+          --output f7_audit/seepage_excavation_audit.json
+      - name: Solve infiltration and atmospheric seepage-face excavation
+        run: >-
+          python scripts/f7_seepage_boundary_audit.py
+          --output f7_audit/seepage_boundary_audit.json
       - name: Produce conservative engineering evidence review
         if: always()
         shell: bash
@@ -170,6 +187,24 @@ jobs:
               )
           else:
               summary += "\n- Partial wet excavation: report unavailable\n"
+          seepage_path = Path("f7_audit/seepage_excavation_audit.json")
+          if seepage_path.exists():
+              seepage = json.loads(seepage_path.read_text(encoding="utf-8"))
+              summary += (
+                  f"\n- Seepage pressure transfer: {seepage.get('status', 'unknown')}\n"
+                  f"- Seepage stage records: {len(seepage.get('results', []))}\n"
+              )
+          else:
+              summary += "\n- Seepage pressure transfer: report unavailable\n"
+          boundary_path = Path("f7_audit/seepage_boundary_audit.json")
+          if boundary_path.exists():
+              boundary = json.loads(boundary_path.read_text(encoding="utf-8"))
+              summary += (
+                  f"\n- Infiltration/seepage face: {boundary.get('status', 'unknown')}\n"
+                  f"- Infiltration stage records: {len(boundary.get('results', []))}\n"
+              )
+          else:
+              summary += "\n- Infiltration/seepage face: report unavailable\n"
           Path("f7-summary.md").write_text(summary, encoding="utf-8")
           print(summary)
           PY

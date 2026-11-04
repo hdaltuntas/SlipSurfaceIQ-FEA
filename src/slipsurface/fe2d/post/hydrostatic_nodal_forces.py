@@ -60,7 +60,7 @@ def _edge_pressure(coords, head):
     return nodal
 
 
-def hydrostatic_nodal_forces(mesh, active, head):
+def hydrostatic_nodal_forces(mesh, active, head, *, nodal_pressure=None):
     """Return raw boundary and joint nodal loads; no FEM water assembler is used.
 
     Boundary pressure is exact even across a water-table cut. Joint loads
@@ -68,6 +68,10 @@ def hydrostatic_nodal_forces(mesh, active, head):
     """
     boundary = np.zeros((mesh.nn, 3))
     joint = np.zeros_like(boundary)
+    if nodal_pressure is not None:
+        nodal_pressure = np.asarray(nodal_pressure, dtype=float)
+        if nodal_pressure.shape != (mesh.nn,) or not np.isfinite(nodal_pressure).all():
+            raise ValueError("Nodal water pressures must be finite and match the mesh")
     excluded = set()
     for block in mesh.blocks:
         if block.etype not in (ElemType.IFACE4, ElemType.IFACE6):
@@ -83,7 +87,8 @@ def hydrostatic_nodal_forces(mesh, active, head):
             if not np.allclose(xy, mesh.coords[face2], rtol=0., atol=1e-10):
                 raise ValueError("Separated joint faces need a distinct water moment reference")
             normal = np.array([-tangent[1], tangent[0]]) / length
-            pressure = GAMMA_W * np.maximum(head - xy[:, 1], 0.)
+            pressure = (GAMMA_W * np.maximum(head - xy[:, 1], 0.)
+                        if nodal_pressure is None else nodal_pressure[face1])
             force = fractions[:, None] * length * pressure[:, None] * normal
             np.add.at(joint[:, :2], face1, -force)
             np.add.at(joint[:, :2], face2, force)
@@ -108,5 +113,12 @@ def hydrostatic_nodal_forces(mesh, active, head):
         normal = np.array([tangent[1], -tangent[0]]) / length
         if normal @ (xy[:2].mean(axis=0) - center) < 0:
             normal *= -1
-        np.add.at(boundary[:, :2], edge, -_edge_pressure(xy, head)[:, None] * normal)
+        if nodal_pressure is None:
+            pressure_integrals = _edge_pressure(xy, head)
+        else:
+            # Exact integral of N_i*N_j for a straight linear/quadratic edge.
+            mass = (np.array([[2., 1.], [1., 2.]]) / 6 if len(edge) == 2 else
+                    np.array([[4., -1., 2.], [-1., 4., 2.], [2., 2., 16.]]) / 30)
+            pressure_integrals = length * (mass @ nodal_pressure[edge])
+        np.add.at(boundary[:, :2], edge, -pressure_integrals[:, None] * normal)
     return {"boundary": boundary, "joint": joint}

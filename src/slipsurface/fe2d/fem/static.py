@@ -86,6 +86,9 @@ class StageResult:
     excess_pore: dict[str, NDArray[np.float64]] = field(default_factory=dict)
     head: NDArray[np.float64] | None = None  # (nn,) total head of a seepage stage [m]
     flow: dict[str, float] = field(default_factory=dict)  # seepage inflow per BC set [m3/s/m]
+    seepage_nodal_flux: NDArray[np.float64] | None = None  # constrained-node inflow [m2/s]
+    seepage_nodes: NDArray[np.int64] | None = None  # active atmospheric seepage-face node IDs
+    seepage_diagnostics: dict = field(default_factory=dict)  # Picard convergence/relaxation
 
 
 @dataclass
@@ -933,6 +936,15 @@ class StaticSolver:
             excess_pore=excess,
             head=None if sysm.seepage is None else sysm.seepage.head.copy(),
             flow={} if sysm.seepage is None else dict(sysm.seepage.inflow),
+            seepage_nodal_flux=None if sysm.seepage is None else sysm.seepage.nodal_flux.copy(),
+            seepage_nodes=None if sysm.seepage is None else sysm.seepage.seepage_nodes.copy(),
+            seepage_diagnostics={} if sysm.seepage is None else {
+                "iterations": sysm.seepage.iterations,
+                "converged": sysm.seepage.converged,
+                "adaptive_damping": sysm.seepage.adaptive_damping,
+                "damping_history": list(sysm.seepage.damping_history),
+                "conductivity_residual": sysm.seepage.conductivity_residual,
+            },
         )
 
     # --------------------------------------------------------------------- run
