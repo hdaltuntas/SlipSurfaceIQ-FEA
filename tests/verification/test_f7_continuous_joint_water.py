@@ -84,6 +84,14 @@ def test_two_element_water_table_at_common_node_preserves_both_gates():
     result = continuous_joint_water_audit(mesh, "joint", SPEC, head=-2.)
     assert result["all_passed"]
     assert result["connected_junctions"] == 1
+    # Face-1 runs upward (-4 -> 0), so its left normal points towards
+    # negative x. The face-2 hydrostatic force is therefore signed negative.
     assert result["hydrostatic"]["analytical_face2_fx_kn_per_m"] == pytest.approx(
+        -19.62, rel=1e-12,
+    )
+    assert result["hydrostatic"]["assembled_face2_fx_kn_per_m"] == pytest.approx(
+        -19.62, rel=1e-12,
+    )
+    assert result["hydrostatic"]["assembled_face1_fx_kn_per_m"] == pytest.approx(
         19.62, rel=1e-12,
     )
