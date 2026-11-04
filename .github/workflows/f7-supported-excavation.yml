@@ -1,0 +1,82 @@
+name: f7-supported-excavation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/f7-supported-excavation.yml"
+      - "examples/f7_excavation_mesh_audit.py"
+      - "src/slipsurface/fe2d/post/excavation_coverage.py"
+      - "src/slipsurface/fe2d/post/support_coverage_acceptance.py"
+      - "src/slipsurface/fe2d/post/interface_moment_acceptance.py"
+
+permissions:
+  contents: read
+
+jobs:
+  three-mesh-excavation:
+    name: Actual three-mesh pile/anchor excavation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "1"
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install geometry, FEM and desktop runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0
+          python -m pip install -r requirements.txt
+      - name: Solve staged supported excavation on three independent meshes
+        id: run_f7
+        run: |
+          python examples/f7_excavation_mesh_audit.py \
+            --sizes 2.5 1.8 1.2 \
+            --output-dir f7_audit
+      - name: Summarize actual FEM findings
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("f7_audit/excavation_mesh_audit.json")
+          if not path.exists():
+              summary = "## F7 three-mesh excavation\n\nNo report was written; inspect solver/job logs.\n"
+          else:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              coverage = data.get("mesh_stage_coverage", {})
+              support = data.get("support_coverage_acceptance", {})
+              interface = data.get("interface_moment_acceptance", {})
+              summary = (
+                  "## F7 actual three-mesh excavation\n\n"
+                  f"- Requested mesh targets: {data.get('mesh_sizes_m')} m\n"
+                  f"- Completed stage records: {len(data.get('results', []))}\n"
+                  f"- Mesh/stage coverage: {coverage.get('status', 'unknown')}\n"
+                  f"- Structural output coverage: {support.get('status', 'unknown')}\n"
+                  f"- Active interface moment checks: {interface.get('status', 'unknown')}\n"
+                  f"- Solver/mesh failures: {len(data.get('failures', []))}\n\n"
+                  "Numerical sensitivity is not independent physical validation.\n"
+              )
+          Path("f7-summary.md").write_text(summary, encoding="utf-8")
+          print(summary)
+          PY
+          cat f7-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload complete and partial verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-three-mesh-excavation-evidence
+          path: |
+            f7_audit/
+            f7-summary.md
+          if-no-files-found: warn
+          retention-days: 30
