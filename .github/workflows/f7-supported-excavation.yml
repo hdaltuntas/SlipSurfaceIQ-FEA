@@ -2,6 +2,9 @@ name: f7-supported-excavation
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - verification/f7-run-real-three-mesh-excavation
   pull_request:
     paths:
       - ".github/workflows/f7-supported-excavation.yml"
