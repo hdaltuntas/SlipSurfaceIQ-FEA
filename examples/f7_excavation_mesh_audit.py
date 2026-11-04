@@ -154,6 +154,32 @@ def compare_supports_by_stage(rows: list[dict]) -> list[dict]:
     return output
 
 
+def active_support_profile_available(stage, tag, kind):
+    """Exclude wholly inactive supports, never treat active NaNs as inactivity.
+
+    StageResult keeps declared structural outputs even when a support has
+    not yet been installed; all of those element forces are NaN by design.
+    Only an explicitly all-False activity mask permits skipping a profile.
+    """
+    mask = stage.active.get(tag)
+    if mask is None:
+        raise ValueError(f"{tag}: missing support activation mask")
+    active = np.asarray(mask, dtype=bool)
+    if active.ndim != 1 or active.size == 0:
+        raise ValueError(f"{tag}: invalid support activation mask")
+    if not active.any():
+        return False
+    if not active.all():
+        raise ValueError(f"{tag}: partially active support profile unsupported")
+    sources = stage.bars if kind == "bar" else stage.beams
+    if tag not in sources:
+        raise ValueError(f"{tag}: active support forces missing")
+    forces = np.asarray(sources[tag], dtype=float)
+    if forces.shape[0] != active.size or not np.isfinite(forces).all():
+        raise ValueError(f"{tag}: nonfinite active support forces or shape")
+    return True
+
+
 def stage_support_profiles(model, stage, count=51, *, signed=False):
     """Profiles for supports present in this stage; inactive supports are omitted."""
     drawing = Drawing.from_dict(model.geometry)
@@ -163,7 +189,9 @@ def stage_support_profiles(model, stage, count=51, *, signed=False):
         tag = assignment.tag
         kind = "bar" if assignment.kind == "bolt" else "beam"
         available = stage.bars if kind == "bar" else stage.beams
-        if tag not in available:
+        if tag not in available and tag not in stage.active:
+            continue
+        if not active_support_profile_available(stage, tag, kind):
             continue
         entity = entities[assignment.entity]
         profile = sample_support_profile(
@@ -184,7 +212,9 @@ def stage_signed_profiles(model, stage, count=51):
         tag = assignment.tag
         kind = "bar" if assignment.kind == "bolt" else "beam"
         sources = stage.bars if kind == "bar" else stage.beams
-        if tag not in sources:
+        if tag not in sources and tag not in stage.active:
+            continue
+        if not active_support_profile_available(stage, tag, kind):
             continue
         entity = entities[assignment.entity]
         try:
