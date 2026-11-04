@@ -32,7 +32,8 @@ def summarize(report):
     sizes = report.get("mesh_sizes_m", [])
     balances = report.get("force_balance_acceptance", {})
     reasons = Counter()
-    for field in ("gravity_balance", "dry_load_balance", "excavation_balance"):
+    for field in ("gravity_balance", "dry_load_balance", "excavation_balance",
+                  "coupled_dry_balance"):
         for item in report.get(field, []):
             if item.get("status") == "unsupported":
                 reasons[(field, item.get("reason", "unspecified"))] += 1
@@ -81,7 +82,23 @@ def summarize(report):
             "component_relative_rms": finite,
         })
 
+    integrity = {}
+    for key in (
+        "support_coverage_acceptance", "interface_moment_acceptance",
+        "interface_transfer_ledger",
+    ):
+        section = report.get(key)
+        integrity[key] = {
+            "status": section.get("status", "missing")
+            if isinstance(section, dict) else "missing",
+            "findings": [
+                item for item in section.get("checks", [])
+                if item.get("status") not in ("passed", "not_applicable")
+            ] if isinstance(section, dict) else [],
+        }
+
     return {
+        "integrity_checks": integrity,
         "mesh_sizes_m": sizes,
         "completed_rows": len(rows),
         "expected_rows": coverage.get("expected_rows"),
@@ -127,6 +144,14 @@ def markdown(summary):
             f"| {key} | {value['passed']} | {value['failed']} | "
             f"{value['unsupported']} |"
         )
+    lines.extend(["", "## Bounded integrity checks", ""])
+    for key, value in summary["integrity_checks"].items():
+        lines.append(f"- {key}: **{value['status']}**")
+        for item in value["findings"]:
+            lines.append(
+                f"  - h={item.get('h_m')} m, {item.get('stage')}: "
+                f"{item.get('status')} ({item.get('reason', 'inspect audit details')})"
+            )
     lines.extend(["", "## Why checks remain unsupported", ""])
     if not summary["unsupported_reasons"]:
         lines.append("No unsupported classifications reported.")

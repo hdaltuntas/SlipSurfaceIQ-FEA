@@ -1,5 +1,21 @@
 # F7 — Execute the real three-mesh pile/anchor excavation
 
+## Local execution evidence (4 November 2026)
+
+The full three-mesh problem completed locally: nine stage rows, no solver
+exceptions, and passing bounded structural/interface integrity checks.
+[Environment, reproduction, measured limitations and raw artifacts](data/f7/2026-11-04/README.md).
+The coupled force budgets remain unsupported; independent validation is open.
+The evidence review now includes structural coverage, interface moments and
+the interface-transfer ledger, explicitly marking absent evidence as missing.
+
+## Workflow background
+
+The audit now also requires the bounded
+[coupled dry full-stage force/moment budget](f7-coupled-dry-excavation-budget.md)
+to pass for every row. The subsequent local rerun passed all nine cases;
+water, applied loads and partial stages remain outside this new contract.
+
 The optional supported-excavation script has accumulated strict data
 integrity and assembly checks (PRs #54–#58), but green unit tests do
 **not** mean that the complete staged FEM problem was actually solved
@@ -81,6 +97,12 @@ paired-face resultants and their integration reference errors. Missing
 interface tags, nonfinite values, duplicate stages, and noncancelling
 forces are explicitly failed. No active interfaces is *not applicable*,
 not a pass.
+
+Each interface also has its own residual check, normalized by its own
+face-force scale (with a unit floor). Opposing errors on different interfaces
+cannot cancel into a passing total, and a large neighboring interface cannot
+hide a smaller interface's reference error. Per-interface statuses and ratios
+are retained under each stage's `interfaces` entry in the ledger.
 
 These are **internal interface action–reaction consistency checks**.
 Their completion cannot replace a full continuum–pile–anchor external

@@ -1,4 +1,4 @@
-"""F7 staged excavation mesh-sensitivity audit (optional, not CI-gated).
+"""F7 staged excavation audit (optional dedicated real-FEM workflow).
 
 Run from the repository root after installing the desktop requirements:
 
@@ -29,9 +29,10 @@ from slipsurface.fe2d.cad.geometry import Drawing
 from slipsurface.fe2d.gui.demo import excavation_model
 from slipsurface.fe2d.gui.mesh_quality import mesh_quality_report
 from slipsurface.fe2d.post.balance_acceptance import summarize_balances
+from slipsurface.fe2d.post.coupled_dry_budget import coupled_dry_budget_by_stage
 from slipsurface.fe2d.post.dry_load_balance import dry_stage_load_balance_by_stage
-from slipsurface.fe2d.post.excavation_coverage import excavation_audit_coverage
 from slipsurface.fe2d.post.excavation_balance import excavation_balance_by_stage
+from slipsurface.fe2d.post.excavation_coverage import excavation_audit_coverage
 from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
 from slipsurface.fe2d.post.interface_moment_acceptance import interface_moment_acceptance
@@ -40,8 +41,8 @@ from slipsurface.fe2d.post.interface_transfer_ledger import interface_transfer_l
 from slipsurface.fe2d.post.mesh_sensitivity_diagnostics import mesh_sensitivity_diagnostics
 from slipsurface.fe2d.post.stage_interface_moment import stage_effective_interface_moment_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
-from slipsurface.fe2d.post.support_profile_activity import active_support_profile_available
 from slipsurface.fe2d.post.support_coverage_acceptance import support_coverage_acceptance
+from slipsurface.fe2d.post.support_profile_activity import active_support_profile_available
 from slipsurface.fe2d.post.support_result_coverage import stage_support_result_coverage
 
 
@@ -249,12 +250,14 @@ def run_audit(sizes: tuple[float, ...]) -> tuple[list[dict], list[dict]]:
             gravity_balances = gravity_equilibrium_by_stage(model, result)
             dry_load_balances = dry_stage_load_balance_by_stage(model, result)
             excavation_balances = excavation_balance_by_stage(model, result)
+            coupled_balances = coupled_dry_budget_by_stage(model, result)
             elements = sum(block.ne for block in model.mesh.continuum_blocks())
             for index, stage in enumerate(result.stages):
                 metrics = stage_metrics(stage, h, model.mesh.nn, elements)
                 metrics["gravity_balance"] = gravity_balances[index]
                 metrics["dry_load_balance"] = dry_load_balances[index]
                 metrics["excavation_balance"] = excavation_balances[index]
+                metrics["coupled_dry_balance"] = coupled_balances[index]
                 metrics["supports"] = support_force_metrics(stage)
                 metrics["support_result_coverage"] = stage_support_result_coverage(
                     model, stage, model.stages[index].active_structures,
@@ -337,6 +340,7 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
                 "interface_moment_transfer",
                 "support_result_coverage",
                 "gravity_balance", "dry_load_balance", "excavation_balance",
+                "coupled_dry_balance",
             }
             fieldnames = [field for field in rows[0] if field not in nested]
             writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
@@ -344,7 +348,8 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
             writer.writerows(rows)
     balance_summary = {
         key: summarize_balances([row[key] for row in rows])
-        for key in ("gravity_balance", "dry_load_balance", "excavation_balance")
+        for key in ("gravity_balance", "dry_load_balance", "excavation_balance",
+                    "coupled_dry_balance")
     }
     expected_stages = tuple(stage.name for stage in base_stages())
     coverage = excavation_audit_coverage(rows, failures, sizes, expected_stages)
@@ -364,6 +369,10 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         "support_coverage_acceptance": support_acceptance,
         "interface_moment_acceptance": moment_acceptance,
         "force_balance_acceptance": balance_summary,
+        "coupled_dry_balance": [
+            {"stage": row["stage"], "h_m": row["h_m"], **row["coupled_dry_balance"]}
+            for row in rows
+        ],
         "excavation_balance": [
             {"stage": row["stage"], "h_m": row["h_m"],
              **row.get("excavation_balance", {})}
@@ -418,6 +427,7 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         coverage["complete"]
         and support_acceptance["status"] == "passed"
         and moment_acceptance["status"] == "passed"
+        and balance_summary["coupled_dry_balance"]["fully_verified"]
     ) else 1
 
 

@@ -244,6 +244,37 @@ def k0_stress_field(
     return out
 
 
+def _split_horizontal_pressure(coords, edges, inner, pressure, analysis, head, ngauss):
+    """Integrate straight edges in wet/dry subintervals at a horizontal water table."""
+    X = coords[edges]
+    tangent = X[:, 1] - X[:, 0]
+    length = np.linalg.norm(tangent, axis=1)
+    if np.any(length <= 0):
+        raise MeshError("degenerate pressure boundary")
+    normal = np.column_stack([tangent[:, 1], -tangent[:, 0]]) / length[:, None]
+    orientation = np.einsum("ej,ej->e", normal, X[:, :2].mean(axis=1) - inner)
+    normal[orientation < 0] *= -1
+    crossing = np.divide(head - X[:, 0, 1], tangent[:, 1],
+                         out=np.zeros(len(edges)), where=tangent[:, 1] != 0)
+    crossing = np.clip(crossing, 0., 1.)
+    points, weights = gauss_legendre(ngauss)
+    force = np.zeros((len(edges), edges.shape[1], 2))
+    for low, high in ((np.zeros(len(edges)), crossing), (crossing, np.ones(len(edges)))):
+        span = high - low
+        s = low[:, None] + span[:, None] * (points[None, :] + 1) / 2
+        if edges.shape[1] == 2:
+            shape = np.stack([1 - s, s], axis=-1)
+        else:
+            shape = np.stack([(1 - s)*(1 - 2*s), s*(2*s - 1), 4*s*(1 - s)], axis=-1)
+        xg = X[:, 0, None, :] + s[..., None] * tangent[:, None, :]
+        p = pressure(xg.reshape(-1, 2)).reshape(s.shape)
+        weight = length[:, None] * span[:, None] * weights[None, :] / 2
+        if analysis is Analysis.AXISYMMETRIC:
+            weight = weight * xg[..., 0]
+        force += np.einsum("egn,eg,ej->enj", shape, p * weight, -normal)
+    return force
+
+
 def pressure_edge_forces(
     coords: NDArray[np.float64],
     edges: NDArray[np.int64],
@@ -252,12 +283,27 @@ def pressure_edge_forces(
     analysis: Analysis,
     ngauss: int = 4,
     p_nodal: NDArray[np.float64] | None = None,
+    horizontal_head: float | None = None,
 ) -> NDArray[np.float64]:
     """Consistent nodal forces (n_edge, npe, 2) of a pressure field ``p(x)`` (>0 pushes
-    into the material) on ``edges``; ``inner`` (n_edge, 2) is a point inside the owning
-    element (orients the outward normal)."""
+    into the material) on ``edges``; ``inner`` orients the outward normal.
+    A known horizontal head splits straight edges at the wet/dry kink.
+    Nodal-pressure interpolation and curved edges retain their usual quadrature.
+    """
     edges = np.atleast_2d(edges)
     npe = edges.shape[1]
+    if horizontal_head is not None and p_nodal is None:
+        if not np.isfinite(horizontal_head):
+            raise ValueError("Horizontal water head must be finite")
+        X = coords[edges]
+        straight = npe == 2 or (npe == 3 and np.allclose(
+            X[:, 2], X[:, :2].mean(axis=1), rtol=0., atol=1e-10,
+        ))
+        if straight:
+            assert pressure is not None
+            return _split_horizontal_pressure(
+                coords, edges, inner, pressure, analysis, horizontal_head, ngauss,
+            )
     xi, w = gauss_legendre(ngauss)
     N, dN = _edge_shape(npe, xi)
     X = coords[edges]

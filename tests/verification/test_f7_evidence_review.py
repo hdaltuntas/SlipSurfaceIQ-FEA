@@ -80,3 +80,23 @@ def test_no_metric_does_not_imply_physical_validation():
     result = summarize(data)
     assert result["physical_validation"] == "not_established"
     assert result["review_priorities"] == []
+
+
+def test_missing_integrity_evidence_remains_visible():
+    result = summarize(sample())
+    assert result["integrity_checks"]["interface_transfer_ledger"]["status"] == "missing"
+    assert "interface_transfer_ledger: **missing**" in markdown(result)
+
+
+def test_failed_transfer_is_reported_even_with_complete_stage_coverage():
+    data = sample()
+    finding = {"h_m": 1.2, "stage": "pile", "status": "failed"}
+    data["interface_transfer_ledger"] = {
+        "status": "failed", "checks": [finding],
+    }
+    result = summarize(data)
+    assert result["coverage_complete"] is True
+    assert result["integrity_checks"]["interface_transfer_ledger"]["findings"] == [finding]
+    assert "interface_transfer_ledger: **failed**" in markdown(result)
+    assert "h=1.2 m, pile: failed" in markdown(result)
+    assert result["physical_validation"] == "not_established"

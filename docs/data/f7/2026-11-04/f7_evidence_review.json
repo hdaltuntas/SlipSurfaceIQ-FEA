@@ -1,0 +1,145 @@
+{
+  "integrity_checks": {
+    "support_coverage_acceptance": {
+      "status": "passed",
+      "findings": []
+    },
+    "interface_moment_acceptance": {
+      "status": "passed",
+      "findings": []
+    },
+    "interface_transfer_ledger": {
+      "status": "passed",
+      "findings": []
+    }
+  },
+  "mesh_sizes_m": [
+    2.5,
+    1.8,
+    1.2
+  ],
+  "completed_rows": 9,
+  "expected_rows": 9,
+  "coverage_complete": true,
+  "solver_failures": 0,
+  "balance_status": {
+    "gravity_balance": {
+      "passed": 9,
+      "failed": 0,
+      "unsupported": 0
+    },
+    "dry_load_balance": {
+      "passed": 0,
+      "failed": 0,
+      "unsupported": 9
+    },
+    "excavation_balance": {
+      "passed": 0,
+      "failed": 0,
+      "unsupported": 9
+    }
+  },
+  "unsupported_reasons": [
+    {
+      "check": "dry_load_balance",
+      "reason": "Structure activation is outside the loaded-domain contract",
+      "count": 9
+    },
+    {
+      "check": "excavation_balance",
+      "reason": "Coupled structures/interfaces need a separate force budget",
+      "count": 9
+    }
+  ],
+  "review_priorities": [
+    {
+      "type": "review_peak_mesh_change",
+      "stage": "1. Pile installation",
+      "kind": "beam_moments",
+      "tag": "cad_Pile",
+      "finest_pair_relative_change": 0.4704866975662251,
+      "maximum_reported_peak": 0.10040356464524218,
+      "interpretation": "Large relative change: inspect spatial profiles and absolute magnitudes; no engineering tolerance assigned."
+    }
+  ],
+  "profile_comparisons": [
+    {
+      "stage": "1. Pile installation",
+      "h_m": 1.8,
+      "tag": "cad_Pile",
+      "component_relative_rms": [
+        0.09656251297261659,
+        0.7913862375437068,
+        0.5717618568287616
+      ]
+    },
+    {
+      "stage": "2. Excavation lift 1 (-2 m)",
+      "h_m": 1.8,
+      "tag": "cad_Pile",
+      "component_relative_rms": [
+        0.041025946022363306,
+        0.00649515648564836,
+        0.00529335643480721
+      ]
+    },
+    {
+      "stage": "3. Anchor + excavation lift 2 (-4 m)",
+      "h_m": 1.8,
+      "tag": "cad_Anchor1",
+      "component_relative_rms": [
+        0.02092011133254961
+      ]
+    },
+    {
+      "stage": "3. Anchor + excavation lift 2 (-4 m)",
+      "h_m": 1.8,
+      "tag": "cad_Pile",
+      "component_relative_rms": [
+        0.03932424964586574,
+        0.023377988798355922,
+        0.01713804373781293
+      ]
+    },
+    {
+      "stage": "1. Pile installation",
+      "h_m": 1.2,
+      "tag": "cad_Pile",
+      "component_relative_rms": [
+        0.023313871366328186,
+        0.9355241185334466,
+        0.9379700275603717
+      ]
+    },
+    {
+      "stage": "2. Excavation lift 1 (-2 m)",
+      "h_m": 1.2,
+      "tag": "cad_Pile",
+      "component_relative_rms": [
+        0.0596627853353857,
+        0.09927565375895928,
+        0.04517741392045595
+      ]
+    },
+    {
+      "stage": "3. Anchor + excavation lift 2 (-4 m)",
+      "h_m": 1.2,
+      "tag": "cad_Anchor1",
+      "component_relative_rms": [
+        0.010263003716561645
+      ]
+    },
+    {
+      "stage": "3. Anchor + excavation lift 2 (-4 m)",
+      "h_m": 1.2,
+      "tag": "cad_Pile",
+      "component_relative_rms": [
+        0.038923201388527374,
+        0.08511052774123289,
+        0.03305939669646439
+      ]
+    }
+  ],
+  "physical_validation": "not_established",
+  "warning": "Green workflow results establish bounded execution/integrity only. Unsupported force budgets and mesh sensitivities are not passed physical checks or independent RS2/PLAXIS benchmarks."
+}

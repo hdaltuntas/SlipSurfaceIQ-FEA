@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("shapely")
 
-from slipsurface.fe2d.cad.geometry import Drawing, Entity
+from slipsurface.fe2d.cad.geometry import BoundaryRule, Drawing, Entity
 
 
 def drawing_with_zone():
@@ -53,6 +53,7 @@ def test_refinement_validation(zone):
 def test_locally_refined_mesh_has_more_nodes():
     base = Drawing(
         entities=(Entity("Ground", "region", ((0, 0), (8, 0), (8, 6), (0, 6))),),
+        rules=(BoundaryRule("Ground:1", True, True),),
         h=2.0,
     )
     refined = replace(base, mesh_refinements=(
