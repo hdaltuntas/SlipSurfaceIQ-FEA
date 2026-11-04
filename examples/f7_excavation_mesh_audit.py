@@ -34,8 +34,8 @@ from slipsurface.fe2d.post.excavation_coverage import excavation_audit_coverage
 from slipsurface.fe2d.post.excavation_balance import excavation_balance_by_stage
 from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
-from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
 from slipsurface.fe2d.post.interface_moment_acceptance import interface_moment_acceptance
+from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
 from slipsurface.fe2d.post.stage_interface_moment import stage_effective_interface_moment_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
 from slipsurface.fe2d.post.support_coverage_acceptance import support_coverage_acceptance
