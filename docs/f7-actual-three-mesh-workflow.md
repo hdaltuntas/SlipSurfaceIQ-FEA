@@ -15,7 +15,8 @@ substituted for the solver output.
 ## Evidence retained
 
 On completion or failure, the job uploads the audit's actual JSON and
-CSV artifacts, together with a GitHub job-summary containing the
+CSV artifacts and `f7_audit/solver.log` (captured standard output and errors),
+together with a GitHub job-summary containing the
 completed stage count, mesh/stage coverage, structural-output coverage,
 interface-moment acceptance and mesh/solver failure count.
 
