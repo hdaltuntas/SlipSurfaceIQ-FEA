@@ -42,3 +42,14 @@ The resulting artifacts must be examined for support-profile changes,
 global reactions, plasticity, interface force/moment transfer and
 numerical convergence. Unsupported reference cases remain
 unsupported and are not replaced by fabricated passing metrics.
+
+## F7 mesh sensitivity diagnostics
+
+The audit JSON now contains `mesh_sensitivity_diagnostics`, including
+coarse-to-medium and medium-to-fine relative changes for each stage's peak
+displacement, tagged beam moments, and tagged bar axial forces. Missing,
+duplicated or nonfinite data are explicitly classified as incomplete.
+The `diagnostic_only` status is **not** a passed convergence threshold:
+spatial peak locations may differ between meshes. These descriptors do not
+change the pre-existing execution integrity gate or imply external validation.
+No acceptance tolerance is imposed until a justified benchmark is available.

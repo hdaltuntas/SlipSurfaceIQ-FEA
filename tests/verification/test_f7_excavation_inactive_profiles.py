@@ -2,25 +2,21 @@
 
 from __future__ import annotations
 
-import runpy
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from slipsurface.fe2d.post.support_profile_activity import active_support_profile_available
+
 
 def check(mask, force):
-    script = Path(__file__).resolve().parents[2] / "examples"
-    fun = runpy.run_path(str(script / "f7_excavation_mesh_audit.py"))[
-        "active_support_profile_available"
-    ]
     state = SimpleNamespace(
         active={"anchor": np.array(mask, dtype=bool)},
         bars={"anchor": np.asarray(force, dtype=float)},
         beams={},
     )
-    return fun(state, "anchor", "bar")
+    return active_support_profile_available(state, "anchor", "bar")
 
 
 def test_nan_values_of_fully_inactive_anchor_are_skipped():

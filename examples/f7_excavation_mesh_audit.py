@@ -36,8 +36,10 @@ from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
 from slipsurface.fe2d.post.interface_moment_acceptance import interface_moment_acceptance
 from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
+from slipsurface.fe2d.post.mesh_sensitivity_diagnostics import mesh_sensitivity_diagnostics
 from slipsurface.fe2d.post.stage_interface_moment import stage_effective_interface_moment_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
+from slipsurface.fe2d.post.support_profile_activity import active_support_profile_available
 from slipsurface.fe2d.post.support_coverage_acceptance import support_coverage_acceptance
 from slipsurface.fe2d.post.support_result_coverage import stage_support_result_coverage
 
@@ -152,32 +154,6 @@ def compare_supports_by_stage(rows: list[dict]) -> list[dict]:
                     })
         previous[name] = support
     return output
-
-
-def active_support_profile_available(stage, tag, kind):
-    """Exclude wholly inactive supports, never treat active NaNs as inactivity.
-
-    StageResult keeps declared structural outputs even when a support has
-    not yet been installed; all of those element forces are NaN by design.
-    Only an explicitly all-False activity mask permits skipping a profile.
-    """
-    mask = stage.active.get(tag)
-    if mask is None:
-        raise ValueError(f"{tag}: missing support activation mask")
-    active = np.asarray(mask, dtype=bool)
-    if active.ndim != 1 or active.size == 0:
-        raise ValueError(f"{tag}: invalid support activation mask")
-    if not active.any():
-        return False
-    if not active.all():
-        raise ValueError(f"{tag}: partially active support profile unsupported")
-    sources = stage.bars if kind == "bar" else stage.beams
-    if tag not in sources:
-        raise ValueError(f"{tag}: active support forces missing")
-    forces = np.asarray(sources[tag], dtype=float)
-    if forces.shape[0] != active.size or not np.isfinite(forces).all():
-        raise ValueError(f"{tag}: nonfinite active support forces or shape")
-    return True
 
 
 def stage_support_profiles(model, stage, count=51, *, signed=False):
@@ -376,7 +352,9 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
     moment_acceptance = interface_moment_acceptance(
         rows, sizes, base.stages, base.interfaces,
     )
+    sensitivity = mesh_sensitivity_diagnostics(rows, sizes, expected_stages)
     report = {
+        "mesh_sensitivity_diagnostics": sensitivity,
         "mesh_stage_coverage": coverage,
         "support_coverage_acceptance": support_acceptance,
         "interface_moment_acceptance": moment_acceptance,
