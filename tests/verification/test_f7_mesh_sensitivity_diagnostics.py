@@ -4,7 +4,6 @@ import pytest
 
 from slipsurface.fe2d.post.mesh_sensitivity_diagnostics import mesh_sensitivity_diagnostics
 
-
 SIZES = (2.5, 1.8, 1.2)
 
 
