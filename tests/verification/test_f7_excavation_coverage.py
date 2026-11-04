@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from slipsurface.fe2d.post.excavation_coverage import excavation_audit_coverage
 
-
 SIZES = (2.5, 1.8, 1.2)
 STAGES = ("pile", "lift1", "lift2")
 
