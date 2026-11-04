@@ -39,10 +39,13 @@ jobs:
           python -m pip install -r requirements.txt
       - name: Solve staged supported excavation on three independent meshes
         id: run_f7
+        shell: bash
         run: |
-          python examples/f7_excavation_mesh_audit.py \
+          set -o pipefail
+          mkdir -p f7_audit
+          python -u examples/f7_excavation_mesh_audit.py \
             --sizes 2.5 1.8 1.2 \
-            --output-dir f7_audit
+            --output-dir f7_audit 2>&1 | tee f7_audit/solver.log
       - name: Summarize actual FEM findings
         if: always()
         shell: bash
