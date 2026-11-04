@@ -86,3 +86,20 @@ These are **internal interface action–reaction consistency checks**.
 Their completion cannot replace a full continuum–pile–anchor external
 force equilibrium budget or an independent physical benchmark. The
 existing F7 FEM execution integrity gate is unchanged.
+
+## Fail-closed interface transfer acceptance
+
+The real three-mesh audit now emits `interface_transfer_acceptance` and
+requires that status to be `passed` for a successful process exit.
+The new check cross-references the interface transfer ledger with the
+**independently defined** activation schedule for every requested mesh
+and stage. An expected-active interface stage must have finite,
+within-tolerance transfer evidence and positive active-element count;
+a stage without any expected active interfaces may be `not_applicable`
+but cannot claim an active transfer pass. Missing or duplicated rows
+and contradictory status flags fail closed.
+
+This acceptance is deliberately bounded to internal interface
+action/reaction integrity. It does **not** replace the unsupported
+global soil/structure force budget, constitutive model benchmarks, or
+independent RS2/PLAXIS comparison.
