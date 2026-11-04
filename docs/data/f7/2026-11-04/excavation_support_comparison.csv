@@ -1,0 +1,13 @@
+stage,h_m,kind,tag,previous_peak,current_peak,relative_change,status
+1. Pile installation,1.8,beam_moments,cad_Pile,0.08599514594279001,0.05316502309142519,0.38176716245363096,compared
+1. Pile installation,1.8,bar_axial_forces,cad_Anchor1,0.0,0.0,0.0,compared
+2. Excavation lift 1 (-2 m),1.8,beam_moments,cad_Pile,17.757744668795073,17.74383420333697,0.0007833464056135196,compared
+2. Excavation lift 1 (-2 m),1.8,bar_axial_forces,cad_Anchor1,0.0,0.0,0.0,compared
+3. Anchor + excavation lift 2 (-4 m),1.8,beam_moments,cad_Pile,18.772834077561484,18.88416524501908,0.005895477296088636,compared
+3. Anchor + excavation lift 2 (-4 m),1.8,bar_axial_forces,cad_Anchor1,13.9946077849354,13.999607378351637,0.00035712383077027846,compared
+1. Pile installation,1.2,beam_moments,cad_Pile,0.05316502309142519,0.10040356464524218,0.4704866975662251,compared
+1. Pile installation,1.2,bar_axial_forces,cad_Anchor1,0.0,0.0,0.0,compared
+2. Excavation lift 1 (-2 m),1.2,beam_moments,cad_Pile,17.74383420333697,17.443169317568405,0.016944752882780054,compared
+2. Excavation lift 1 (-2 m),1.2,bar_axial_forces,cad_Anchor1,0.0,0.0,0.0,compared
+3. Anchor + excavation lift 2 (-4 m),1.2,beam_moments,cad_Pile,18.88416524501908,18.721289003111583,0.008625016769033935,compared
+3. Anchor + excavation lift 2 (-4 m),1.2,bar_axial_forces,cad_Anchor1,13.999607378351637,13.941667228907653,0.004138698170463028,compared

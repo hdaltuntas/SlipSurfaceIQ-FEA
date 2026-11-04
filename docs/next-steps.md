@@ -1,5 +1,58 @@
 # Current status and remaining work
 
+## 4 November 2026 F7 local execution
+
+The actual pile/anchor excavation completed at h=2.5, 1.8 and 1.2 m:
+all nine stages were recorded, with no solver exceptions. Bounded structural
+coverage, interface force/moment integrity and gravity balance passed.
+[Raw evidence and reproduction](data/f7/2026-11-04/README.md).
+Next numerical work is to investigate the installation-stage pile V/M mesh
+sensitivity and establish the coupled soil–pile–anchor external force budget.
+The [controlled installation experiments](f7-installation-weight-diagnostic.md)
+now isolate the moment to the pile self-weight response: half weight halves
+the moment and zero weight removes it; prior soil equilibration changes
+nothing. The bending mechanism and spatial mesh sensitivity remain open.
+Follow-up symmetric T6/Q8 controls now show moment peaks below 1.2e-13,
+supporting a discretization asymmetry explanation. Isolated pile-node force
+budgets close below 2e-11; the shared soil tip is explicitly unresolved.
+The tip's continuum internal/body contributions are now included and all
+eighteen diagnostic runs close at every pile node below 2e-11 kN/m.
+[Updated measured tip budget](f7-installation-weight-diagnostic.md#completed-shared-tip-continuum-budget).
+Next: the coupled stage-wise excavation/anchor external-force budget.
+Original demo geometry and loads are retained.
+The [bounded dry full-stage coupled budget](f7-coupled-dry-excavation-budget.md)
+has now passed all nine real mesh/stage cases, checking both nodal transfer
+and independent active-weight force/moment resultants. It is part of the
+canonical audit CLI acceptance condition. Next extensions are applied boundary
+loads, partial stage release and water-force accounting; independent physical
+benchmarks and mesh convergence remain open.
+Straight surface pressure/shear and point loads are now included in the
+coupled dry budget. The [loaded three-mesh excavation](f7-coupled-dry-applied-loads.md)
+passed all nine stages and matched the analytical applied force/moment
+reference in every row. Next: incremental accounting for partial stage
+release, then water-force accounting. Independent validation remains open.
+The [incremental dry elastic budget](f7-incremental-dry-excavation-budget.md)
+now separates actual applied loads from retained excavation-release forces.
+Its six-stage loaded pile/anchor program passed all eighteen mesh/stage
+checks. Support activation in a partial step remains unsupported; activation
+is performed in full stages. Next: water-force accounting, with independent
+physical benchmarks and mesh convergence still open.
+The [full-stage horizontal-head water budget](f7-coupled-hydrostatic-budget.md)
+now includes saturated weight, continuum/joint/boundary water terms and the
+total-reaction convention. The loaded saturated excavation passed all nine
+mesh/stage cases and analytical resultant checks. A horizontal water-table
+intersection error in straight-edge pressure integration was also fixed.
+Next: changing-water/partial wet-stage history; seepage and independent
+physical validation remain outside this delivered scope.
+The [incremental horizontal-head audit](f7-incremental-hydrostatic-budget.md)
+now separates target pore pressures from history-blended actual water loads
+and retained release forces. A ten-stage loaded excavation/drawdown/rewetting
+program passed all thirty mesh/stage checks. Next: seepage-derived pressure
+evidence. Partial-stage activation, independent physical benchmarks and mesh
+convergence remain open.
+Dry-load/excavation budgets remain unsupported; no independent physical
+validation or release acceptance follows from this run.
+
 ## 2 November 2026 review follow-up
 
 The results dock now lists every region and structural object. Select a member before

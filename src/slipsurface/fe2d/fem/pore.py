@@ -121,8 +121,14 @@ def water_forces(sysm, water: WaterCondition, coords, blocks, iface_face_keys, a
                 return GAMMA_W * np.maximum(water.head(x[:, 0]) - x[:, 1], 0.0)
 
             pn = None if sysm.p_nodal is None else sysm.p_nodal[edges[sel]]
+            horizontal_head = None
+            if water.mode == "piezo_line" and pn is None:
+                line = water.piezo_polyline
+                if np.allclose(line[:, 1], line[0, 1], rtol=0., atol=1e-10):
+                    horizontal_head = float(line[0, 1])
             fe = pressure_edge_forces(
-                coords, edges[sel], inner[sel], pfun, analysis, p_nodal=pn
+                coords, edges[sel], inner[sel], pfun, analysis, p_nodal=pn,
+                horizontal_head=horizontal_head,
             )
             ed = dm.node_dofs[edges[sel]][:, :, :2]
             ok = ed >= 0

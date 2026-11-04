@@ -20,6 +20,23 @@ on:
       - "scripts/f7_evidence_review.py"
       - "tests/verification/test_f7_evidence_review.py"
       - "src/slipsurface/fe2d/post/interface_transfer_ledger.py"
+      - "src/slipsurface/fe2d/post/coupled_dry_budget.py"
+      - "src/slipsurface/fe2d/post/dry_applied_loads.py"
+      - "src/slipsurface/fe2d/post/incremental_dry_budget.py"
+      - "src/slipsurface/fe2d/post/incremental_hydrostatic_budget.py"
+      - "scripts/f7_partial_hydrostatic_audit.py"
+      - "tests/verification/test_f7_incremental_hydrostatic_budget.py"
+      - "src/slipsurface/fe2d/post/coupled_hydrostatic_budget.py"
+      - "src/slipsurface/fe2d/post/hydrostatic_nodal_forces.py"
+      - "src/slipsurface/fe2d/fem/loads.py"
+      - "src/slipsurface/fe2d/fem/pore.py"
+      - "scripts/f7_hydrostatic_excavation_audit.py"
+      - "tests/verification/test_f7_coupled_hydrostatic_budget.py"
+      - "scripts/f7_partial_excavation_audit.py"
+      - "tests/verification/test_f7_incremental_dry_budget.py"
+      - "scripts/f7_loaded_excavation_audit.py"
+      - "tests/verification/test_f7_dry_applied_loads.py"
+      - "tests/verification/test_f7_coupled_dry_budget.py"
       - "tests/verification/test_f7_interface_transfer_ledger.py"
 
 permissions:
@@ -55,6 +72,22 @@ jobs:
           python -u examples/f7_excavation_mesh_audit.py \
             --sizes 2.5 1.8 1.2 \
             --output-dir f7_audit 2>&1 | tee f7_audit/solver.log
+      - name: Solve dry loaded excavation with analytical force and moment reference
+        run: >-
+          python scripts/f7_loaded_excavation_audit.py
+          --output f7_audit/loaded_excavation_audit.json
+      - name: Solve partial dry excavation and reconstruct retained release forces
+        run: >-
+          python scripts/f7_partial_excavation_audit.py
+          --output f7_audit/partial_excavation_audit.json
+      - name: Solve hydrostatic loaded excavation with saturated weights and water forces
+        run: >-
+          python scripts/f7_hydrostatic_excavation_audit.py
+          --output f7_audit/hydrostatic_excavation_audit.json
+      - name: Solve partial wet excavation with drawdown and rewetting history
+        run: >-
+          python scripts/f7_partial_hydrostatic_audit.py
+          --output f7_audit/partial_hydrostatic_audit.json
       - name: Produce conservative engineering evidence review
         if: always()
         shell: bash
@@ -88,6 +121,7 @@ jobs:
                   f"- Mesh/stage coverage: {coverage.get('status', 'unknown')}\n"
                   f"- Structural output coverage: {support.get('status', 'unknown')}\n"
                   f"- Active interface moment checks: {interface.get('status', 'unknown')}\n"
+                  f"- Coupled dry balance: {data.get('force_balance_acceptance', {}).get('coupled_dry_balance', {})}\n"
                   f"- Solver/mesh failures: {len(data.get('failures', []))}\n\n"
                   "Numerical sensitivity is not independent physical validation.\n"
               )
@@ -100,6 +134,42 @@ jobs:
                           f"- h={item.get('h_m')} m: {item.get('type')}: "
                           f"{item.get('detail')}\n"
                       )
+          loaded_path = Path("f7_audit/loaded_excavation_audit.json")
+          if loaded_path.exists():
+              loaded = json.loads(loaded_path.read_text(encoding="utf-8"))
+              summary += (
+                  f"\n- Loaded dry excavation: {loaded.get('status', 'unknown')}\n"
+                  f"- Loaded stage records: {len(loaded.get('results', []))}\n"
+              )
+          else:
+              summary += "\n- Loaded dry excavation: report unavailable\n"
+          partial_path = Path("f7_audit/partial_excavation_audit.json")
+          if partial_path.exists():
+              partial = json.loads(partial_path.read_text(encoding="utf-8"))
+              summary += (
+                  f"\n- Partial dry excavation: {partial.get('status', 'unknown')}\n"
+                  f"- Partial stage records: {len(partial.get('results', []))}\n"
+              )
+          else:
+              summary += "\n- Partial dry excavation: report unavailable\n"
+          water_path = Path("f7_audit/hydrostatic_excavation_audit.json")
+          if water_path.exists():
+              water = json.loads(water_path.read_text(encoding="utf-8"))
+              summary += (
+                  f"\n- Hydrostatic excavation: {water.get('status', 'unknown')}\n"
+                  f"- Hydrostatic stage records: {len(water.get('results', []))}\n"
+              )
+          else:
+              summary += "\n- Hydrostatic excavation: report unavailable\n"
+          wet_history_path = Path("f7_audit/partial_hydrostatic_audit.json")
+          if wet_history_path.exists():
+              wet_history = json.loads(wet_history_path.read_text(encoding="utf-8"))
+              summary += (
+                  f"\n- Partial wet excavation: {wet_history.get('status', 'unknown')}\n"
+                  f"- Partial wet stage records: {len(wet_history.get('results', []))}\n"
+              )
+          else:
+              summary += "\n- Partial wet excavation: report unavailable\n"
           Path("f7-summary.md").write_text(summary, encoding="utf-8")
           print(summary)
           PY

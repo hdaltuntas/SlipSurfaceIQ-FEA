@@ -52,6 +52,7 @@ def interface_transfer_ledger(rows, sizes, stages, interface_tags, *, tolerance=
             scale = 1.0
             max_reference_error = 0.0
             count_active = 0
+            interface_checks = {}
             valid = True
             for tag in tags:
                 item = results[tag]
@@ -71,6 +72,17 @@ def interface_transfer_ledger(rows, sizes, stages, interface_tags, *, tolerance=
                     valid = False
                     break
                 count_active += n
+                local_scale = max(1.0, *(abs(item[key]) for key in keys[:4]))
+                local_residual = max(
+                    abs(item["face1_fx"] + item["face2_fx"]),
+                    abs(item["face1_fy"] + item["face2_fy"]),
+                    *(abs(item[key]) for key in keys[4:]),
+                )
+                local_ratio = local_residual / local_scale
+                interface_checks[tag] = {
+                    "status": "passed" if local_ratio <= tolerance else "failed",
+                    "relative_transfer_residual": local_ratio,
+                }
                 for axis, suffix in enumerate(("fx", "fy")):
                     f1 = float(item[f"face1_{suffix}"])
                     f2 = float(item[f"face2_{suffix}"])
@@ -93,7 +105,9 @@ def interface_transfer_ledger(rows, sizes, stages, interface_tags, *, tolerance=
             ratio = residual / scale
             items.append({
                 "h_m": h, "stage": name, "status": "passed" if ratio <= tolerance
+                and all(check["status"] == "passed" for check in interface_checks.values())
                 else "failed",
+                "interfaces": interface_checks,
                 "active_interface_elements": count_active,
                 "global_internal_fx": net[0],
                 "global_internal_fy": net[1],
