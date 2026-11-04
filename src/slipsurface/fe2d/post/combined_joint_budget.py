@@ -8,8 +8,6 @@ pressure has a separately derived closed-form physical force and moment.
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 
 from slipsurface.fe2d.core.enums import Analysis, ElemType
