@@ -54,9 +54,16 @@ def stage_support_result_coverage(model, stage, expected_active=None):
             nonfinite_active = enabled and not np.isfinite(arr[mask]).all()
             nonnan_inactive = np.any(~np.isnan(arr[~mask]))
             expected = expected_active is None or tag in expected_active
+            # Excavation removes continuum on one side of a liner. The
+            # corresponding skin interface is legitimately partly inactive,
+            # even when its tag remains in Stage.active_structures.
+            # Beam/bar installation still requires full element activation.
             wrong_activation = (
                 expected_active is not None
-                and (enabled != block.ne if expected else enabled != 0)
+                and (
+                    (enabled == 0 if kind == "interface" else enabled != block.ne)
+                    if expected else enabled != 0
+                )
             )
             if nonfinite_active or nonnan_inactive or wrong_activation:
                 status = "failed"
