@@ -101,8 +101,6 @@ def test_excavation_partially_deactivates_skin_without_failing_coverage():
     # was excavated; installed joint is still partially active.
     mesh = model.mesh
     original = mesh.block("skin")
-    from slipsurface.fe2d.model.mesh import ElementBlock, Mesh
-
     second = original.conn.copy()
     new_block = ElementBlock(
         original.etype,
