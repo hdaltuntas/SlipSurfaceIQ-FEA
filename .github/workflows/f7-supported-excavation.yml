@@ -72,11 +72,11 @@ jobs:
           if path.exists():
               failures = data.get("failures", [])
               if failures:
-                  summary += "\\n### Per-mesh failures\\n"
+                  summary += "\n### Per-mesh failures\n"
                   for item in failures:
                       summary += (
                           f"- h={item.get('h_m')} m: {item.get('type')}: "
-                          f"{item.get('detail')}\\n"
+                          f"{item.get('detail')}\n"
                       )
           Path("f7-summary.md").write_text(summary, encoding="utf-8")
           print(summary)
