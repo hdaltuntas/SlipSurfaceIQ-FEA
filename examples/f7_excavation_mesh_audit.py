@@ -36,6 +36,7 @@ from slipsurface.fe2d.post.global_balance import gravity_equilibrium_by_stage
 from slipsurface.fe2d.post.interface_balance import stage_interface_pairs
 from slipsurface.fe2d.post.interface_moment_acceptance import interface_moment_acceptance
 from slipsurface.fe2d.post.interface_nodal_audit import stage_interface_nodal_audit
+from slipsurface.fe2d.post.interface_transfer_ledger import interface_transfer_ledger
 from slipsurface.fe2d.post.mesh_sensitivity_diagnostics import mesh_sensitivity_diagnostics
 from slipsurface.fe2d.post.stage_interface_moment import stage_effective_interface_moment_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
@@ -353,7 +354,11 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
         rows, sizes, base.stages, base.interfaces,
     )
     sensitivity = mesh_sensitivity_diagnostics(rows, sizes, expected_stages)
+    transfer_ledger = interface_transfer_ledger(
+        rows, sizes, expected_stages, base.interfaces,
+    )
     report = {
+        "interface_transfer_ledger": transfer_ledger,
         "mesh_sensitivity_diagnostics": sensitivity,
         "mesh_stage_coverage": coverage,
         "support_coverage_acceptance": support_acceptance,

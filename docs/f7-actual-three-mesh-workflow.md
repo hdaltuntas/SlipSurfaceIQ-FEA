@@ -72,3 +72,17 @@ never reports independent physical validation as achieved, and it does
 not change the pre-existing solver acceptance exit status. Future work
 must establish a complete coupled force budget and an independent
 reference before defining engineering tolerances.
+
+## Global interface-transfer ledger
+
+The actual excavation JSON now also includes `interface_transfer_ledger`:
+per mesh and stage, this combines nodal interface force residuals with
+paired-face resultants and their integration reference errors. Missing
+interface tags, nonfinite values, duplicate stages, and noncancelling
+forces are explicitly failed. No active interfaces is *not applicable*,
+not a pass.
+
+These are **internal interface action–reaction consistency checks**.
+Their completion cannot replace a full continuum–pile–anchor external
+force equilibrium budget or an independent physical benchmark. The
+existing F7 FEM execution integrity gate is unchanged.

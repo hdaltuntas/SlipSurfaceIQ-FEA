@@ -19,6 +19,8 @@ on:
       - "tests/verification/test_f7_mesh_sensitivity_diagnostics.py"
       - "scripts/f7_evidence_review.py"
       - "tests/verification/test_f7_evidence_review.py"
+      - "src/slipsurface/fe2d/post/interface_transfer_ledger.py"
+      - "tests/verification/test_f7_interface_transfer_ledger.py"
 
 permissions:
   contents: read
