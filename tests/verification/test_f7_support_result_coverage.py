@@ -93,3 +93,42 @@ def test_unknown_expected_support_is_rejected():
     model, stage = case()
     with pytest.raises(ValueError, match="not declared"):
         stage_support_result_coverage(model, stage, {"unknown"})
+
+
+def test_excavation_partially_deactivates_skin_without_failing_coverage():
+    model, stage = case()
+    # A two-element skin loses one segment because adjacent continuum
+    # was excavated; installed joint is still partially active.
+    mesh = model.mesh
+    original = mesh.block("skin")
+    from slipsurface.fe2d.model.mesh import ElementBlock, Mesh
+
+    second = original.conn.copy()
+    new_block = ElementBlock(
+        original.etype,
+        np.concatenate((original.conn, second)),
+        np.array([0, 0]),
+        "skin",
+    )
+    model.mesh = Mesh(
+        mesh.coords,
+        tuple(b if b.tag != "skin" else new_block for b in mesh.blocks),
+    )
+    stage.active["skin"] = np.array([True, False])
+    stage.interfaces["skin"] = np.array([
+        [[1., -2.], [1., -2.]],
+        [[np.nan, np.nan], [np.nan, np.nan]],
+    ])
+    report = stage_support_result_coverage(model, stage, {"pile", "skin"})
+    assert report["status"] == "passed"
+    skin = next(x for x in report["details"] if x["tag"] == "skin")
+    assert skin["active_elements"] == 1
+    assert skin["total_elements"] == 2
+
+
+def test_partial_skin_with_nonfinite_active_traction_still_fails():
+    model, stage = case()
+    stage.active["skin"] = np.array([True])
+    stage.interfaces["skin"][0, 0, 0] = np.nan
+    result = stage_support_result_coverage(model, stage, {"pile", "skin"})
+    assert result["status"] == "failed"
