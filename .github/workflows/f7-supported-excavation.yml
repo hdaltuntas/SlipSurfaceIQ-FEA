@@ -61,6 +61,8 @@ on:
       - "tests/verification/test_f7_anchor_axial_benchmark.py"
       - "scripts/f7_interface_elastic_benchmark.py"
       - "tests/verification/test_f7_interface_elastic_benchmark.py"
+      - "scripts/f7_interface_plastic_benchmark.py"
+      - "tests/verification/test_f7_interface_plastic_benchmark.py"
 
 permissions:
   contents: read
@@ -98,6 +100,10 @@ jobs:
         run: >-
           python scripts/f7_interface_elastic_benchmark.py
           --output f7_audit/interface_elastic_benchmark.json
+      - name: Verify nonlinear interface shear yield and tensile cut-off
+        run: >-
+          python scripts/f7_interface_plastic_benchmark.py
+          --output f7_audit/interface_plastic_benchmark.json
       - name: Solve staged supported excavation on three independent meshes
         id: run_f7
         shell: bash
