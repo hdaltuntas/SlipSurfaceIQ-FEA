@@ -66,7 +66,7 @@ def force_and_tangent(gaps, normal, weights, kn):
             block = weights[j] * kn * np.outer(normal, normal)
             for a in range(2):
                 for b in range(2):
-                    matrix[pair[a], pair[b]] += block * (1 if a == b else -1)
+                    matrix[pair[a], pair[pair.index(pair[b])]] += block * (1 if a == b else -1)
     energy = sum(0.5 * w * kn * min(g, 0.0)**2 for w, g in zip(weights, gaps))
     return force, matrix, energy
 
@@ -152,7 +152,7 @@ def run_force_controlled(element_type="IFACE4", angle_deg=0.0, initial_gap=0.002
                     (load - kn*length*initial_gap)/(support_k + kn*length))
         u, converged = committed_u, False
         snapshot = state["gap"].copy()
-        for iteration in range(12):
+        for _iteration in range(12):
             trial, forces, tangent, _ = group.integrate(
                 state, ids, ((u-committed_u)*selector)[None, :],
             )
@@ -171,7 +171,7 @@ def run_force_controlled(element_type="IFACE4", angle_deg=0.0, initial_gap=0.002
         passed = converged and immutable and all(c["status"] == "passed" for c in checks.values())
         rows.append({"status": "passed" if passed else "failed", "load_kn_per_m": load,
                      "analytical_displacement_m": expected, "observed_displacement_m": u,
-                     "iterations": iteration+1, "checks": checks,
+                     "iterations": _iteration+1, "checks": checks,
                      "committed_state_unchanged": immutable})
         if not passed:
             break
