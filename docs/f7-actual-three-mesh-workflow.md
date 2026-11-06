@@ -108,3 +108,17 @@ These are **internal interface action–reaction consistency checks**.
 Their completion cannot replace a full continuum–pile–anchor external
 force equilibrium budget or an independent physical benchmark. The
 existing F7 FEM execution integrity gate is unchanged.
+
+## Stage-aware interface transfer acceptance
+
+The three-mesh F7 audit now reports `interface_transfer_acceptance`, checked
+against the stage definitions and the aggregate interface-transfer ledger.
+An expected-active interface stage must report positive active-element count
+and a finite residual within the stated tolerance. Stages with no expected
+active interfaces must be marked `not_applicable`, not falsely passed.
+Missing, duplicate, inconsistent or nonfinite records fail the bounded
+interface-transfer acceptance gate.
+
+This adds an **internal interface assembly/integrity requirement** to the
+existing F7 execution gate. It does not replace the newer coupled dry, wet,
+or seepage budgets and does not establish independent physical validation.
