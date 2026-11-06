@@ -84,7 +84,7 @@ def support_profile_integrity(rows, sizes, stages, beams, bars):
                     reason = "Inactive support has an output profile" if tag in profiles else None
                 elif tag not in profiles:
                     status, reason = "failed", "Active support profile missing"
-                elif profile.get("tag") != tag:
+                elif not isinstance(profile, dict) or profile.get("tag") != tag:
                     status, reason = "failed", "Profile identity mismatch"
                 else:
                     valid, reason = _valid_profile(profile, kind, axes.get((step.name, tag)))
