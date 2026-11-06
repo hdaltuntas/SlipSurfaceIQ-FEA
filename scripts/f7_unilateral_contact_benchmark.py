@@ -66,7 +66,7 @@ def force_and_tangent(gaps, normal, weights, kn):
             block = weights[j] * kn * np.outer(normal, normal)
             for a in range(2):
                 for b in range(2):
-                    matrix[pair[a], pair[pair.index(pair[b])]] += block * (1 if a == b else -1)
+                    matrix[pair[a], pair[b]] += block * (1 if a == b else -1)
     energy = sum(0.5 * w * kn * min(g, 0.0)**2 for w, g in zip(weights, gaps))
     return force, matrix, energy
 
