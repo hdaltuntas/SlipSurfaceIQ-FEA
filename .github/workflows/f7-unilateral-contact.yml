@@ -1,0 +1,96 @@
+name: f7-unilateral-contact
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/f7-unilateral-contact.yml"
+      - "src/slipsurface/fe2d/fem/unilateral_contact.py"
+      - "src/slipsurface/fe2d/model/mesh.py"
+      - "src/slipsurface/fe2d/core/enums.py"
+      - "scripts/f7_unilateral_contact_benchmark.py"
+      - "tests/verification/test_f7_unilateral_contact.py"
+      - "docs/f7-unilateral-normal-contact.md"
+      - "requirements-core.txt"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/f7-unilateral-contact.yml"
+      - "src/slipsurface/fe2d/fem/unilateral_contact.py"
+      - "src/slipsurface/fe2d/model/mesh.py"
+      - "src/slipsurface/fe2d/core/enums.py"
+      - "scripts/f7_unilateral_contact_benchmark.py"
+      - "tests/verification/test_f7_unilateral_contact.py"
+      - "docs/f7-unilateral-normal-contact.md"
+      - "requirements-core.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  normal-contact:
+    name: Standalone unilateral normal contact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: src
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install core test dependencies
+        run: python -m pip install -r requirements-core.txt pytest ruff
+      - name: Lint new kernel, benchmark and tests
+        run: >-
+          ruff check src/slipsurface/fe2d/fem/unilateral_contact.py
+          scripts/f7_unilateral_contact_benchmark.py
+          tests/verification/test_f7_unilateral_contact.py
+      - name: Test isolated contact and acceptance failures
+        run: >-
+          python -m pytest -q tests/verification/test_f7_unilateral_contact.py
+          --junitxml=normal-contact-tests.xml
+      - name: Execute normal-contact histories and reduced force-controlled assembly
+        run: >-
+          python scripts/f7_unilateral_contact_benchmark.py
+          --output f7_contact/unilateral_contact_benchmark.json
+      - name: Summarize contact evidence
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("f7_contact/unilateral_contact_benchmark.json")
+          lines = ["## Standalone unilateral normal contact", ""]
+          if path.exists():
+              report = json.loads(path.read_text(encoding="utf-8"))
+              lines += [
+                  f"- Status: {report['status']}",
+                  f"- Prescribed histories/steps: {report['history_count']}/{report['history_step_count']}",
+                  f"- Force-controlled systems/steps: {report['force_controlled_count']}/{report['force_controlled_step_count']}",
+              ]
+          else:
+              lines.append("Evidence unavailable; inspect previous failure logs.")
+          lines += ["", "New normal-only kernel; not yet wired into Model, GUI or StaticSolver.",
+                    "Existing Goodman law and the coupled-excavation gates are unchanged.", ""]
+          summary = "\n".join(lines)
+          Path("normal-contact-summary.md").write_text(summary, encoding="utf-8")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write(summary)
+          PY
+      - name: Preserve successful or partial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-unilateral-normal-contact-evidence
+          path: |
+            f7_contact/
+            normal-contact-tests.xml
+            normal-contact-summary.md
+          retention-days: 30
+          if-no-files-found: warn
