@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..core.enums import Analysis, ElemType
+from ..core.enums import Analysis, Drainage, ElemType
 from ..core.errors import ModelError
 from .boundary import Displacement, EdgeLoad, Fixity, PointLoad
 from .materials import BoltSpec, InterfaceSpec, LinerSpec, MaterialSpec
@@ -82,6 +82,21 @@ class Model:
                 raise ModelError(f"{kind} block '{tag}' has no property set of that name")
         if tags and self.analysis is Analysis.AXISYMMETRIC and "beam" in tags.values():
             raise ModelError("beam (liner) elements are not available in axisymmetry yet")
+        contacts = {tag for tag, spec in self.interfaces.items()
+                    if spec.law == "unilateral_normal"}
+        if contacts:
+            if self.analysis is not Analysis.PLANE_STRAIN:
+                raise ModelError("Unilateral normal contact supports plane strain only")
+            if self.initial.mode != "none":
+                raise ModelError("Unilateral contact currently requires initial mode='none'")
+            if self.initial.water.mode != "none" or any(
+                stage.water.mode != "none" for stage in self.stages
+            ) or any(mat.drainage is not Drainage.DRAINED for mat in self.materials.values()):
+                raise ModelError("Unilateral normal contact currently requires dry drained models")
+            if self.settings.method != "NR":
+                raise ModelError("Unilateral normal contact currently requires method='NR'")
+            if any(stage.seismic_kh or stage.seismic_kv for stage in self.stages):
+                raise ModelError("Unilateral normal contact seismic loading is not supported yet")
         all_regions = self.mesh.regions()
         for st in self.stages:
             unknown = set(st.active_structures) - set(tags)

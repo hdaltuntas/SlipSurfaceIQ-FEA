@@ -11,6 +11,9 @@ from numpy.typing import NDArray
 
 from ..core.enums import ElemType
 from .structural import BeamGroup, InterfaceGroup
+from .unilateral_contact import StagedNormalContactGroup
+
+_INTERFACES = (InterfaceGroup, StagedNormalContactGroup)
 
 
 def edge_owner_map(blocks) -> dict[tuple[int, int], tuple[int, int]]:
@@ -27,12 +30,12 @@ def edge_owner_map(blocks) -> dict[tuple[int, int], tuple[int, int]]:
 
 def interface_adjacency(blocks, groups) -> dict[str, tuple[NDArray, NDArray, NDArray, NDArray]]:
     """For each interface element: continuum (block, element) owning face 1 / face 2."""
-    if not any(isinstance(g, InterfaceGroup) for g in groups):
+    if not any(isinstance(g, _INTERFACES) for g in groups):
         return {}
     owner = edge_owner_map(blocks)
     out = {}
     for g in groups:
-        if not isinstance(g, InterfaceGroup):
+        if not isinstance(g, _INTERFACES):
             continue
         res = []
         for face in (g.f1, g.f2):
@@ -50,7 +53,7 @@ def interface_adjacency(blocks, groups) -> dict[str, tuple[NDArray, NDArray, NDA
 def interface_face_keys(groups) -> set[tuple[int, int]]:
     keys: set[tuple[int, int]] = set()
     for g in groups:
-        if isinstance(g, InterfaceGroup):
+        if isinstance(g, _INTERFACES):
             for face in (g.f1, g.f2):
                 for p, q in zip(face[:, 0].tolist(), face[:, 1].tolist()):
                     keys.add((min(p, q), max(p, q)))
@@ -71,11 +74,11 @@ def active_masks(blocks, groups, adjacency, regions, structures, nn: int):
         if isinstance(g, BeamGroup) and structures is not None and g.tag in structures:
             beam_nodes[g.block.conn.ravel()] = True
     for g in groups:
-        on = (isinstance(g, InterfaceGroup) and structures is None) or (
+        on = (isinstance(g, _INTERFACES) and structures is None) or (
             structures is not None and g.tag in structures
         )
         m = np.full(g.ne, on)
-        if on and isinstance(g, InterfaceGroup):
+        if on and isinstance(g, _INTERFACES):
             # a face is supported by an active continuum element owning it or by an
             # active beam carrying all its nodes; otherwise the joint is switched off
             b1, e1, b2, e2 = adjacency[g.tag]
@@ -96,11 +99,14 @@ def tie_pairs(groups, active, nn: int) -> NDArray[np.int64]:
     """
     pairs, keep = [], []
     for g in groups:
-        if not isinstance(g, InterfaceGroup):
+        if not isinstance(g, _INTERFACES):
             continue
         pr = np.stack([g.f1, g.f2], axis=-1).reshape(-1, 2)  # (ne*npe, 2)
         on = np.repeat(active[g.tag], g.npe)
-        pairs.append(pr[~on])
+        # Only legacy inactive Goodman joints imply full continuity. Disabled
+        # normal contact is absent, not a bonded/welded connection.
+        if isinstance(g, InterfaceGroup):
+            pairs.append(pr[~on])
         keep.append(pr[on])
     if not pairs:
         return np.empty((0, 2), np.int64)

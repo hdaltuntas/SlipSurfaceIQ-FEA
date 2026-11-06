@@ -55,6 +55,7 @@ from .progress import SolveCancelled, SolveProgress
 from .seepage import SeepageBlock, SeepageResult, solve_seepage
 from .state import SolverState
 from .structural import GROUP_TYPES, BarGroup, BeamGroup, InterfaceGroup
+from .unilateral_contact import StagedNormalContactGroup, normal_contact_response
 
 log = get_logger("static")
 _M = np.array([1.0, 1.0, 1.0, 0.0])
@@ -89,6 +90,9 @@ class StageResult:
     seepage_nodal_flux: NDArray[np.float64] | None = None  # constrained-node inflow [m2/s]
     seepage_nodes: NDArray[np.int64] | None = None  # active atmospheric seepage-face node IDs
     seepage_diagnostics: dict = field(default_factory=dict)  # Picard convergence/relaxation
+    contact_gap: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # m, NaN inactive
+    # Separate from PlasticFlag: OPEN=0, TOUCHING=1, COMPRESSED=2, inactive=255.
+    contact_status: dict[str, NDArray[np.uint8]] = field(default_factory=dict)
 
 
 @dataclass
@@ -239,11 +243,17 @@ class StaticSolver:
             "interface": model.interfaces,
         }
         kinds = model.structure_tags()
-        self.groups: list = [
-            GROUP_TYPES[b.etype](b, self.mesh.coords, props[kinds[b.tag]][b.tag], model.analysis)
-            for b in self.mesh.blocks
-            if b.etype not in _CONT
-        ]
+        self.groups: list = []
+        for block in self.mesh.blocks:
+            if block.etype in _CONT:
+                continue
+            spec = props[kinds[block.tag]][block.tag]
+            cls = (StagedNormalContactGroup
+                   if kinds[block.tag] == "interface" and spec.law == "unilateral_normal"
+                   else GROUP_TYPES[block.etype])
+            self.groups.append(cls(block, self.mesh.coords, spec, model.analysis))
+        self._has_normal_contact = any(isinstance(g, StagedNormalContactGroup)
+                                       for g in self.groups)
         self._iface_adj = self._interface_adjacency()
         self._iface_face_keys = self._interface_face_keys()
         self._model_cache: dict[str, object] = {}
@@ -409,7 +419,10 @@ class StaticSolver:
             if ids.size == 0:
                 continue
             p_joint: NDArray[np.float64] | None = None
-            if isinstance(g, InterfaceGroup):
+            if isinstance(g, StagedNormalContactGroup):
+                # No pore array (even a zero one) is sent to the dry contact kernel.
+                linear = False
+            elif isinstance(g, InterfaceGroup):
                 p_joint = pore.joint_pressure(g.xip[ids], g.f1[ids], p_nodal, water)
                 linear = False
                 symmetric &= g.symmetric
@@ -703,6 +716,9 @@ class StaticSolver:
                 arr[new | gone] = 0.0
             state.plastic[b.tag][new | gone] = 0
         for g in self.groups:
+            if isinstance(g, StagedNormalContactGroup):
+                g.synchronize_gap(state.struct[g.tag], state.u)
+                continue
             new = np.flatnonzero(active[g.tag] & ~state.active[g.tag])
             gone = np.flatnonzero(~active[g.tag] & state.active[g.tag])
             if gone.size:
@@ -824,6 +840,21 @@ class StaticSolver:
             return self.integrate(committed, du, sysm, lay)
 
         def factor(kind: str, trial: object | None) -> object:
+            if self._has_normal_contact and kind != "tangent":
+                # Open contact has exactly zero stiffness. Do not use a closed
+                # elastic predictor or cached tangent to hide a free mechanism.
+                D, K = (self._elastic_DK(sysm) if kind == "elastic" or D_comm is None
+                        else self._tangent_for(sysm, D_comm))
+                # Preserve the selected soil/beam predictor, but always replace
+                # contact blocks with their current geometric-state derivative.
+                for entry in sysm.struct:
+                    group = entry.group
+                    if isinstance(group, StagedNormalContactGroup):
+                        K[group.tag] = group.integrate(
+                            committed.struct[group.tag], entry.ids,
+                            np.zeros((len(entry.ids), group.nd)), None,
+                        )[2]
+                return self._factor_free(sysm, self._stiffness(sysm, D, K), sysm.symmetric)
             if kind == "elastic" or (kind == "committed" and D_comm is None):
                 key = (sysm.key, dm.free.size, hash(dm.free.tobytes()))
                 fk = self._elastic_fact.get(key)
@@ -855,7 +886,20 @@ class StaticSolver:
             committed = new
             D_comm = self._tangent_record(sysm, t)
 
-        prob = Problem(dm.ndof, dm.free, dm.prescribed, integrate, factor, commit, self._report)
+        roundoff_force_scale = None
+        if self._has_normal_contact:
+            # Estimate floating-point cancellation in a force-free prescribed
+            # translation using |K_ref| |u|. This does NOT enter the actual
+            # residual/tangent, and adds no spring or artificial force floor.
+            Dref, Kref = self._elastic_DK(sysm)
+            absolute_stiffness = abs(self._stiffness(sysm, Dref, Kref))
+            initial_u = np.abs(self._gather_u(base, dm))
+
+            def roundoff_force_scale(du):
+                return float(np.linalg.norm(absolute_stiffness @ (initial_u + np.abs(du))))
+
+        prob = Problem(dm.ndof, dm.free, dm.prescribed, integrate, factor, commit,
+                       self._report, roundoff_force_scale=roundoff_force_scale)
         try:
             _, _, hist = solve_stage(
                 prob, f_ext, f0, du_presc, solve_settings, sysm.linear, lam_end
@@ -902,6 +946,7 @@ class StaticSolver:
                 ex[~state.active[c.tag]] = np.nan
                 excess[c.tag] = ex
         beams, bars, ifs = {}, {}, {}
+        contact_gap, contact_status = {}, {}
         for g in self.groups:
             act = state.active[g.tag]
             if isinstance(g, BeamGroup):
@@ -912,6 +957,14 @@ class StaticSolver:
                 v = state.struct[g.tag]["N"].copy()
                 v[~act] = np.nan
                 bars[g.tag] = v
+            elif isinstance(g, StagedNormalContactGroup):
+                gap = state.struct[g.tag]["gap"].copy()
+                normal, _, status, _ = normal_contact_response(gap, g.kn)
+                v = np.stack([np.zeros_like(normal), normal], axis=-1)
+                v[~act] = np.nan
+                gap[~act] = np.nan
+                status[~act] = 255
+                ifs[g.tag], contact_gap[g.tag], contact_status[g.tag] = v, gap, status
             else:
                 v = state.struct[g.tag]["t"].copy()
                 v[~act] = np.nan
@@ -931,7 +984,10 @@ class StaticSolver:
             beams=beams,
             bars=bars,
             interfaces=ifs,
-            struct_flags={k: v.copy() for k, v in state.struct_flag.items()},
+            struct_flags={k: v.copy() for k, v in state.struct_flag.items()
+                          if k not in contact_gap},
+            contact_gap=contact_gap,
+            contact_status=contact_status,
             lam=lam,
             excess_pore=excess,
             head=None if sysm.seepage is None else sysm.seepage.head.copy(),

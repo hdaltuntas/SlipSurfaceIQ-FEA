@@ -60,6 +60,8 @@ def strength_reduction(
     ``dlam_min``: smallest load-factor step of a trial before it is declared failed
     (coarser than for ordinary stages; the bisection tolerance dominates the accuracy).
     """
+    if any(spec.law == "unilateral_normal" for spec in model.interfaces.values()):
+        raise ModelError("Unilateral normal contact is not yet supported by strength reduction")
     solver = StaticSolver(model)
     if model.stages:
         idx = stage if isinstance(stage, int) else [s.name for s in model.stages].index(stage)

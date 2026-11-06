@@ -1,6 +1,11 @@
 # F7 — Separate unilateral normal-contact kernel
 
-## Motivation and integration boundary
+> Update: an explicit `InterfaceSpec.unilateral_normal(...)` staged-solver adapter
+> is now available within the bounded scope documented in
+> [Native contact integration](f7-contact-static-integration.md).
+> The original standalone kernel and its benchmarks below remain unchanged.
+
+## Original standalone-kernel scope (PR #76)
 
 PR #75 deliberately left the legacy Goodman interface unchanged. Its tensile-capped
 elastoplastic law develops compression on reversal from 6 mm to 5 mm opening,

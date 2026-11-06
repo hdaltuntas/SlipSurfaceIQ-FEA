@@ -1,4 +1,4 @@
-"""Experimental dry, frictionless normal contact; NOT registered in GROUP_TYPES.
+"""Dry frictionless normal contact; explicit standalone and staged-solver adapters.
 
 The signed gap (metres, opening positive) is committed independently of stress.
 Normal traction is kn * min(gap, 0), never an incrementally clipped old traction.
@@ -62,7 +62,7 @@ def normal_contact_response(gap, kn):
 
 
 class UnilateralNormalContactGroup:
-    """Explicit standalone element kernel, not a selectable Model.interfaces law.
+    """Standalone kernel; StagedNormalContactGroup provides explicit Model selection.
 
     State contains ONLY geometric gap. Trial integration does not mutate it;
     accepted subset rows must be copied back by the caller. Activating a pair
@@ -180,3 +180,47 @@ class UnilateralNormalContactGroup:
             except FloatingPointError as exc:
                 raise ValueError("Normal contact energy overflow") from exc
         return energy
+
+
+class StagedNormalContactGroup(UnilateralNormalContactGroup):
+    """Adapter selected ONLY by InterfaceSpec.law='unilateral_normal'.
+
+    Uses total nodal displacements relative to the original mesh at stage
+    transitions, including reactivation after movement while inactive. Inactive
+    contact does not weld its faces. Reporting datum resets do not change gap.
+    No soil stress is copied into this geometric, initially unbonded contact.
+    """
+
+    def __init__(self, block, coords, spec, analysis):
+        if spec.law != "unilateral_normal":
+            raise ValueError("Staged normal contact requires its explicit law selector")
+        super().__init__(block, coords, kn=spec.kn, initial_gap=spec.initial_gap,
+                         analysis=analysis)
+        self.block, self.spec = block, spec
+        self.f1, self.f2 = self.conn[:, :self.npe], self.conn[:, self.npe:]
+
+    def edofs(self, node_dofs, ids):
+        indices = self._ids(ids)
+        return node_dofs[self.conn[indices]][:, :, :2].reshape(len(indices), self.nd)
+
+    def synchronize_gap(self, state, total_u):
+        """Reconstruct from original geometric reference, never a reported datum."""
+        self._state(state)
+        u = _real_array(total_u, "total displacements")
+        if u.ndim != 2 or u.shape[1] < 2 or len(u) <= int(self.conn.max()):
+            raise ValueError("Total displacement array does not match contact nodes")
+        increment = u[self.conn, :2].reshape(self.ne, self.nd)
+        with np.errstate(over="raise", invalid="raise"):
+            gap = self.initial_gap + np.einsum("epd,ed->ep", self.B, increment)
+        if not np.isfinite(gap).all():
+            raise ValueError("Nonfinite geometric contact gap")
+        state["gap"][:] = gap
+
+    def elastic_K(self, ids):
+        """Closed-side reference only; StaticSolver uses the actual state tangent."""
+        indices = self._ids(ids)
+        b, w = self.B[indices], self.weights[indices]
+        return np.einsum("epd,ep,epf->edf", b, w * self.kn, b)
+
+    def body_force(self, ids):
+        return np.zeros((len(self._ids(ids)), self.nd))
