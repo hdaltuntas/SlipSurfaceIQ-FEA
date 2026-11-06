@@ -218,3 +218,24 @@ equilibrium displacement problem.
 This validates only isolated axial bar constitutive integration and
 end-force equilibrium. It does not validate bond/slip, anchor head
 connection, grouting, groundwater or the coupled excavation system.
+
+## Independent elastic interface spring benchmark
+
+A separate F7 verification step exercises a straight two-node-per-face
+IFACE4 with a spatially uniform relative displacement of the two faces.
+The independent elastic reference is `tau = ks * ds`,
+`sigma_n = kn * dn`. For length `L`, the force at each endpoint
+on face 1 is `-(L/2) * (tau, sigma_n)`, while face 2 receives the
+equal and opposite nodal force. The benchmark checks computed nodal
+forces, uniform local tractions, overall action–reaction, and elastic
+tangent consistency from the actual `InterfaceGroup`. Tests vary
+interface length and loading orientation, and include pure shear and
+normal compression.
+
+The JSON evidence is written to
+`f7_audit/interface_elastic_benchmark.json`; the dedicated workflow
+step fails if the normalized discrepancy exceeds `1e-9` or any
+plastic return flag occurs. The reference case is strictly elastic
+(with deliberately high shear strength and tensile cap), isolated from
+soil continuum, groundwater and staged excavation. Neither nonlinear
+slip/opening nor coupled pile/soil physical validation is claimed.
