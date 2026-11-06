@@ -91,6 +91,9 @@ class Problem:
     # commit(trial, du_total_so_far): make a converged step the new committed state
     commit: Callable[[object, Arr], None]
     progress: Callable | None = None
+    # Optional cancellation-error bound (force units), not an engineering tolerance.
+    # Needed for zero-load prescribed rigid motion where fint and f_ext are both zero.
+    roundoff_force_scale: Callable[[Arr], float] | None = None
 
 
 def solve_stage(
@@ -162,7 +165,13 @@ def solve_stage(
                 # A held prestressed stage may have zero load change, but assembled
                 # internal forces still cancel only to floating-point precision. Do
                 # not cut steps trying to resolve numerical noise below that scale.
-                roundoff = 64 * np.finfo(float).eps * max(f_scale, float(np.linalg.norm(fint)))
+                arithmetic_scale = (prob.roundoff_force_scale(du)
+                                    if prob.roundoff_force_scale is not None else 0.0)
+                if not np.isfinite(arithmetic_scale) or arithmetic_scale < 0:
+                    raise ValueError("Invalid force roundoff scale")
+                roundoff = 64 * np.finfo(float).eps * max(
+                    f_scale, float(np.linalg.norm(fint)), arithmetic_scale
+                )
                 res_hist.append(rel)
                 if prob.progress is not None:
                     prob.progress(lam_t, it, rel)

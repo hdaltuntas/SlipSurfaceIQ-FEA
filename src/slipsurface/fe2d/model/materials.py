@@ -301,15 +301,35 @@ class InterfaceSpec:
     phi: float = 0.0
     psi: float = 0.0
     sig_t: float = 0.0
+    law: str = "goodman"
+    initial_gap: float = 0.0  # m; only unilateral_normal, opening positive
 
     def __post_init__(self) -> None:
         if not all(math.isfinite(v) for v in
                    (self.kn, self.ks, self.c, self.phi, self.psi, self.sig_t)):
             raise ModelError(f"interface '{self.name}': properties must be finite")
+        if self.law not in ("goodman", "unilateral_normal"):
+            raise ModelError(f"interface '{self.name}': unknown contact law '{self.law}'")
+        if (isinstance(self.initial_gap, bool) or not math.isfinite(self.initial_gap)
+                or self.initial_gap < 0):
+            raise ModelError(f"interface '{self.name}': initial_gap must be finite and >= 0")
+        if self.law == "goodman" and self.initial_gap != 0:
+            raise ModelError("Goodman interfaces do not accept a geometric initial gap")
+        if self.law == "unilateral_normal" and isinstance(self.kn, bool):
+            raise ModelError("Unilateral kn must be a real stiffness, not boolean")
+        if self.law == "unilateral_normal" and any(
+            value != 0 for value in (self.ks, self.c, self.phi, self.psi, self.sig_t)
+        ):
+            raise ModelError("Unilateral normal contact requires ks=c=phi=psi=sig_t=0")
         if self.kn <= 0 or self.ks < 0:
             raise ModelError(f"interface '{self.name}': need kn > 0, ks >= 0")
         if not (0.0 <= self.psi <= self.phi < 90.0) or self.c < 0 or self.sig_t < 0:
             raise ModelError(f"interface '{self.name}': invalid strength parameters")
+
+    @classmethod
+    def unilateral_normal(cls, name: str, kn: float, *, initial_gap: float = 0.0):
+        """Explicit dry, frictionless gap-based penalty contact (not Goodman)."""
+        return cls(name, kn=kn, ks=0.0, law="unilateral_normal", initial_gap=initial_gap)
 
     @classmethod
     def from_soil(

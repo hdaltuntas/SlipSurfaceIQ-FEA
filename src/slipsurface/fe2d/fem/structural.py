@@ -261,6 +261,10 @@ class InterfaceGroup:
     def __init__(
         self, block: ElementBlock, coords: Arr, spec: InterfaceSpec, analysis: Analysis
     ) -> None:
+        if spec.law != "goodman":
+            raise ValueError(
+                "InterfaceGroup is Goodman-only; select normal contact via StaticSolver"
+            )
         self.block, self.tag, self.spec = block, block.tag, spec
         npe = 2 if block.etype is ElemType.IFACE4 else 3
         self.npe = npe

@@ -42,7 +42,7 @@ FORMAT = "slipsurface-results"
 FORMAT_VERSION = 1
 _COMP = {"compression": "gzip", "compression_opts": 4, "shuffle": True}
 _DICT_FIELDS = ("sig", "q", "plastic", "active", "pore", "beams", "bars", "interfaces",
-                "struct_flags", "excess_pore")  # fmt: skip
+                "struct_flags", "excess_pore", "contact_gap", "contact_status")  # fmt: skip
 
 
 def _h5py() -> Any:

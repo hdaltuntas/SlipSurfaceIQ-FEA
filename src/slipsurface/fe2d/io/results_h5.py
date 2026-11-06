@@ -27,7 +27,7 @@ from .project_json import model_from_dict, model_to_dict
 
 SCHEMA_VERSION = 1
 _MAPS = ("sig", "q", "plastic", "active", "pore", "beams", "bars", "interfaces", "struct_flags",
-         "excess_pore")
+         "excess_pore", "contact_gap", "contact_status")
 
 
 def _array(group, name, value):
