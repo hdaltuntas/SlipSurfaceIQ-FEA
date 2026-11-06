@@ -97,7 +97,15 @@ def summarize(report):
             ] if isinstance(section, dict) else [],
         }
 
+    field_review = report.get("structural_field_review", {})
+    if not isinstance(field_review, dict):
+        field_review = {}
+    reviewed = field_review.get("ranked", [])
+    if not isinstance(reviewed, list):
+        reviewed = []
     return {
+        "structural_field_review_status": field_review.get("status", "missing"),
+        "largest_relative_field_differences": reviewed[:10],
         "integrity_checks": integrity,
         "mesh_sizes_m": sizes,
         "completed_rows": len(rows),
@@ -167,6 +175,23 @@ def markdown(summary):
         detail = f" ({100 * change:.2f}% finest-pair change)" if change is not None else ""
         lines.append(
             f"- {item.get('stage')}: {item.get('kind')}/{item.get('tag')}{detail}"
+        )
+    lines.extend([
+        "", "## Full-field N/V/M: relative versus absolute mesh differences", "",
+        f"- Review status: {summary['structural_field_review_status']}",
+        "Ranked by relative RMS; compare with absolute differences and the "
+        "cross-stage peak before interpreting numerical sensitivity.", "",
+    ])
+    for item in summary["largest_relative_field_differences"]:
+        fraction = item.get("pair_peak_fraction_of_reference")
+        scale = "not defined" if fraction is None else f"{100 * fraction:.2f}%"
+        lines.append(
+            f"- {item['stage']} / {item['tag']} / {item['mode']} / "
+            f"{item['component']}: relative RMS "
+            f"{100 * item['relative_rms_difference']:.2f}%, absolute RMS "
+            f"{item['rms_difference']:.6g}, pair peak "
+            f"{item['pair_peak_absolute']:.6g}, "
+            f"fraction of largest same-component observed peak {scale}"
         )
     lines.extend(["", "## Spatial structural profile comparison", "",
                   "Component relative RMS values are diagnostics only."])
