@@ -171,3 +171,28 @@ The cross-stage observed peak is **not** a material capacity, reference
 solution or engineering tolerance. Signed and magnitude fields use
 separate scales. No numerical/physical acceptance criterion is added,
 and independent reference validation remains necessary.
+
+## Independent analytical structural benchmark — cantilever
+
+The F7 workflow now also solves a standalone two-node Timoshenko beam with
+a clamped root and axial/transverse point loads at the free tip.
+The reference is derived from closed-form beam mechanics, independently
+of the assembled element stiffness:
+
+- Axial displacement: `u_x = N L / (E' A)`
+- Transverse displacement: `u_y = V L^3 / (3 E' I) + V L / (G A_s)`
+- Tip rotation: `theta = V L^2 / (2 E' I)`
+- Root reactions: `R_x = -N`, `R_y = -V`, `M = -V L`
+
+Here `E' = E / (1 - nu^2)` matches the implemented plane-strain beam
+convention, while `G = E / (2(1+nu))`. The shear contribution is zero
+when `A_s = 0` (Euler-Bernoulli limit). The benchmark reports every
+observable, its analytical value, absolute and relative error to
+`f7_audit/cantilever_beam_benchmark.json`. It fails its dedicated workflow
+step if the maximum relative error exceeds 1e-9. The CI tests sweep
+length and shear area and also isolate pure axial and pure transverse
+loading.
+
+This provides a bounded **independent structural-element benchmark**,
+not validation of nonlinear soil, supported excavation, anchors, or
+soil–pile interfaces. The existing F7 three-mesh gates remain intact.
