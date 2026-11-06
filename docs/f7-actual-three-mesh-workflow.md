@@ -196,3 +196,25 @@ loading.
 This provides a bounded **independent structural-element benchmark**,
 not validation of nonlinear soil, supported excavation, anchors, or
 soil–pile interfaces. The existing F7 three-mesh gates remain intact.
+
+## Independent axial BAR2 anchor benchmark
+
+The dedicated F7 workflow also checks a standalone displacement-controlled
+two-node axial bar with pretension and a symmetric tensile/compressive yield
+cap. For a horizontal bar of length `L` and out-of-plane spacing `s`,
+the analytical law is
+`N = clamp(T0/s + (EA/(s L))*delta, -Ty/s, Ty/s)`.
+The reference does not use the native assembled BAR2 force vector.
+It independently predicts the left-end reaction `-N` and right-end
+internal force `+N`, then checks the native `BarGroup` result and the
+yield flag for both elastic and plastic displacement cases.
+
+The output `f7_audit/anchor_axial_benchmark.json` is archived with the
+F7 evidence. A mismatch in yield flags or a normalized force error above
+`1e-9` causes the standalone benchmark to fail. Displacement control
+is deliberate: load control beyond ideal plastic yield is not a unique
+equilibrium displacement problem.
+
+This validates only isolated axial bar constitutive integration and
+end-force equilibrium. It does not validate bond/slip, anchor head
+connection, grouting, groundwater or the coupled excavation system.
