@@ -53,6 +53,8 @@ on:
       - "tests/verification/test_f7_support_profile_integrity.py"
       - "src/slipsurface/fe2d/post/support_field_sensitivity.py"
       - "tests/verification/test_f7_support_field_sensitivity.py"
+      - "src/slipsurface/fe2d/post/structural_field_review.py"
+      - "tests/verification/test_f7_structural_field_review.py"
 
 permissions:
   contents: read
@@ -147,6 +149,7 @@ jobs:
                   f"- Interface force-transfer gate: {data.get('interface_transfer_acceptance', {}).get('status', 'unknown')}\n"
                   f"- N/V/M profile integrity: {data.get('support_profile_integrity', {}).get('status', 'unknown')}\n"
                   f"- Full N/V/M field comparisons: {data.get('support_field_sensitivity', {}).get('status', 'unknown')}\n"
+                  f"- Relative/absolute N/V/M review: {data.get('structural_field_review', {}).get('status', 'unknown')}\n"
                   f"- Coupled dry balance: {data.get('force_balance_acceptance', {}).get('coupled_dry_balance', {})}\n"
                   f"- Solver/mesh failures: {len(data.get('failures', []))}\n\n"
                   "Numerical sensitivity is not independent physical validation.\n"
