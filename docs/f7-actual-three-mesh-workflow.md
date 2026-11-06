@@ -137,3 +137,20 @@ This is a **descriptive data-integrity check** and does not alter the
 existing solver/force-balance acceptance gates. In particular, sampled local
 N/V/M agreement is neither a physical design check nor independent
 RS2/PLAXIS validation.
+
+## Full-field N/V/M sensitivity at common CAD stations
+
+The real F7 audit now includes `support_field_sensitivity`: for each
+stage-active beam and bar, each successive coarse-to-fine mesh pair is
+compared at the same normalized CAD-length stations. It records absolute
+and normalized RMS differences, maximum absolute stationwise deviation,
+the location of that deviation, and the maximum absolute force or moment
+in each mesh. Beam N/V/M and bar axial profiles are assessed separately;
+signed-local and magnitude profiles are never mixed.
+
+Missing, duplicated, nonfinite and incompatible profile data are
+reported as incomplete. An orientation problem blocking signed-local
+sampling remains explicit in `signed_profile_errors`, rather than being
+silently replaced by magnitude comparisons. This is descriptive mesh
+sensitivity, not an engineering convergence threshold or an independent
+RS2/PLAXIS benchmark. The current bounded solver acceptance gate is unchanged.

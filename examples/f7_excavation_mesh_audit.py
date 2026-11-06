@@ -42,6 +42,7 @@ from slipsurface.fe2d.post.interface_transfer_ledger import interface_transfer_l
 from slipsurface.fe2d.post.mesh_sensitivity_diagnostics import mesh_sensitivity_diagnostics
 from slipsurface.fe2d.post.stage_interface_moment import stage_effective_interface_moment_audit
 from slipsurface.fe2d.post.support_audit import compare_profiles, sample_support_profile
+from slipsurface.fe2d.post.support_field_sensitivity import support_field_sensitivity
 from slipsurface.fe2d.post.support_coverage_acceptance import support_coverage_acceptance
 from slipsurface.fe2d.post.support_profile_activity import active_support_profile_available
 from slipsurface.fe2d.post.support_profile_integrity import support_profile_integrity
@@ -370,7 +371,11 @@ def write_audit(output: Path, sizes: tuple[float, ...]) -> int:
     profile_integrity = support_profile_integrity(
         rows, sizes, base.stages, base.liners, base.bolts,
     )
+    field_sensitivity = support_field_sensitivity(
+        rows, sizes, base.stages, base.liners, base.bolts,
+    )
     report = {
+        "support_field_sensitivity": field_sensitivity,
         "support_profile_integrity": profile_integrity,
         "interface_transfer_acceptance": transfer_acceptance,
         "interface_transfer_ledger": transfer_ledger,
