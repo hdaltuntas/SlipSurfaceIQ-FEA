@@ -1,0 +1,93 @@
+name: f7-contact-authoring
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/f7-contact-authoring.yml'
+      - 'src/slipsurface/fe2d/gui/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'tests/unit/test_interface_authoring.py'
+      - 'tests/unit/test_interface_contact_editor.py'
+      - 'scripts/f7_contact_static_benchmark.py'
+      - 'requirements*.txt'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/f7-contact-authoring.yml'
+      - 'src/slipsurface/fe2d/gui/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'tests/unit/test_interface_authoring.py'
+      - 'tests/unit/test_interface_contact_editor.py'
+      - 'scripts/f7_contact_static_benchmark.py'
+      - 'requirements*.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  authoring:
+    name: Qt law authoring and native contact re-solve
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: src
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+      CONTACT_EDITOR_SCREENSHOT: contact_authoring/interface-dialog.png
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Record reproducible tracked source without credentials
+        run: |
+          mkdir -p contact_authoring
+          git archive --format=tar HEAD -o contact_authoring/source.tar
+          git rev-parse HEAD > contact_authoring/source-commit.txt
+          git rev-parse HEAD^{tree} > contact_authoring/source-tree.txt
+      - name: Install actual desktop and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0
+          python -m pip install -r requirements.txt pytest ruff
+          python -c "import PySide6; import shapely"
+      - name: Lint application and tests
+        run: ruff check src tests
+      - name: Test real editor, transactions, old models and native integration
+        run: >-
+          python -m pytest -q tests/unit/test_interface_authoring.py
+          tests/unit/test_interface_contact_editor.py
+          tests/verification/test_f7_contact_static_integration.py
+          --junitxml=contact_authoring/tests.xml
+      - name: Reject skipped editor evidence
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('contact_authoring/tests.xml').getroot()
+          cases = list(root.iter('testcase'))
+          assert cases, 'No test evidence'
+          assert not list(root.iter('skipped')), 'Desktop dependencies/tests were skipped'
+          assert not list(root.iter('failure')) and not list(root.iter('error'))
+          PY
+      - name: Execute unchanged native contact benchmark
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_static_benchmark.py \
+            --output contact_authoring/native-contact.json \
+            2>&1 | tee contact_authoring/solver.log
+      - name: Preserve complete or partial evidence and tracked source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-contact-authoring-evidence
+          path: contact_authoring/
+          retention-days: 7
+          if-no-files-found: warn

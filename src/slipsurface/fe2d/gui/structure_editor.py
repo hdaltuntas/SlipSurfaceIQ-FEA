@@ -13,8 +13,14 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api
-from .editing import put_interface, put_structure, remove_interface, remove_structure, validate_edit
+from .editing import put_structure, remove_interface, remove_structure, validate_edit
 from .form_helpers import EditorDialog, toolbar
+from .interface_authoring import (
+    GOODMAN_FIELDS,
+    NORMAL_FIELDS,
+    apply_interface_spec,
+    interface_spec_from_fields,
+)
 
 
 class StructureSpecDialog(EditorDialog):
@@ -127,7 +133,8 @@ class StructureDialog(EditorDialog):
         note = QLabel(
             "Liners, bolts and interfaces. Edge names come from the CAD drawing or the "
             "current mesh. Deleting an interface welds coincident nodes; if the initial "
-            "policy is auto, a new interface is active."
+            "policy is auto, a new interface is active. Inactive Goodman joints are tied; "
+            "inactive unilateral normal contacts are not."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
@@ -150,7 +157,8 @@ class StructureDialog(EditorDialog):
         self.tags = list(self.model.structure_tags())
         self.list.clear()
         for tag, kind in self.model.structure_tags().items():
-            self.list.addItem(f"{tag} · {kind} · {self.model.mesh.block(tag).ne} elements")
+            law = f" · {self.model.interfaces[tag].law}" if kind == "interface" else ""
+            self.list.addItem(f"{tag} · {kind}{law} · {self.model.mesh.block(tag).ne} elements")
         if self.tags:
             self.list.setCurrentRow(0)
 
@@ -211,9 +219,10 @@ class InterfaceDialog(EditorDialog):
     def __init__(self, model, tag=None, parent=None):
         super().__init__("Interface", parent)
         self.model, self.tag = model, tag
-        self.resize(640, 530)
+        self.resize(680, 680)
         form = QFormLayout()
-        self.name = QLineEdit(tag or "joint")
+        self.original = model.interfaces.get(tag)
+        self.name = QLineEdit(self.original.name if self.original else "joint")
         self.name.setEnabled(tag is None)
         self.edge, self.side = QComboBox(), QComboBox()
         self.edge.addItems(sorted(model.mesh.edge_sets))
@@ -223,8 +232,14 @@ class InterfaceDialog(EditorDialog):
         form.addRow("Tag", self.name)
         form.addRow("Edge set", self.edge)
         form.addRow("Side whose nodes are duplicated", self.side)
+        self.law = QComboBox()
+        self.law.addItem("Goodman - elastoplastic joint", "goodman")
+        self.law.addItem("Unilateral normal contact - dry, frictionless", "unilateral_normal")
+        self.law.setCurrentIndex(self.law.findData(
+            self.original.law if self.original else "goodman"))
+        form.addRow("Interface law", self.law)
         self.fields = {}
-        spec = model.interfaces.get(tag)
+        spec = self.original
         for key, title, default in [
             ("kn", "kn (kPa/m)", 1e6),
             ("ks", "ks (kPa/m)", 1e5),
@@ -232,34 +247,55 @@ class InterfaceDialog(EditorDialog):
             ("phi", "φ (°)", 20),
             ("psi", "ψ (°)", 0),
             ("sig_t", "Tensile cutoff (kPa)", 0),
+            ("initial_gap", "Initial clearance (m, opening positive)", 0),
         ]:
             edit = QLineEdit(str(getattr(spec, key, default)))
             self.fields[key] = edit
             form.addRow(title, edit)
         self.root.addLayout(form)
+        self.law_note = QLabel()
+        self.law_note.setWordWrap(True)
+        self.root.addWidget(self.law_note)
         note = QLabel(
-            "Left/right is relative to the direction the CAD line was entered. Adding an "
-            "interface changes the node topology. Install the liner first, then the "
-            "interfaces, and the bolts last. The two faces of an inactive interface are "
-            "tied. Results are cleared."
+            "Left/right follows the directed CAD line. Adding an interface changes node "
+            "topology. Install the liner first, interfaces next and bolts last. "
+            "Property edits clear results; they do not transfer nonlinear contact history. "
+            "Changing the law is an explicit model change, not a repair of old results."
         )
         note.setWordWrap(True)
         self.root.addWidget(note)
+        self.law.currentIndexChanged.connect(self.update_law)
+        self.update_law()
         self.finish_layout(self.apply)
+
+    def update_law(self, *_):
+        normal = self.law.currentData() == "unilateral_normal"
+        active = NORMAL_FIELDS if normal else GOODMAN_FIELDS
+        for key, edit in self.fields.items():
+            edit.setEnabled(key in active)
+        self.law_note.setText(
+            "Unbonded normal-only penalty contact: positive gap carries zero force, "
+            "closure carries compression, and shear is always zero. Inactive faces are "
+            "NOT tied. Requires dry/drained plane strain, initial stress 'none', full "
+            "Newton (NR), straight reference faces and no seismic loading or SRF. "
+            "Provide real supports for open-body mechanisms. Disabled strength fields "
+            "are ignored. Model settings will NOT be changed automatically."
+            if normal else
+            "Goodman elastoplastic joint: a tensile cutoff is not geometric gap "
+            "opening/reclosure. Inactive Goodman faces are tied. Initial clearance "
+            "is disabled and stored as zero. This remains the default for old models."
+        )
 
     def apply(self):
         try:
-            spec = api.InterfaceSpec(
-                self.name.text().strip(), **{k: float(w.text()) for k, w in self.fields.items()}
+            spec = interface_spec_from_fields(
+                self.name.text(), self.law.currentData(),
+                {key: edit.text() for key, edit in self.fields.items()},
+                original=self.original,
             )
-            self.updated = (
-                validate_edit(
-                    replace(self.model, interfaces={**self.model.interfaces, self.tag: spec})
-                )
-                if self.tag
-                else put_interface(
-                    self.model, spec, self.edge.currentText(), self.side.currentText()
-                )
+            self.updated = apply_interface_spec(
+                self.model, spec, tag=self.tag,
+                edge_set=self.edge.currentText(), side=self.side.currentText(),
             )
         except Exception as exc:
             self.error(exc)
