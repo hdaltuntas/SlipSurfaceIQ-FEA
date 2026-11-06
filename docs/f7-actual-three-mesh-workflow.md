@@ -239,3 +239,23 @@ plastic return flag occurs. The reference case is strictly elastic
 (with deliberately high shear strength and tensile cap), isolated from
 soil continuum, groundwater and staged excavation. Neither nonlinear
 slip/opening nor coupled pile/soil physical validation is claimed.
+
+## Closed-form frictionless interface plastic return benchmark
+
+A new standalone nonlinear IFACE4 benchmark restricts the constitutive law
+to zero friction and zero dilation (`phi=psi=0`). For a uniform local jump,
+the analytical law is separable:
+`tau = clamp(ks * delta_s, -c, c)`,
+`sigma_n = min(kn * delta_n, sig_t)`. This reference includes
+positive/negative shear yielding, a tensile cut-off (opening), and
+simultaneous shear and tensile activation. Its independent piecewise
+tangent has zero slope in yielded/capped directions and the original
+spring stiffness in elastic directions. The code compares the actual
+`InterfaceGroup` tractions, nodal action/reaction, tangent and flags
+against this closed form, saving
+`f7_audit/interface_plastic_benchmark.json`.
+
+The benchmark is limited to a frictionless interface so its solution
+does not depend on the general Mohr–Coulomb active-set solver.
+Frictional slip, nonassociated dilation, hydraulic joint loads and
+fully coupled soil–pile behaviour remain separate validation tasks.
