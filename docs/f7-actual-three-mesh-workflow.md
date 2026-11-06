@@ -154,3 +154,20 @@ sampling remains explicit in `signed_profile_errors`, rather than being
 silently replaced by magnitude comparisons. This is descriptive mesh
 sensitivity, not an engineering convergence threshold or an independent
 RS2/PLAXIS benchmark. The current bounded solver acceptance gate is unchanged.
+
+## Interpreting large N/V/M percentage changes at low force levels
+
+The three-mesh JSON additionally includes `structural_field_review`.
+For each beam N/V/M or anchor axial component and local-sign mode, it
+retains the normalized RMS difference, RMS force/moment difference,
+maximum stationwise difference, and pair maximum magnitude. It reports
+the pair peak as a fraction of the largest observed peak for that same
+support, component and mode across all sampled stages. This prevents
+mistaking a large relative difference between small first-stage moments
+for a proven physical instability. The review ranks components by
+relative RMS and prints the top entries in the Actions evidence review.
+
+The cross-stage observed peak is **not** a material capacity, reference
+solution or engineering tolerance. Signed and magnitude fields use
+separate scales. No numerical/physical acceptance criterion is added,
+and independent reference validation remains necessary.
