@@ -122,3 +122,18 @@ interface-transfer acceptance gate.
 This adds an **internal interface assembly/integrity requirement** to the
 existing F7 execution gate. It does not replace the newer coupled dry, wet,
 or seepage budgets and does not establish independent physical validation.
+
+## CAD-aligned N/V/M profile integrity
+
+The actual three-mesh audit additionally emits `support_profile_integrity`.
+It checks each declared pile/anchor support against the independently defined
+stage activation schedule. Active supports must have finite sampled profiles
+at monotonically increasing common CAD-length stations (beam N, V, M;
+bar axial force). Inactive supports must not carry sampled profiles.
+Missing/duplicate mesh-stage records, unknown support tags, nonfinite force
+components and mismatched station grids are reported as incomplete.
+
+This is a **descriptive data-integrity check** and does not alter the
+existing solver/force-balance acceptance gates. In particular, sampled local
+N/V/M agreement is neither a physical design check nor independent
+RS2/PLAXIS validation.
