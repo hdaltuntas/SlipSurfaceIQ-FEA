@@ -65,6 +65,9 @@ on:
       - "tests/verification/test_f7_interface_plastic_benchmark.py"
       - "scripts/f7_frictional_direct_shear_benchmark.py"
       - "tests/verification/test_f7_frictional_direct_shear_benchmark.py"
+      - "scripts/f7_dilatant_interface_benchmark.py"
+      - "tests/verification/test_f7_dilatant_interface_benchmark.py"
+      - "src/slipsurface/fe2d/fem/structural.py"
 
 permissions:
   contents: read
@@ -110,6 +113,10 @@ jobs:
         run: >-
           python scripts/f7_frictional_direct_shear_benchmark.py
           --output f7_audit/frictional_direct_shear_benchmark.json
+      - name: Verify dilatant interface branches and full consistent tangent
+        run: >-
+          python scripts/f7_dilatant_interface_benchmark.py
+          --output f7_audit/dilatant_interface_benchmark.json
       - name: Solve staged supported excavation on three independent meshes
         id: run_f7
         shell: bash
@@ -248,6 +255,15 @@ jobs:
               )
           else:
               summary += "\n- Infiltration/seepage face: report unavailable\n"
+          dilatant_path = Path("f7_audit/dilatant_interface_benchmark.json")
+          if dilatant_path.exists():
+              dilatant = json.loads(dilatant_path.read_text(encoding="utf-8"))
+              summary += (
+                  f"\n- Dilatant interface benchmark: {dilatant.get('status', 'unknown')}\n"
+                  f"- Dilatant interface cases: {dilatant.get('case_count', 0)}\n"
+              )
+          else:
+              summary += "\n- Dilatant interface benchmark: report unavailable\n"
           Path("f7-summary.md").write_text(summary, encoding="utf-8")
           print(summary)
           PY
