@@ -68,6 +68,8 @@ on:
       - "scripts/f7_dilatant_interface_benchmark.py"
       - "tests/verification/test_f7_dilatant_interface_benchmark.py"
       - "src/slipsurface/fe2d/fem/structural.py"
+      - "scripts/f7_interface_history_benchmark.py"
+      - "tests/verification/test_f7_interface_history_benchmark.py"
 
 permissions:
   contents: read
@@ -117,6 +119,10 @@ jobs:
         run: >-
           python scripts/f7_dilatant_interface_benchmark.py
           --output f7_audit/dilatant_interface_benchmark.json
+      - name: Verify committed interface histories and report contact-gap limitations
+        run: >-
+          python scripts/f7_interface_history_benchmark.py
+          --output f7_audit/interface_history_benchmark.json
       - name: Solve staged supported excavation on three independent meshes
         id: run_f7
         shell: bash
@@ -264,6 +270,19 @@ jobs:
               )
           else:
               summary += "\n- Dilatant interface benchmark: report unavailable\n"
+          history_path = Path("f7_audit/interface_history_benchmark.json")
+          if history_path.exists():
+              history = json.loads(history_path.read_text(encoding="utf-8"))
+              gap = history.get("unilateral_contact_gap_comparison", {})
+              summary += (
+                  f"\n- Constitutive history checks: {history.get('status', 'unknown')}\n"
+                  f"- Histories / committed steps: {history.get('history_count', 0)} / "
+                  f"{history.get('committed_step_count', 0)}\n"
+                  f"- Separate unilateral contact-gap comparison: {gap.get('status', 'unknown')}\n"
+                  "- A passed history check does NOT establish physical gap closure.\n"
+              )
+          else:
+              summary += "\n- Interface history benchmark: report unavailable\n"
           Path("f7-summary.md").write_text(summary, encoding="utf-8")
           print(summary)
           PY
