@@ -259,3 +259,28 @@ The benchmark is limited to a frictionless interface so its solution
 does not depend on the general Mohr–Coulomb active-set solver.
 Frictional slip, nonassociated dilation, hydraulic joint loads and
 fully coupled soil–pile behaviour remain separate validation tasks.
+
+## Independent nondilatant Mohr–Coulomb direct shear benchmark
+
+The standalone F7 interface verification now also evaluates a drained,
+constant-compression, nondilatant (`psi = 0`) direct shear case.
+With the prescribed normal jump `dn < 0`, the fixed effective normal
+traction is `sigma_n = kn * dn`, and the shear limit is
+`tau_y = c - sigma_n * tan(phi)`. The independent closed-form response
+is `tau = clamp(ks * ds, -tau_y, tau_y)`. For active positive or
+negative shear yielding, the local consistent tangent is
+`[[0, -sign(tau) * tan(phi) * kn], [0, kn]]`; before yielding, it
+is `diag(ks, kn)`. Uniform-jump IFACE4 nodal end forces are the
+equal/opposite tractions multiplied by half the interface length.
+
+The benchmark compares closed-form tractions, integrated element forces,
+global action/reaction, active-set flags and the off-diagonal tangent
+coupling with the native `InterfaceGroup` implementation. It sweeps
+interface length and friction angles and archives
+`f7_audit/frictional_direct_shear_benchmark.json` with a dedicated
+error-gated workflow step.
+
+This is an independently derived **single active-shear-plane**
+reference under imposed compression. It is not a closed-form reference
+for dilatant multisurface return mapping, drainage transitions,
+hydraulic interface loading, or complete staged soil–pile–anchor response.
