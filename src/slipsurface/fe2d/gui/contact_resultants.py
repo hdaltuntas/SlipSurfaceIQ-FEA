@@ -62,10 +62,11 @@ class ContactResultantsDialog(QDialog):
         layout.addWidget(note)
         self.table = QTableWidget(0, 12)
         self.table.setHorizontalHeaderLabels([
-            "Interface", "Data", "Active/total elements", "Available/active points",
-            "Active length (m)", "∑w·p (kN/m)", "Face 1 Fx (kN/m)", "Face 1 Fy (kN/m)",
-            "Face 1 Mz (kN·m/m)", "Face 2 Fx (kN/m)", "Face 2 Fy (kN/m)", "Face 2 Mz (kN·m/m)",
+            "Interface", "Data", "Elements\nactive/total", "Points\navailable/active",
+            "Active length\n(m)", "∑w·p\n(kN/m)", "Face 1 Fx\n(kN/m)", "Face 1 Fy\n(kN/m)",
+            "Face 1 Mz\n(kN·m/m)", "Face 2 Fx\n(kN/m)", "Face 2 Fy\n(kN/m)", "Face 2 Mz\n(kN·m/m)",
         ])
+        self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -114,6 +115,7 @@ class ContactResultantsDialog(QDialog):
             self.status.setText("No normal-contact interfaces. Goodman is not normal-contact data.")
             return
         self.table.setRowCount(len(self.summaries))
+
         def show(value):
             return "—" if value is None else f"{value:.8g}"
 
