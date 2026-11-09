@@ -107,3 +107,42 @@ th,td{text-align:left;padding:12px;border-bottom:1px solid #ddd}th{background:#e
         "The S4 external comparison is deferred.</p></html>"
     )
     return _atomic_write(path, lambda tmp: Path(tmp).write_text(html, encoding="utf-8"))
+
+
+def export_contact_csv(result, path, stage=None, *, tag=None, all_stages=False):
+    """Unaveraged stored contact points; missing/inactive measurements are blank.
+
+    Coordinates are undeformed face-1 integration points. Gap uses metres,
+    normal traction tension-positive kPa, and pressure compression-positive kPa.
+    No geometry, classification or traction is recovered from displacement.
+    """
+    from ..post.contact_results import contact_points, normal_contact_tags
+
+    if not normal_contact_tags(result.model):
+        raise ValueError("No unilateral normal-contact interfaces in this result")
+    stages = [result.initial, *result.stages] if all_stages else [stage_result(result, stage)]
+    # Validate everything before touching the destination (including late stages).
+    batches = [(st, contact_points(result, st, tag)) for st in stages]
+
+    def value(number):
+        return "" if number is None else format(number, ".17g")
+
+    def write(tmp):
+        with open(tmp, "w", newline="", encoding="utf-8") as stream:
+            out = csv.writer(stream)
+            out.writerow([
+                "stage", "load_factor", "tag", "element", "point", "face1_node", "face2_node",
+                "x_m", "y_m", "active", "availability", "gap_m", "normal_traction_kPa",
+                "pressure_kPa", "status_code", "status",
+            ])
+            for st, points in batches:
+                for p in points:
+                    out.writerow([
+                        st.name, value(st.lam), p.tag, p.element, p.point,
+                        p.face1_node, p.face2_node, value(p.x_m), value(p.y_m), int(p.active),
+                        p.availability, value(p.gap_m), value(p.normal_traction_kpa),
+                        value(p.pressure_kpa), "" if p.status_code is None else p.status_code,
+                        p.status,
+                    ])
+
+    return _atomic_write(path, write)

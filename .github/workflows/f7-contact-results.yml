@@ -1,0 +1,97 @@
+name: f7-contact-results
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/f7-contact-results.yml'
+      - 'src/slipsurface/fe2d/gui/**'
+      - 'src/slipsurface/fe2d/post/contact_results.py'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'tests/unit/test_contact_results*.py'
+      - 'scripts/f7_contact_static_benchmark.py'
+      - 'requirements*.txt'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/f7-contact-results.yml'
+      - 'src/slipsurface/fe2d/gui/**'
+      - 'src/slipsurface/fe2d/post/contact_results.py'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'tests/unit/test_contact_results*.py'
+      - 'scripts/f7_contact_static_benchmark.py'
+      - 'requirements*.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  contact-results:
+    name: Stored contact results in actual Qt and CSV
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: src
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+      CONTACT_RESULTS_EVIDENCE_DIR: contact_results
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Record exact tracked source baseline
+        run: |
+          mkdir -p contact_results
+          git archive --format=tar HEAD -o contact_results/source.tar
+          git rev-parse HEAD > contact_results/source-commit.txt
+          git rev-parse HEAD^{tree} > contact_results/source-tree.txt
+      - name: Install actual desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0
+          python -m pip install -r requirements.txt pytest ruff
+          python -c "import PySide6; import shapely"
+      - name: Lint full source and tests
+        run: ruff check src tests
+      - name: Verify stored fields, real GUI, exports and native integration
+        run: >-
+          python -m pytest -q tests/unit/test_contact_results.py
+          tests/unit/test_contact_results_desktop.py
+          tests/verification/test_f7_contact_static_integration.py
+          --junitxml=contact_results/tests.xml
+      - name: Require actual unskipped GUI evidence
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          root = ET.parse('contact_results/tests.xml').getroot()
+          assert list(root.iter('testcase')), 'No test evidence'
+          assert not list(root.iter('skipped')), 'Qt dependencies or tests were skipped'
+          assert not list(root.iter('failure')) and not list(root.iter('error'))
+          for name in ('contact-table-open.png', 'contact-table-closed.png',
+                       'contact-status-canvas.png', 'normal-contact-results.ssproj',
+                       'all-contact-stages.csv'):
+              assert (Path('contact_results') / name).is_file(), name
+          PY
+      - name: Run unchanged native continuum-contact benchmark
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_static_benchmark.py \
+            --output contact_results/native-contact.json \
+            2>&1 | tee contact_results/solver.log
+      - name: Archive successful or partial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-contact-results-evidence
+          path: contact_results/
+          retention-days: 14
+          if-no-files-found: warn
