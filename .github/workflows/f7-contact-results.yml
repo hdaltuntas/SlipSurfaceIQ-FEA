@@ -8,11 +8,13 @@ on:
       - 'src/slipsurface/fe2d/gui/**'
       - 'src/slipsurface/fe2d/post/contact_results.py'
       - 'src/slipsurface/fe2d/post/contact_history.py'
+      - 'src/slipsurface/fe2d/post/contact_resultants.py'
       - 'src/slipsurface/fe2d/io/**'
       - 'src/slipsurface/fe2d/fem/**'
       - 'src/slipsurface/fe2d/model/**'
       - 'tests/unit/test_contact_results*.py'
       - 'tests/unit/test_contact_history*.py'
+      - 'tests/unit/test_contact_resultants*.py'
       - 'scripts/f7_contact_static_benchmark.py'
       - 'requirements*.txt'
   push:
@@ -22,11 +24,13 @@ on:
       - 'src/slipsurface/fe2d/gui/**'
       - 'src/slipsurface/fe2d/post/contact_results.py'
       - 'src/slipsurface/fe2d/post/contact_history.py'
+      - 'src/slipsurface/fe2d/post/contact_resultants.py'
       - 'src/slipsurface/fe2d/io/**'
       - 'src/slipsurface/fe2d/fem/**'
       - 'src/slipsurface/fe2d/model/**'
       - 'tests/unit/test_contact_results*.py'
       - 'tests/unit/test_contact_history*.py'
+      - 'tests/unit/test_contact_resultants*.py'
       - 'scripts/f7_contact_static_benchmark.py'
       - 'requirements*.txt'
 
@@ -69,6 +73,7 @@ jobs:
           python -m pytest -q tests/unit/test_contact_results.py
           tests/unit/test_contact_results_desktop.py
           tests/unit/test_contact_history.py tests/unit/test_contact_history_desktop.py
+          tests/unit/test_contact_resultants.py tests/unit/test_contact_resultants_desktop.py
           tests/verification/test_f7_contact_static_integration.py
           --junitxml=contact_results/tests.xml
       - name: Require actual unskipped GUI evidence
@@ -83,7 +88,9 @@ jobs:
           for name in ('contact-table-open.png', 'contact-table-closed.png',
                        'contact-status-canvas.png', 'normal-contact-results.ssproj',
                        'all-contact-stages.csv', 'contact-point-history.csv',
-                       'contact-point-history.png', 'contact-history-missing.png'):
+                       'contact-point-history.png', 'contact-history-missing.png',
+                       'contact-resultants.png', 'contact-resultants-missing.png',
+                       'contact-resultants.csv'):
               assert (Path('contact_results') / name).is_file(), name
           PY
       - name: Run unchanged native continuum-contact benchmark
