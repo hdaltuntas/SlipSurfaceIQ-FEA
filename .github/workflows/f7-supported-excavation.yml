@@ -28,6 +28,7 @@ on:
       - "tests/verification/test_f7_seepage_boundary_evidence.py"
       - "src/slipsurface/fe2d/fem/seepage.py"
       - "src/slipsurface/fe2d/fem/static.py"
+      - "src/slipsurface/fe2d/fem/nonlinear.py"
       - "scripts/f7_seepage_excavation_audit.py"
       - "tests/verification/test_f7_coupled_seepage_budget.py"
       - "src/slipsurface/fe2d/post/dry_applied_loads.py"
