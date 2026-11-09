@@ -15,6 +15,9 @@ on:
       - 'src/slipsurface/fe2d/post/contact_resultants.py'
       - 'src/slipsurface/fe2d/post/dry_applied_loads.py'
       - 'tests/verification/test_f7_contact_equilibrium.py'
+      - 'src/slipsurface/fe2d/post/contact_partial_equilibrium.py'
+      - 'scripts/f7_contact_partial_benchmark.py'
+      - 'tests/verification/test_f7_contact_partial_equilibrium.py'
       - 'tests/verification/test_f7_contact_static_integration.py'
       - 'requirements-core.txt'
   push:
@@ -31,6 +34,9 @@ on:
       - 'src/slipsurface/fe2d/post/contact_resultants.py'
       - 'src/slipsurface/fe2d/post/dry_applied_loads.py'
       - 'tests/verification/test_f7_contact_equilibrium.py'
+      - 'src/slipsurface/fe2d/post/contact_partial_equilibrium.py'
+      - 'scripts/f7_contact_partial_benchmark.py'
+      - 'tests/verification/test_f7_contact_partial_equilibrium.py'
       - 'tests/verification/test_f7_contact_static_integration.py'
       - 'requirements-core.txt'
 
@@ -57,12 +63,13 @@ jobs:
       - name: Lint application and contact benchmark
         run: >-
           ruff check src tests scripts/f7_contact_static_benchmark.py
-          scripts/f7_contact_equilibrium_benchmark.py
+          scripts/f7_contact_equilibrium_benchmark.py scripts/f7_contact_partial_benchmark.py
       - name: Verify native state, contact kernel and serialization contracts
         run: >-
           python -m pytest -q tests/verification/test_f7_contact_static_integration.py
           tests/verification/test_f7_unilateral_contact.py
           tests/verification/test_f7_contact_equilibrium.py
+          tests/verification/test_f7_contact_partial_equilibrium.py
           --junitxml=contact-integration-tests.xml
       - name: Solve native continuum-contact load histories against closed form
         shell: bash
@@ -78,6 +85,13 @@ jobs:
           python -u scripts/f7_contact_equilibrium_benchmark.py \
             --output f7_contact_integration/contact_equilibrium.json \
             2>&1 | tee f7_contact_integration/equilibrium.log
+      - name: Verify fixed-topology partial load histories independently
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_partial_benchmark.py \
+            --output f7_contact_integration/contact_partial_equilibrium.json \
+            2>&1 | tee f7_contact_integration/partial-equilibrium.log
       - name: Require complete unskipped numerical evidence
         run: |
           python - <<'PY'
@@ -94,6 +108,16 @@ jobs:
           assert data['case_count'] == 16 and data['stage_count'] == 104
           assert all(c['status'] == 'passed' and c['stages'] for c in data['cases'])
           assert all(s['status'] == 'passed' for c in data['cases'] for s in c['stages'])
+          partial = json.loads(Path('f7_contact_integration/contact_partial_equilibrium.json').read_text())
+          assert partial['status'] == 'passed'
+          assert partial['case_count'] == 20 and partial['stage_count'] == 132
+          assert all(c['status'] == 'passed' and c['initial_status'] == 'passed'
+                     for c in partial['cases'])
+          assert all(s['status'] == 'passed' for c in partial['cases'] for s in c['stages'])
+          assert all(r['status'] == 'passed' for c in partial['cases']
+                     for r in c.get('analytical_layer_checks', c.get('analytical_applied_checks', [])))
+          assert sum(len(c.get('analytical_layer_checks', c.get('analytical_applied_checks', [])))
+                     for c in partial['cases']) == 132
           PY
       - name: Summarize actual integration evidence
         if: always()
@@ -120,6 +144,13 @@ jobs:
                         f"- Equilibrium models/stages: {audit['case_count']}/{audit['stage_count']}"]
           else:
               lines += ['- Contact equilibrium: no evidence; not a pass.']
+          partial_path = Path('f7_contact_integration/contact_partial_equilibrium.json')
+          if partial_path.exists():
+              partial = json.loads(partial_path.read_text(encoding='utf-8'))
+              lines += [f"- Partial contact equilibrium: {partial['status']}",
+                        f"- Partial models/stages: {partial['case_count']}/{partial['stage_count']}"]
+          else:
+              lines += ['- Partial contact equilibrium: no evidence; not a pass.']
           lines += ['', 'Explicit dry normal-contact option; legacy Goodman is unchanged.',
                     'Initial stress none and NR only. No hydraulic/SRF/GUI authoring claim.',
                     'Result snapshots are not nonlinear solver restart checkpoints.', '']
