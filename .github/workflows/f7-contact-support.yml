@@ -1,0 +1,128 @@
+name: f7-contact-support
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/f7-contact-support.yml'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/post/contact*equilibrium.py'
+      - 'scripts/f7_contact*benchmark.py'
+      - 'tests/verification/test_f7_contact*equilibrium.py'
+      - 'requirements-core.txt'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/f7-contact-support.yml'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/post/contact*equilibrium.py'
+      - 'scripts/f7_contact*benchmark.py'
+      - 'tests/verification/test_f7_contact*equilibrium.py'
+      - 'requirements-core.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  support-release:
+    name: Native temporary-restraint release and independent equilibrium
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: src
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Record exact tracked source without Git metadata or credentials
+        run: |
+          mkdir -p f7_support
+          git archive --format=tar HEAD -o f7_support/source.tar
+          git rev-parse HEAD > f7_support/source-commit.txt
+          git rev-parse HEAD^{tree} > f7_support/source-tree.txt
+      - name: Install numerical validation dependencies
+        run: python -m pip install -r requirements-core.txt pytest ruff
+      - name: Lint source and tests
+        run: ruff check src tests scripts/f7_contact_support_benchmark.py
+      - name: Test new restraints and retain previous contact audit contracts
+        run: >-
+          python -m pytest -q tests/verification/test_f7_contact_support_equilibrium.py
+          tests/verification/test_f7_contact_static_integration.py
+          tests/verification/test_f7_unilateral_contact.py
+          tests/verification/test_f7_contact_equilibrium.py
+          tests/verification/test_f7_contact_partial_equilibrium.py
+          tests/verification/test_f7_contact_activation_equilibrium.py
+          --junitxml=f7_support/tests.xml
+      - name: Solve 24 native restraint histories and compare independent references
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_support_benchmark.py \
+            --output f7_support/contact_support_equilibrium.json \
+            2>&1 | tee f7_support/solver.log
+      - name: Require complete unskipped numerical evidence
+        run: |
+          python - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          tests = ET.parse('f7_support/tests.xml').getroot()
+          assert list(tests.iter('testcase')), 'No test evidence'
+          for label in ('skipped', 'failure', 'error'):
+              assert not list(tests.iter(label)), label
+          data = json.loads(Path('f7_support/contact_support_equilibrium.json').read_text())
+          assert data['status'] == 'passed'
+          assert data['case_count'] == 24 and data['stage_count'] == 216
+          assert all(c['status'] == 'passed' and c['initial_status'] == 'passed'
+                     and c['stage_count'] == 9 for c in data['cases'])
+          rows = [s for c in data['cases'] for s in c['stages']]
+          assert len(rows) == 216 and all(s['status'] == 'passed' for s in rows)
+          refs = [r for c in data['cases'] for r in c['independent_reference_checks']]
+          assert len(refs) == 216 and all(r['status'] == 'passed' for r in refs)
+          assert any(s['support_changes']['released_dofs'] for s in rows)
+          assert any(s['physical_equilibrium']['status'] == 'failed' for s in rows)
+          assert all(s['physical_equilibrium']['status'] == 'passed'
+                     for s in rows if s['history']['accepted_fraction'] == 1.0)
+          PY
+      - name: Summarize actual evidence without conflating transition and physical balance
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path('f7_support/contact_support_equilibrium.json')
+          lines = ['## Temporary displacement-restraint release', '']
+          if path.exists():
+              report = json.loads(path.read_text(encoding='utf-8'))
+              physical = sum(s.get('physical_equilibrium', {}).get('status') == 'passed'
+                             for c in report['cases'] for s in c['stages'])
+              lines += [f"- Transition audit: {report['status']}",
+                        f"- Models/stages: {report['case_count']}/{report['stage_count']}",
+                        f"- Physical-only equilibrium: {physical}/{report['stage_count']} stages"]
+          else:
+              lines += ['Evidence unavailable; inspect previous failure logs. Not a pass.']
+          lines += ['', 'Retained release is not a current reaction or a physical applied load.',
+                    'No solver/contact-law change; no excavation, hydraulic or design claim.', '']
+          text = '\n'.join(lines)
+          Path('f7_support/summary.md').write_text(text, encoding='utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write(text)
+          PY
+      - name: Archive completed or partial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-contact-support-evidence
+          path: f7_support/
+          retention-days: 14
+          if-no-files-found: warn
