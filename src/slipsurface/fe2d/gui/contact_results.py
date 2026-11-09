@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from ..io.report import export_contact_csv
 from ..post.contact_results import contact_points, normal_contact_tags
+from .contact_history import ContactHistoryDialog
 
 
 class ContactResultsDialog(QDialog):
@@ -27,6 +28,7 @@ class ContactResultsDialog(QDialog):
         self.result = result
         self.snapshots = [result.initial, *result.stages]
         self.points = ()
+        self._history_window = None
         self.setWindowTitle("Normal contact · stored integration-point results")
         self.resize(1080, 600)
         layout = QVBoxLayout(self)
@@ -58,19 +60,23 @@ class ContactResultsDialog(QDialog):
         ])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.table, 1)
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         buttons = QHBoxLayout()
+        self.history_button = QPushButton("Selected point history…")
+        self.history_button.clicked.connect(self.show_history)
+        self.table.itemSelectionChanged.connect(self.update_history_button)
         self.csv_button = QPushButton("Selected stage CSV…")
         self.all_csv_button = QPushButton("All stages CSV…")
         self.csv_button.clicked.connect(lambda: self.export(False))
         self.all_csv_button.clicked.connect(lambda: self.export(True))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
-        for button in (self.csv_button, self.all_csv_button, close):
+        for button in (self.history_button, self.csv_button, self.all_csv_button, close):
             buttons.addWidget(button)
         layout.addLayout(buttons)
         self.stage.currentIndexChanged.connect(self.refresh)
@@ -78,6 +84,9 @@ class ContactResultsDialog(QDialog):
         self.refresh()
 
     def refresh(self, *_):
+        selected = self.selected_point()
+        identity = None if selected is None else (selected.tag, selected.element, selected.point)
+        self.history_button.setEnabled(False)
         self.points = ()
         self.table.setRowCount(0)
         self.csv_button.setEnabled(False)
@@ -110,6 +119,30 @@ class ContactResultsDialog(QDialog):
         )
         self.csv_button.setEnabled(True)
         self.all_csv_button.setEnabled(True)
+        row = next((i for i, p in enumerate(self.points)
+                    if (p.tag, p.element, p.point) == identity), 0)
+        self.table.setCurrentCell(row, 0)
+        self.update_history_button()
+
+    def selected_point(self):
+        row = self.table.currentRow()
+        return self.points[row] if 0 <= row < len(self.points) else None
+
+    def update_history_button(self):
+        self.history_button.setEnabled(self.selected_point() is not None)
+
+    def show_history(self):
+        point = self.selected_point()
+        if point is None:
+            return
+        if self._history_window is not None:
+            self._history_window.close()
+            self._history_window.deleteLater()
+        self._history_window = ContactHistoryDialog(
+            self.result, point.tag, point.element, point.point,
+            self.stage.currentIndex(), self,
+        )
+        self._history_window.show()
 
     def export(self, all_stages=False):
         path, _ = QFileDialog.getSaveFileName(self, "Export contact points", "contact.csv",
