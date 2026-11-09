@@ -18,6 +18,9 @@ on:
       - 'src/slipsurface/fe2d/post/contact_partial_equilibrium.py'
       - 'scripts/f7_contact_partial_benchmark.py'
       - 'tests/verification/test_f7_contact_partial_equilibrium.py'
+      - 'src/slipsurface/fe2d/post/contact_activation_equilibrium.py'
+      - 'scripts/f7_contact_activation_benchmark.py'
+      - 'tests/verification/test_f7_contact_activation_equilibrium.py'
       - 'tests/verification/test_f7_contact_static_integration.py'
       - 'requirements-core.txt'
   push:
@@ -37,6 +40,9 @@ on:
       - 'src/slipsurface/fe2d/post/contact_partial_equilibrium.py'
       - 'scripts/f7_contact_partial_benchmark.py'
       - 'tests/verification/test_f7_contact_partial_equilibrium.py'
+      - 'src/slipsurface/fe2d/post/contact_activation_equilibrium.py'
+      - 'scripts/f7_contact_activation_benchmark.py'
+      - 'tests/verification/test_f7_contact_activation_equilibrium.py'
       - 'tests/verification/test_f7_contact_static_integration.py'
       - 'requirements-core.txt'
 
@@ -64,12 +70,14 @@ jobs:
         run: >-
           ruff check src tests scripts/f7_contact_static_benchmark.py
           scripts/f7_contact_equilibrium_benchmark.py scripts/f7_contact_partial_benchmark.py
+          scripts/f7_contact_activation_benchmark.py
       - name: Verify native state, contact kernel and serialization contracts
         run: >-
           python -m pytest -q tests/verification/test_f7_contact_static_integration.py
           tests/verification/test_f7_unilateral_contact.py
           tests/verification/test_f7_contact_equilibrium.py
           tests/verification/test_f7_contact_partial_equilibrium.py
+          tests/verification/test_f7_contact_activation_equilibrium.py
           --junitxml=contact-integration-tests.xml
       - name: Solve native continuum-contact load histories against closed form
         shell: bash
@@ -92,6 +100,13 @@ jobs:
           python -u scripts/f7_contact_partial_benchmark.py \
             --output f7_contact_integration/contact_partial_equilibrium.json \
             2>&1 | tee f7_contact_integration/partial-equilibrium.log
+      - name: Verify partial contact activation and independently retained release
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_activation_benchmark.py \
+            --output f7_contact_integration/contact_activation_equilibrium.json \
+            2>&1 | tee f7_contact_integration/activation-equilibrium.log
       - name: Require complete unskipped numerical evidence
         run: |
           python - <<'PY'
@@ -118,6 +133,18 @@ jobs:
                      for r in c.get('analytical_layer_checks', c.get('analytical_applied_checks', [])))
           assert sum(len(c.get('analytical_layer_checks', c.get('analytical_applied_checks', [])))
                      for c in partial['cases']) == 132
+          activation = json.loads(Path(
+              'f7_contact_integration/contact_activation_equilibrium.json').read_text())
+          assert activation['status'] == 'passed'
+          assert activation['case_count'] == 32 and activation['stage_count'] == 288
+          assert all(c['status'] == 'passed' and c['initial_status'] == 'passed'
+                     and c['stage_count'] == 9 for c in activation['cases'])
+          assert all(s['status'] == 'passed' for c in activation['cases'] for s in c['stages'])
+          assert sum(len(c['independent_reference_checks']) for c in activation['cases']) == 288
+          assert all(r['status'] == 'passed' for c in activation['cases']
+                     for r in c['independent_reference_checks'])
+          assert any(max(abs(v) for node in s['history']['retained_release_nodal'] for v in node)
+                     > 1.0 for c in activation['cases'] for s in c['stages'])
           PY
       - name: Summarize actual integration evidence
         if: always()
@@ -151,6 +178,13 @@ jobs:
                         f"- Partial models/stages: {partial['case_count']}/{partial['stage_count']}"]
           else:
               lines += ['- Partial contact equilibrium: no evidence; not a pass.']
+          activation_path = Path('f7_contact_integration/contact_activation_equilibrium.json')
+          if activation_path.exists():
+              activation = json.loads(activation_path.read_text(encoding='utf-8'))
+              lines += [f"- Partial contact activation/release: {activation['status']}",
+                        f"- Activation models/stages: {activation['case_count']}/{activation['stage_count']}"]
+          else:
+              lines += ['- Partial contact activation/release: no evidence; not a pass.']
           lines += ['', 'Explicit dry normal-contact option; legacy Goodman is unchanged.',
                     'Initial stress none and NR only. No hydraulic/SRF/GUI authoring claim.',
                     'Result snapshots are not nonlinear solver restart checkpoints.', '']

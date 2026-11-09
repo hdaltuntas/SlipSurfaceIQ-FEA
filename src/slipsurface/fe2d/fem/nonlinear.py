@@ -19,7 +19,7 @@ of a boundary-layer strain spike.
 Tangent options (``SolverSettings.method``):
 
 * ``"NR"``      consistent tangent, refactorised every iteration (quadratic convergence)
-* ``"mNR"``     tangent of the last converged state, factorised once per step
+* ``"mNR"``     tangent of the last converged state; factorised once per step
 * ``"hybrid"``  mNR, switching to NR inside a step when ``||R_i|| / ||R_i-1|| > ratio``
 * ``"initial"`` elastic stiffness, factorised once per stage
 
@@ -199,7 +199,18 @@ def solve_stage(
                         converged = True
                         termination = "linear_force"
                         break
-                if not np.isfinite(rel) or rel > 1e8:
+                # A contact-open displacement predictor can close a gap before
+                # any force reaches the driven supports. Its old reaction-based
+                # reference is then near zero, although the finite closure
+                # residual is a valid first Newton correction, not divergence.
+                # Use the existing optional arithmetic scale ONLY for this
+                # first-predictor divergence guard. Convergence and roundoff
+                # acceptance above are unchanged; legacy problems have no callback.
+                divergence_reference = f_ref
+                if it == 1 and driven.size and prob.roundoff_force_scale is not None:
+                    divergence_reference = max(f_ref, arithmetic_scale)
+                if (not np.isfinite(rel)
+                        or residual_norm / divergence_reference > 1e8):
                     termination = "nonfinite_or_divergent"
                     break
                 if it == s.max_iter:
