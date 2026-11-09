@@ -49,7 +49,8 @@ from PySide6.QtWidgets import (
 
 from .. import api
 from ..core.errors import ModelError
-from ..io.report import export_beam_csv, export_csv, export_html
+from ..io.report import export_beam_csv, export_contact_csv, export_csv, export_html
+from ..post.contact_results import CONTACT_FIELDS, normal_contact_tags
 from .boundary_editor import BoundaryDialog
 from .canvas import MeshCanvas
 from .dialogs import MaterialDialog, NewModelDialog
@@ -230,6 +231,7 @@ class MainWindow(QMainWindow):
                 "plastic",
                 "pore",
                 "excess_pore",
+                *CONTACT_FIELDS,
             ]
         )
         self.fields.currentTextChanged.connect(self.draw)
@@ -563,6 +565,7 @@ class MainWindow(QMainWindow):
         result_menu = self.menuBar().addMenu("Inspect results")
         result_menu.addAction(action("Open Interpret window…", self.open_interpret))
         for title, slot in [
+            ("Normal contact point results…", self.show_contact_results),
             ("Query line", self.query_line),
             ("Liner N–V–M", self.beam_diagrams),
             ("Tunnel / pile displacement", self.structure_displacements),
@@ -575,6 +578,7 @@ class MainWindow(QMainWindow):
             ("VTU / ParaView", "vtu"),
             ("Node CSV", "csv"),
             ("Beam N–V–M CSV", "beam"),
+            ("Contact point CSV", "contact"),
             ("HTML report", "html"),
         ]:
             a = action(title, lambda checked=False, k=kind: self.export_dialog(k), None, "export")
@@ -1013,15 +1017,25 @@ class MainWindow(QMainWindow):
             if kind == "interface"
             else None
         )
+        contacts = normal_contact_tags(self.model) if self.model is not None else ()
+        is_contact = bool(kind == "interface" and selection[1] in contacts)
+        if is_contact:
+            allowed = {"|u|", "ux", "uy", *CONTACT_FIELDS}
         self.fields.blockSignals(True)
         for i in range(self.fields.count()):
             name = self.fields.itemText(i)
-            enabled = name in allowed if allowed is not None else name not in {"N", "V", "M"}
+            if allowed is not None:
+                enabled = name in allowed
+            elif name in CONTACT_FIELDS:
+                enabled = bool(contacts) and selection is None
+            else:
+                enabled = name not in {"N", "V", "M"}
             self.fields.model().item(i).setEnabled(enabled)
         if not self.fields.model().item(self.fields.currentIndex()).isEnabled():
             self.fields.setCurrentText("|u|")
         self.fields.blockSignals(False)
-        self.chart_button.setEnabled(self.result is not None and kind in {"beam", "bar"})
+        self.chart_button.setEnabled(self.result is not None and (kind in {"beam", "bar"}
+                                                                 or is_contact))
         self.diagram_scale.setEnabled(self.fields.currentText() in {"N", "V", "M"})
 
     def _on_result_object_changed(self, *_):
@@ -1057,7 +1071,7 @@ class MainWindow(QMainWindow):
         self._update_result_controls()
         field = self.fields.currentText()
         section = field in {"N", "V", "M"}
-        soil = selection is None or selection[0] == "region"
+        soil = (selection is None or selection[0] == "region") and field not in CONTACT_FIELDS
         self.principal.setEnabled(not section and soil)
         self.plastic_points.setEnabled(not section and soil)
         self.canvas.show_model(
@@ -1099,6 +1113,9 @@ class MainWindow(QMainWindow):
                 f"{tag} was not found as a structure in the mesh; regenerate the mesh."
             )
             return
+        if tag in normal_contact_tags(self.result.model):
+            self.show_contact_results(tag)
+            return
         if self.result.model.structure_tags()[tag] not in {"beam", "bar"}:
             self.result_objects.setCurrentIndex(self.result_objects.findData(f"structure:{tag}"))
             self.fields.setCurrentText("|u|")
@@ -1118,6 +1135,19 @@ class MainWindow(QMainWindow):
         elif field in {"|u|", "ux", "uy"}:
             self.force_dialog.tabs.setCurrentIndex(2)
         self.force_dialog.show()
+
+    def show_contact_results(self, tag=None):
+        if self.result is None:
+            return
+        from .contact_results import ContactResultsDialog
+
+        if getattr(self, "contact_dialog", None) is not None:
+            self.contact_dialog.close()
+        # QAction.triggered may supply a boolean, never an interface identity.
+        tag = tag if isinstance(tag, str) else None
+        self.contact_dialog = ContactResultsDialog(
+            self.result, max(0, self.stages.currentRow()), tag, self)
+        self.contact_dialog.show()
 
     def beam_diagrams(self):
         if self.result is not None:
@@ -1320,7 +1350,7 @@ class MainWindow(QMainWindow):
             fields = QComboBox()
             fields.addItems([
                 "s1", "s3", "sxx", "syy", "szz", "txy", "q",
-                "|u|", "ux", "uy", "pore", "excess_pore", "plastic",
+                "|u|", "ux", "uy", "pore", "excess_pore", "plastic", *CONTACT_FIELDS,
             ])
             controls.addWidget(QLabel("Result field"))
             controls.addWidget(fields, 1)
@@ -1386,6 +1416,7 @@ class MainWindow(QMainWindow):
             animate.clicked.connect(toggle_animation)
             dlg.finished.connect(lambda _code: timer.stop())
             dlg.viewer = (stage_tabs, fields, canvas, legend, deform, principal)
+            dlg.query_button = query_button
             query_button.clicked.connect(self._query_interpret)
             stage_tabs.currentChanged.connect(self._refresh_interpret)
             fields.currentIndexChanged.connect(self._refresh_interpret)
@@ -1418,6 +1449,14 @@ class MainWindow(QMainWindow):
         tabs, fields, canvas, _, deform, _ = dlg.viewer
         index = max(0, tabs.currentIndex())
         stage = self.result.initial if index == 0 else self.result.stages[index - 1]
+        if fields.currentText() in CONTACT_FIELDS:
+            from .contact_results import ContactResultsDialog
+
+            if getattr(dlg, "contact_dialog", None) is not None:
+                dlg.contact_dialog.close()
+            dlg.contact_dialog = ContactResultsDialog(self.result, index, parent=dlg)
+            dlg.contact_dialog.show()
+            return
         query = QueryDialog(self.result, stage, dlg, deform=deform.value())
         if query.field.findText(fields.currentText()) >= 0:
             query.field.setCurrentText(fields.currentText())
@@ -1435,11 +1474,21 @@ class MainWindow(QMainWindow):
             result_stage = (
                 self.result.initial if index == 0 else self.result.stages[index - 1]
             )
+        has_contact = bool(normal_contact_tags(self.model))
+        fields.blockSignals(True)
+        for contact_field in CONTACT_FIELDS:
+            fields.model().item(fields.findText(contact_field)).setEnabled(has_contact)
+        if not has_contact and fields.currentText() in CONTACT_FIELDS:
+            fields.setCurrentText("|u|")
+        fields.blockSignals(False)
         field = fields.currentText()
+        principal.setEnabled(field not in CONTACT_FIELDS)
+        dlg.query_button.setText("Contact point results…" if field in CONTACT_FIELDS
+                                 else "Query / stage graph…")
         canvas.show_model(
             self.model, result_stage, field, deform.value(),
             result=self.result, stage_index=index,
-            principal=principal.isChecked() and field not in ("plastic",),
+            principal=principal.isChecked() and field not in ("plastic", *CONTACT_FIELDS),
         )
         legend.setText(
             canvas.legend if result_stage is not None
@@ -1672,7 +1721,7 @@ class MainWindow(QMainWindow):
     def export_dialog(self, kind):
         if self.result is None:
             return
-        ext = "csv" if kind == "beam" else kind
+        ext = "csv" if kind in {"beam", "contact"} else kind
         path, _ = QFileDialog.getSaveFileName(
             self, "Export results", f"result.{ext}", f"{ext.upper()} (*.{ext})"
         )
@@ -1684,6 +1733,11 @@ class MainWindow(QMainWindow):
                 export_html(self.result, path)
             elif kind == "beam":
                 export_beam_csv(self.result, path, st)
+            elif kind == "contact":
+                selected = self.result_selection()
+                tag = (selected[1] if selected and selected[0] == "structure"
+                       and selected[1] in normal_contact_tags(self.result.model) else None)
+                export_contact_csv(self.result, path, st, tag=tag)
             elif kind == "csv":
                 export_csv(self.result, path, st)
             else:

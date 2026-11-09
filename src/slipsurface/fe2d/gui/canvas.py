@@ -6,10 +6,11 @@ from dataclasses import replace
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
 
 from ..core.enums import ElemType
+from ..post.contact_results import CONTACT_FIELDS, contact_points
 from ..post.recovery import element_nodal_values, principal_stresses
 from .editing import (
     region_label,
@@ -67,6 +68,9 @@ def _block_nodal(stage, block, field):
 
 
 def field_unit(field):
+    if field in CONTACT_FIELDS:
+        return {"contact_gap": "mm", "contact_pressure": "kPa",
+                "contact_status": "category"}[field]
     if field in DISPLACEMENT_FIELDS:
         return "m"
     if field == "plastic":
@@ -101,6 +105,8 @@ class MeshCanvas(QGraphicsView):
         self.cell_count = 0
         self.nvm_count = self.disp_label_count = 0
         self.diagram_tags = []
+        self.contact_point_count = 0
+        self.contact_points = ()
         self.colorbar_visible = False
         self.field_name = "|u|"
         self.field_unit = "m"
@@ -133,6 +139,8 @@ class MeshCanvas(QGraphicsView):
         self.scene().clear()
         self.cell_count = 0
         self.diagram_tags = []
+        self.contact_point_count = 0
+        self.contact_points = ()
         self.principal_count = self.plastic_count = 0
         self.nvm_count = self.disp_label_count = 0
         section = field in SECTION_FIELDS
@@ -166,7 +174,7 @@ class MeshCanvas(QGraphicsView):
                 active = stage.active.get(block.tag, np.ones(block.ne, bool))
             nodal = (
                 None
-                if stage is None or field in SECTION_FIELDS
+                if stage is None or field in SECTION_FIELDS or field in CONTACT_FIELDS
                 else _block_nodal(stage, block, field)
             )
             for e in range(block.ne):
@@ -381,10 +389,12 @@ class MeshCanvas(QGraphicsView):
                 f"{field} · {unit} · {sampling} · {lo:.5g} … {hi:.5g} · deformation ×{deform:g}"
             )
         if stage is not None and result is not None:
-            if field not in SECTION_FIELDS:
+            if field not in SECTION_FIELDS and field not in CONTACT_FIELDS:
                 self.draw_overlays(result, stage, coords, principal, plastic_points)
             self.draw_structure_results(result, stage, coords, field)
             self.legend += self.overlay_note
+            if field in CONTACT_FIELDS:
+                self.draw_contact_results(result, stage, coords, field, deform)
         if changed_model or changed_selection:
             self.fit_model()
         self.viewport().update()
@@ -453,6 +463,63 @@ class MeshCanvas(QGraphicsView):
             if stride > 1:
                 self.overlay_note += f" (every {stride}th GP)"
 
+    def draw_contact_results(self, result, stage, coords, field, deform):
+        """Point markers only: categorical states are never interpolated/averaged."""
+        tag = (self.selection[1] if self.selection and self.selection[0] == "structure"
+               else None)
+        self.colorbar_visible = False
+        try:
+            points = contact_points(result, stage, tag)
+        except (ValueError, KeyError, TypeError) as exc:
+            self.legend = f"Contact data rejected: {exc}"
+            return
+        self.contact_points = points
+        values = [p.display_value(field) for p in points if p.availability == "available"]
+        lo, hi = (min(values), max(values)) if values else (0.0, 0.0)
+        self.field_range = (lo, hi)
+        self.constant_field = hi == lo
+        self.colorbar_visible = bool(values) and field != "contact_status"
+        colors = {"OPEN": "#3b82f6", "TOUCHING": "#eab308", "COMPRESSED": "#e05a47",
+                  "INACTIVE": "#64748b", "UNAVAILABLE": "#a855f7"}
+        for point in points:
+            value = point.display_value(field)
+            color = (QColor(colors[point.status]) if field == "contact_status" or value is None
+                     else field_color((value - lo) / (hi - lo) if hi != lo else 0.5))
+            pen = QPen(color, 1.5)
+            pen.setCosmetic(True)
+            brush = QBrush(color) if value is not None else QBrush(Qt.BrushStyle.NoBrush)
+            item = self.scene().addEllipse(-4, -4, 8, 8, pen, brush)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+            nodes = [point.face1_node, point.face2_node]
+            # Position markers on the displayed pair midpoint; values remain stored gap.
+            xy = (coords[nodes].mean(axis=0) if point.active else
+                  result.model.mesh.coords[nodes].mean(axis=0))
+            item.setPos(float(xy[0]), float(-xy[1]))
+            item.setZValue(8)
+            item.setData(0, ("structure", point.tag))
+            item.setData(1, (point.tag, point.element, point.point))
+            measurement = (f"gap={point.gap_m * 1000:.8g} mm; "
+                           f"pressure={point.pressure_kpa:.8g} kPa"
+                           if point.availability == "available" else "No measurement")
+            item.setToolTip(f"{point.tag} · element {point.element}, point {point.point} · "
+                            f"{point.status} · {measurement}")
+            self.contact_point_count += 1
+        counts = {key: sum(p.status == key for p in points) for key in colors}
+        detail = " · ".join(f"{key}={count}" for key, count in counts.items() if count)
+        interval = (f"{lo:.6g} … {hi:.6g} {field_unit(field)} · "
+                    if values and field != "contact_status" else "")
+        self.legend = (f"{field} · stored interface points · {interval}{detail} · "
+                       f"deformation ×{deform:g} (display only)")
+        if not values:
+            self.legend += " · No active available contact measurements"
+        if field == "contact_status":
+            self.legend += (" · blue: OPEN; yellow: TOUCHING; red: COMPRESSED; "
+                            "grey: INACTIVE; purple: UNAVAILABLE")
+        elif field == "contact_gap":
+            self.legend += " · positive opening / negative penalty penetration"
+        else:
+            self.legend += " · compression-positive pressure"
+
     def draw_structure_results(self, result, stage, coords, field):
         """Draw each connected member separately, scaled to its own dimensions."""
         if field not in SECTION_FIELDS:
@@ -467,6 +534,8 @@ class MeshCanvas(QGraphicsView):
 
         notes = []
         self.diagram_tags = []
+        self.contact_point_count = 0
+        self.contact_points = ()
         for block in result.model.mesh.blocks:
             if block.etype not in (ElemType.BEAM2, ElemType.BAR2):
                 continue
@@ -561,7 +630,8 @@ class MeshCanvas(QGraphicsView):
         painter.setPen(QPen(QColor("#94a3b8"), 1))
         painter.setBrush(QColor(255, 255, 255, 230))
         painter.drawRoundedRect(panel, 4, 4)
-        title = f"{self.field_name} · {self.field_unit}"
+        title = {"contact_gap": "Gap · mm", "contact_pressure": "p · kPa"}.get(
+            self.field_name, f"{self.field_name} · {self.field_unit}")
         painter.setPen(QColor("#123f5b"))
         painter.setFont(QFont("Source Sans 3", 8, QFont.Bold))
         painter.drawText(QRectF(x - 6, y - 12, bar_w + 60, 14), Qt.AlignmentFlag.AlignLeft, title)
