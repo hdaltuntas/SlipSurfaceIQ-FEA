@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from ..io.report import export_contact_csv
 from ..post.contact_results import contact_points, normal_contact_tags
 from .contact_history import ContactHistoryDialog
+from .contact_resultants import ContactResultantsDialog
 
 
 class ContactResultsDialog(QDialog):
@@ -29,6 +30,7 @@ class ContactResultsDialog(QDialog):
         self.snapshots = [result.initial, *result.stages]
         self.points = ()
         self._history_window = None
+        self._resultants_window = None
         self.setWindowTitle("Normal contact · stored integration-point results")
         self.resize(1080, 600)
         layout = QVBoxLayout(self)
@@ -70,13 +72,16 @@ class ContactResultsDialog(QDialog):
         self.history_button = QPushButton("Selected point history…")
         self.history_button.clicked.connect(self.show_history)
         self.table.itemSelectionChanged.connect(self.update_history_button)
+        self.resultants_button = QPushButton("Interface force / moment…")
+        self.resultants_button.clicked.connect(self.show_resultants)
         self.csv_button = QPushButton("Selected stage CSV…")
         self.all_csv_button = QPushButton("All stages CSV…")
         self.csv_button.clicked.connect(lambda: self.export(False))
         self.all_csv_button.clicked.connect(lambda: self.export(True))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
-        for button in (self.history_button, self.csv_button, self.all_csv_button, close):
+        for button in (self.history_button, self.resultants_button, self.csv_button,
+                       self.all_csv_button, close):
             buttons.addWidget(button)
         layout.addLayout(buttons)
         self.stage.currentIndexChanged.connect(self.refresh)
@@ -87,6 +92,7 @@ class ContactResultsDialog(QDialog):
         selected = self.selected_point()
         identity = None if selected is None else (selected.tag, selected.element, selected.point)
         self.history_button.setEnabled(False)
+        self.resultants_button.setEnabled(False)
         self.points = ()
         self.table.setRowCount(0)
         self.csv_button.setEnabled(False)
@@ -100,6 +106,7 @@ class ContactResultsDialog(QDialog):
         if not self.points:
             self.status.setText("No normal-contact results. Goodman interfaces are not gap data.")
             return
+        self.resultants_button.setEnabled(True)
         self.table.setRowCount(len(self.points))
         for row, point in enumerate(self.points):
             values = [
@@ -143,6 +150,17 @@ class ContactResultsDialog(QDialog):
             self.stage.currentIndex(), self,
         )
         self._history_window.show()
+
+    def show_resultants(self):
+        if not self.points:
+            return
+        if self._resultants_window is not None:
+            self._resultants_window.close()
+            self._resultants_window.deleteLater()
+        self._resultants_window = ContactResultantsDialog(
+            self.result, self.stage.currentIndex(), self.interface.currentData(), self,
+        )
+        self._resultants_window.show()
 
     def export(self, all_stages=False):
         path, _ = QFileDialog.getSaveFileName(self, "Export contact points", "contact.csv",
