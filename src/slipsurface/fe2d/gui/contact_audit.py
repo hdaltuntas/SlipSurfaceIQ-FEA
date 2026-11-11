@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 
-from PySide6.QtCore import QCoreApplication, QThread
+from PySide6.QtCore import QCoreApplication, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -22,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..io.contact_audit_json import export_contact_audit_json
+from ..post.contact_audit_control import ContactAuditCancelled
 from ..post.contact_audit_report import audit_rows, audit_summary, prepare_contact_audit
 from ..post.contact_resultants import moment_origin
 
@@ -30,10 +33,13 @@ _SHUTDOWN_CONNECTED = False
 
 
 def _wait_on_exit():
-    # The audit has no cooperative inner-loop cancellation. Keep application-owned
-    # threads alive and finish read-only work safely rather than terminate it.
-    for worker in tuple(_PENDING):
+    # Request every cancellation before waiting for any worker. A current bulk
+    # operation may finish first; never terminate a thread or expose partial data.
+    workers = tuple(_PENDING)
+    for worker in workers:
+        worker.cancel_event.set()
         worker.requestInterruption()
+    for worker in workers:
         worker.wait()
 
 
@@ -43,6 +49,7 @@ def _release_worker(worker):
 
 
 class ContactAuditWorker(QThread):
+    progressed = Signal(object)
 
     def __init__(self, result, origin, parent=None):
         super().__init__(parent)
@@ -51,16 +58,29 @@ class ContactAuditWorker(QThread):
         self.origin = origin
         self.document = None
         self.error = None
+        self.cancelled = False
+        self.cancel_event = threading.Event()
+
+    def cancellation_requested(self):
+        return self.cancel_event.is_set() or self.isInterruptionRequested()
 
     def run(self):
-        if self.isInterruptionRequested():
+        if self.cancellation_requested():
+            self.cancelled = True
             return
         try:
-            document = prepare_contact_audit(self.snapshot, origin=self.origin)
+            document = prepare_contact_audit(
+                self.snapshot, origin=self.origin,
+                progress=self.progressed.emit, cancelled=self.cancellation_requested,
+            )
+        except ContactAuditCancelled:
+            self.cancelled = True
         except Exception as exc:
             self.error = f"{type(exc).__name__}: {exc}"
         else:
-            if not self.isInterruptionRequested():
+            if self.cancellation_requested():
+                self.cancelled = True
+            else:
                 self.document = document
 
 
@@ -89,7 +109,7 @@ class ContactAuditDialog(QDialog):
         controls = QHBoxLayout()
         self.origin_x, self.origin_y = QLineEdit("0"), QLineEdit("0")
         self.run_button = QPushButton("Run complete history audit")
-        self.discard_button = QPushButton("Discard pending result")
+        self.discard_button = QPushButton("Cancel audit")
         self.discard_button.setEnabled(False)
         for widget in (QLabel("Moment origin x (m)"), self.origin_x, QLabel("y (m)"),
                        self.origin_y, self.run_button, self.discard_button):
@@ -100,6 +120,11 @@ class ContactAuditDialog(QDialog):
         )
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Not run")
+        layout.addWidget(self.progress)
         self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels([
             "Snapshot", "Stage", "Fraction", "Transition", "Physical only",
@@ -138,6 +163,9 @@ class ContactAuditDialog(QDialog):
         self.table.setRowCount(0)
         self.details.clear()
         self.export_button.setEnabled(False)
+        if self.worker is None:
+            self.progress.setValue(0)
+            self.progress.setFormat("Not run")
         if self.worker is not None:
             self.discard()
         else:
@@ -159,9 +187,16 @@ class ContactAuditDialog(QDialog):
         self.origin_y.setEnabled(False)
         self.discard_button.setEnabled(True)
         self.status.setText("Auditing a detached snapshot history; no FEM solve is running.")
+        self.progress.setValue(0)
+        self.progress.setFormat("Starting…")
         # Consume worker data only after QThread finishes. This avoids queued-result
         # races with discard/close and keeps the thread alive through every exit path.
+        self.worker.progressed.connect(self.show_progress)
         self.worker.finished.connect(self.finish_audit)
+        # Capture only a thread-safe Event, NOT the dialog or a possibly deleted
+        # QThread wrapper. Even direct parent/dialog deletion requests cancellation.
+        cancel_event = self.worker.cancel_event
+        self.destroyed.connect(lambda *_: cancel_event.set())
         global _SHUTDOWN_CONNECTED
         if not _SHUTDOWN_CONNECTED:
             QCoreApplication.instance().aboutToQuit.connect(_wait_on_exit)
@@ -175,11 +210,29 @@ class ContactAuditDialog(QDialog):
         if self.worker is None:
             return
         self._discard = True
+        self.worker.cancel_event.set()
         self.worker.requestInterruption()
         self.discard_button.setEnabled(False)
         self.status.setText(
-            "Pending result discarded. The read-only calculation finishes safely; "
-            "no partial report will be shown or exported."
+            "Cancellation requested; waiting for the next safe checkpoint. "
+            "No partial report will be shown or exported."
+        )
+        self.progress.setFormat("Cancelling…")
+
+    @Slot(object)
+    def show_progress(self, event):
+        # Ignore late queued events after discard/close or from an earlier run.
+        if self.worker is None or self._discard or self.sender() is not self.worker:
+            return
+        percent = min(99, 100 * event.completed_snapshots // max(1, event.total_snapshots))
+        self.progress.setValue(percent)
+        self.progress.setFormat(
+            f"{event.completed_snapshots}/{event.total_snapshots} snapshots processed · %p%"
+        )
+        self.status.setText(
+            f"Snapshot {event.snapshot_index}: {event.stage_name} · {event.phase}. "
+            "Progress counts processed snapshots, NOT passing checks. "
+            "Completion requires validation of the full report."
         )
 
     def finish_audit(self):
@@ -189,10 +242,20 @@ class ContactAuditDialog(QDialog):
         self.origin_x.setEnabled(True)
         self.origin_y.setEnabled(True)
         self.discard_button.setEnabled(False)
-        if not self._discard and worker.document is not None:
+        if self._discard or worker.cancelled:
+            self.document = None
+            self.table.setRowCount(0)
+            self.details.clear()
+            self.export_button.setEnabled(False)
+            self.progress.setFormat("Cancelled — no report")
+            self.status.setText("Audit cancelled or result discarded. No partial report retained.")
+        elif worker.document is not None:
             self.document = worker.document
+            self.progress.setValue(100)
+            self.progress.setFormat("Complete — see separate audit verdicts")
             self.present()
-        elif not self._discard:
+        else:
+            self.progress.setFormat("Execution failed — no report")
             self.status.setText(f"Audit failed to execute: {worker.error or 'No complete report'}")
         if self._closing:
             self._closing = False

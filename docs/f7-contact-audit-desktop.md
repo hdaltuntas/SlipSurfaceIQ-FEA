@@ -9,7 +9,7 @@ start work; the entire initial + accepted-stage history is audited, irrespective
 the parent table's interface filter. The parent snapshot index selects the corresponding
 row after completion. Selecting a row never changes the parent or Interpret stage.
 
-The underlying PR #90 `contact_topology_equilibrium_by_stage` algorithm, numerical
+The underlying `contact_topology_equilibrium_by_stage` numerical equations,
 tolerances, material laws and solver are unchanged. This is a presentation and export
 layer, NOT a new verification of nonlinear soil or physical design capacity. Supported
 scope remains dry, drained, stress-free, zero-gravity elastic plane strain with normal
@@ -41,13 +41,46 @@ then runs on a separate QThread. This extra copy costs memory and may briefly ta
 for very large snapshots, but concurrent model editing cannot change the input mid-run.
 The numerical routine never calls `api.run` / `StaticSolver` or writes model/results.
 
-**Discard pending result** discards the outcome; it does NOT promise immediate
-interruption of the underlying numerical reconstruction, which has no cancellation
-callback. No partial report is published/exported. Close/Escape hides the dialog and
-defers completion safely. Workers are application-owned and kept alive even if a
-parent table is deleted. On application exit, outstanding read-only work is allowed
-to finish safely rather than forcibly terminating a QThread. Failed work clears the
-old report and leaves the Run button usable. A new run uses a new detached copy.
+**Cancel audit** now requests cooperative cancellation of the read-only audit,
+not just suppression of its result. Checkpoints run before/after audit phases,
+between snapshots, within block/ownership/component loops, and while collecting
+contact points. An individual NumPy operation, model validation, input deepcopy,
+load reconstruction or JSON serialization is not forcibly interrupted. There is
+no promise of immediate cancellation or a fixed response time. The input copy
+still occurs before the worker starts and costs memory.
+
+While work runs, the progress bar shows **processed snapshots / total snapshots**
+(including the initial snapshot), the current snapshot index/name, and its phase.
+Blocked records count as processed, not as evaluated or passing checks. Repeated
+stage names remain distinguished by index. This is neither elapsed-time prediction
+nor FEM solver progress. The GUI reserves 100% until the complete document has
+passed presentation validation; it never equates 100% with equilibrium success.
+
+Cancellation raises `ContactAuditCancelled`, outside the numerical invalid-data
+exception family. No partial report/status envelope is returned, displayed, saved
+or exported. Failed or unsupported *completed* audits remain valid exportable
+reports; cancellation does not silently become one of these verdicts. Callback
+exceptions raise `ContactAuditCallbackError` instead of contaminating FEM results.
+No execution events or callback settings enter the exported document schema.
+
+Close/Escape hides the dialog and requests cancellation. Direct dialog/parent
+destruction also sets the worker's thread-safe cancellation event; application-owned
+threads remain alive until they finish. Application exit requests cancellation for
+ALL pending workers before waiting for safe completion. It never calls `terminate`.
+Late progress cannot replace a cancelled status or a subsequent run. Run is enabled
+again after completion, and a fresh run uses a fresh detached input and cancel flag.
+
+### Optional Qt-free API hooks
+
+`contact_topology_equilibrium_by_stage(result, progress=callback, cancelled=predicate)`
+and `prepare_contact_audit` accept optional keyword-only execution hooks. The
+predicate returns an actual `bool`; the progress callback receives a frozen
+`ContactAuditProgress(completed_snapshots, total_snapshots, snapshot_index,
+stage_name, phase)` value synchronously on the calling thread. GUI clients must
+marshal callbacks to their GUI thread. Callbacks must not mutate their input
+result or launch another solver. Omitting the hooks preserves the previous report,
+tolerances and audit/rejection semantics. Completed observed and unobserved reports
+are compared for equality in regression tests.
 
 ## Atomic JSON and reproducibility
 
@@ -59,8 +92,11 @@ with their reasons. Nonfinite/malformed documents fail before atomic file replac
 An unsuccessful replacement leaves a previous destination intact.
 
 The dedicated `f7-contact-audit-desktop` workflow requires actual unskipped Qt tests,
-thread/discard/close/failure tests, source-detachment checks, successful and invalid
-screenshots, strict JSON and a saved solved project. It retains the unchanged
+thread/cancel/close/destruction/shutdown tests, source-detachment checks, successful,
+invalid, running and cancelled screenshots, strict JSON and a saved solved project.
+A real reconstruction paused in its third stage is cancelled at its next actual
+checkpoint: only two stage reconstructions may complete and no later stage runs.
+The evidence file records this separately from suppression of a late result. It retains the unchanged
 52-model / 552-stage native benchmark. New desktop tests also run in the existing
 Windows/Linux desktop matrix. Existing numerical workflows and acceptance contracts
 are retained; local missing-Qt skips are not successful desktop executions.
