@@ -29,6 +29,7 @@ class ContactResultsDialog(QDialog):
         self.result = result
         self.snapshots = [result.initial, *result.stages]
         self.points = ()
+        self._audit_window = None
         self._history_window = None
         self._resultants_window = None
         self.setWindowTitle("Normal contact · stored integration-point results")
@@ -68,6 +69,9 @@ class ContactResultsDialog(QDialog):
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.audit_button = QPushButton("Complete elastic history audit…")
+        self.audit_button.clicked.connect(self.show_audit)
+        layout.addWidget(self.audit_button)
         buttons = QHBoxLayout()
         self.history_button = QPushButton("Selected point history…")
         self.history_button.clicked.connect(self.show_history)
@@ -161,6 +165,18 @@ class ContactResultsDialog(QDialog):
             self.result, self.stage.currentIndex(), self.interface.currentData(), self,
         )
         self._resultants_window.show()
+
+    def show_audit(self):
+        from .contact_audit import ContactAuditDialog
+
+        if self._audit_window is not None:
+            self._audit_window.show()
+            self._audit_window.raise_()
+            return
+        self._audit_window = ContactAuditDialog(
+            self.result, self.stage.currentIndex(), self,
+        )
+        self._audit_window.show()
 
     def export(self, all_stages=False):
         path, _ = QFileDialog.getSaveFileName(self, "Export contact points", "contact.csv",
