@@ -68,6 +68,8 @@ jobs:
           tests/unit/test_contact_audit_desktop.py
           tests/unit/test_contact_audit_control.py
           tests/unit/test_contact_audit_cancellation_desktop.py
+          tests/unit/test_contact_audit_snapshot.py
+          tests/unit/test_contact_audit_snapshot_desktop.py
           tests/verification/test_f7_contact_topology_equilibrium.py
           --junitxml=contact_audit/tests.xml
       - name: Retain original native topology benchmark
@@ -85,13 +87,15 @@ jobs:
           from pathlib import Path
           root = Path('contact_audit')
           tests = ET.parse(root / 'tests.xml').getroot()
-          assert len(list(tests.iter('testcase'))) >= 302, 'Incomplete test execution'
+          assert len(list(tests.iter('testcase'))) >= 367, 'Incomplete test execution'
           assert not list(tests.iter('skipped')), 'Qt tests must actually run'
           assert not list(tests.iter('failure')) and not list(tests.iter('error'))
           for name in ('contact-audit.png', 'contact-audit-invalid.png',
                        'contact-audit.ssproj', 'contact-audit.json',
                        'contact-audit-invalid.json', 'contact-audit-progress.png',
-                       'contact-audit-cancelled.png', 'contact-audit-cancellation.json'):
+                       'contact-audit-cancelled.png', 'contact-audit-cancellation.json',
+                       'contact-audit-copy-limit.png', 'contact-audit-copy-ready.png',
+                       'contact-audit-copy.json'):
               assert (root / name).is_file(), name
           valid = json.loads((root / 'contact-audit.json').read_text())
           invalid = json.loads((root / 'contact-audit-invalid.json').read_text())
@@ -105,6 +109,12 @@ jobs:
           assert cancellation['completed_stage_reconstructions'] == 2
           assert not cancellation['complete_report_published']
           assert not cancellation['export_enabled']
+          copied = json.loads((root / 'contact-audit-copy.json').read_text())
+          assert copied['limit_rejection_before_worker']
+          assert copied['explicit_higher_limit_completed'] and copied['source_unchanged']
+          assert copied['worker_input_released'] and not copied['total_ram_estimate']
+          assert copied['geometry_cache_array_bytes_avoided'] > 0
+          assert copied['input_array_bytes'] < copied['full_copy_array_bytes']
           numerical = json.loads((root / 'topology.json').read_text())
           assert numerical['status'] == 'passed'
           assert numerical['case_count'] == 52 and numerical['stage_count'] == 552
