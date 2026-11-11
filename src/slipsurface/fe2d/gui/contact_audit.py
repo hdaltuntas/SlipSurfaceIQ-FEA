@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import threading
+import weakref
 
-from PySide6.QtCore import QCoreApplication, QThread, Signal, Slot
+from PySide6.QtCore import QCoreApplication, QThread, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -24,13 +25,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..io.contact_audit_json import export_contact_audit_json
+from ..post.contact_audit_budget import ContactAuditCopyBudget
 from ..post.contact_audit_control import ContactAuditCancelled
 from ..post.contact_audit_report import audit_rows, audit_summary, prepare_contact_audit
-from ..post.contact_audit_snapshot import DEFAULT_ARRAY_LIMIT, copy_contact_audit_snapshot
+from ..post.contact_audit_snapshot import DEFAULT_ARRAY_LIMIT, acquire_contact_audit_snapshot
 from ..post.contact_resultants import moment_origin
 
 _PENDING = set()
 _SHUTDOWN_CONNECTED = False
+_COPY_BUDGET = ContactAuditCopyBudget()
 
 
 def _wait_on_exit():
@@ -49,21 +52,45 @@ def _release_worker(worker):
     worker.deleteLater()
 
 
+def _drop_input(holder):
+    # Python-only cleanup also works after QObject destruction. Clear the owned
+    # copy BEFORE returning its lease; never publish partial numerical evidence.
+    holder["snapshot"] = None
+    lease = holder.pop("lease", None)
+    if lease is not None:
+        lease.release()
+
+
 class ContactAuditWorker(QThread):
     progressed = Signal(object)
 
-    def __init__(self, result, origin, parent=None, *, max_array_bytes=DEFAULT_ARRAY_LIMIT):
+    def __init__(self, result, origin, parent=None, *, max_array_bytes=DEFAULT_ARRAY_LIMIT,
+                 copy_budget=None):
         super().__init__(parent)
-        # Keep the synchronous detached-input boundary. The unused geometry cache
-        # is omitted and the array limit is checked BEFORE allocating the copy.
-        self.snapshot, self.snapshot_plan = copy_contact_audit_snapshot(
-            result, max_array_bytes=max_array_bytes,
-        )
+        holder = {"snapshot": None}
+        self._input_holder = holder
+        self._input_finalizer = weakref.finalize(self, _drop_input, holder)
+        # Capture only the holder, not self: an unstarted QObject may be deleted
+        # while its Python wrapper is still referenced. Both paths are idempotent.
+        self.destroyed.connect(lambda *_: _drop_input(holder))
+        try:
+            snapshot, self.snapshot_plan, lease = acquire_contact_audit_snapshot(
+                result, _COPY_BUDGET if copy_budget is None else copy_budget,
+                max_array_bytes=max_array_bytes,
+            )
+        except BaseException:
+            self.deleteLater()
+            raise
+        holder.update(snapshot=snapshot, lease=lease)
         self.origin = origin
         self.document = None
         self.error = None
         self.cancelled = False
         self.cancel_event = threading.Event()
+
+    @property
+    def snapshot(self):
+        return self._input_holder["snapshot"]
 
     def cancellation_requested(self):
         return self.cancel_event.is_set() or self.isInterruptionRequested()
@@ -71,7 +98,7 @@ class ContactAuditWorker(QThread):
     def run(self):
         if self.cancellation_requested():
             self.cancelled = True
-            self.snapshot = None
+            _drop_input(self._input_holder)
             return
         try:
             document = prepare_contact_audit(
@@ -90,7 +117,7 @@ class ContactAuditWorker(QThread):
         finally:
             # Completed/cancelled/error workers may remain referenced by clients.
             # Keep the compact report/plan, not a second full input history.
-            self.snapshot = None
+            _drop_input(self._input_holder)
 
 
 class ContactAuditDialog(QDialog):
@@ -103,7 +130,7 @@ class ContactAuditDialog(QDialog):
         self._discard = False
         self._closing = False
         self.setWindowTitle("Normal contact · elastic history equilibrium audit")
-        self.resize(1260, 760)
+        self.resize(1260, 800)
         layout = QVBoxLayout(self)
         note = QLabel(
             "Read-only audit of ALL accepted snapshots, not a new solve. Dry, drained, "
@@ -138,6 +165,35 @@ class ContactAuditDialog(QDialog):
         resources.addWidget(self.array_limit)
         resources.addStretch(1)
         layout.addLayout(resources)
+        self.copy_budget = _COPY_BUDGET
+        shared = QHBoxLayout()
+        self.shared_array_limit = QSpinBox()
+        self.shared_array_limit.setRange(1, 65536)
+        self.shared_array_limit.setSuffix(" MiB")
+        self.shared_array_limit.setToolTip(
+            "Session-wide copied-array budget shared by all audit windows. "
+            "Active reservations cannot be evicted. This does not limit total RAM."
+        )
+        self.shared_apply = QPushButton("Apply shared limit")
+        self.shared_budget_info = QLabel()
+        self._seen_shared_limit = None
+        shared.addWidget(QLabel("All audit windows: shared array limit"))
+        shared.addWidget(self.shared_array_limit)
+        shared.addWidget(self.shared_apply)
+        shared.addStretch(1)
+        layout.addLayout(shared)
+        layout.addWidget(self.shared_budget_info)
+        self.shared_status = QLabel()
+        self.shared_status.setWordWrap(True)
+        layout.addWidget(self.shared_status)
+        self.shared_apply.clicked.connect(self.apply_shared_limit)
+        # Workers never touch widgets. Poll immutable budget state on the GUI
+        # thread; edits in another dialog are reflected without stale resets.
+        self.budget_timer = QTimer(self)
+        self.budget_timer.setInterval(200)
+        self.budget_timer.timeout.connect(self.refresh_shared_budget)
+        self.budget_timer.start()
+        self.refresh_shared_budget()
         self.snapshot_info = QLabel(
             "Unused solver geometry cache is not copied; audit geometry is rebuilt. "
             "Array limit excludes Python metadata and audit workspace."
@@ -187,6 +243,32 @@ class ContactAuditDialog(QDialog):
         self.export_button.clicked.connect(self.export_report)
         close.clicked.connect(self.reject)
 
+    @Slot()
+    def refresh_shared_budget(self):
+        state = self.copy_budget.state
+        if state.limit_bytes != self._seen_shared_limit:
+            self.shared_array_limit.setValue(state.limit_bytes // 1048576)
+            self._seen_shared_limit = state.limit_bytes
+        self.shared_budget_info.setText(
+            f"Shared detached inputs: {state.reserved_bytes / 1048576:.2f} / "
+            f"{state.limit_bytes / 1048576:.2f} MiB · "
+            f"{state.reservation_count} reservation(s). "
+            "Pending copies and running inputs only; NOT total RAM or audit workspace."
+        )
+
+    def apply_shared_limit(self):
+        try:
+            self.copy_budget.set_limit(self.shared_array_limit.value() * 1048576)
+        except (MemoryError, ValueError) as exc:
+            self.shared_status.setText(f"Shared limit unchanged: {exc}")
+            self._seen_shared_limit = None
+        else:
+            self.shared_status.setText(
+                "Shared limit updated for this application session. "
+                "Active audits and completed reports are unchanged; retry refused work explicitly."
+            )
+        self.refresh_shared_budget()
+
     def invalidate(self, *_):
         self.document = None
         self.table.setRowCount(0)
@@ -213,10 +295,13 @@ class ContactAuditDialog(QDialog):
             self.worker = ContactAuditWorker(
                 self.result, origin, QCoreApplication.instance(),
                 max_array_bytes=self.array_limit.value() * 1048576,
+                copy_budget=self.copy_budget,
             )
         except Exception as exc:
             self.status.setText(f"Audit could not start: {exc}")
+            self.refresh_shared_budget()
             return
+        self.refresh_shared_budget()
         plan = self.worker.snapshot_plan
         self.snapshot_info.setText(
             f"Detached input: {plan.array_count} arrays, "
@@ -247,7 +332,19 @@ class ContactAuditDialog(QDialog):
         worker = self.worker
         _PENDING.add(worker)
         worker.finished.connect(lambda: _release_worker(worker))
-        worker.start()
+        try:
+            worker.start()
+        except Exception as exc:
+            # A launch failure has no running consumer. Return the admission and
+            # restore controls instead of leaving an unstarted worker reserved.
+            if worker.isRunning():
+                self.discard()
+                return
+            worker.error = f"{type(exc).__name__}: {exc}"
+            _drop_input(worker._input_holder)
+            _PENDING.discard(worker)
+            self.finish_audit()
+            worker.deleteLater()
 
     def discard(self):
         if self.worker is None:
@@ -286,6 +383,7 @@ class ContactAuditDialog(QDialog):
         self.origin_x.setEnabled(True)
         self.origin_y.setEnabled(True)
         self.discard_button.setEnabled(False)
+        self.refresh_shared_budget()
         if self._discard or worker.cancelled:
             self.document = None
             self.table.setRowCount(0)
