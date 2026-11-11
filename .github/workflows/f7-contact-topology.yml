@@ -1,0 +1,147 @@
+name: f7-contact-topology
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/f7-contact-topology.yml'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/post/contact*'
+      - 'src/slipsurface/fe2d/post/dry_applied_loads.py'
+      - 'scripts/f7_contact*benchmark.py'
+      - 'tests/verification/test_f7_contact*'
+      - 'requirements-core.txt'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/f7-contact-topology.yml'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/post/contact*'
+      - 'src/slipsurface/fe2d/post/dry_applied_loads.py'
+      - 'scripts/f7_contact*benchmark.py'
+      - 'tests/verification/test_f7_contact*'
+      - 'requirements-core.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  topology-audit:
+    name: Native elastic topology and read-only snapshot audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: src
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Record exact tracked source
+        run: |
+          mkdir -p f7_topology
+          git archive --format=tar HEAD -o f7_topology/source.tar
+          git rev-parse HEAD > f7_topology/source-commit.txt
+          git rev-parse HEAD^{tree} > f7_topology/source-tree.txt
+      - name: Install numerical dependencies
+        run: python -m pip install -r requirements-core.txt pytest ruff
+      - name: Lint complete source and benchmark
+        run: ruff check src tests scripts/f7_contact_topology_benchmark.py
+      - name: Verify topology and all retained numerical contracts
+        run: >-
+          python -m pytest -q tests/verification/test_f7_contact_topology_equilibrium.py
+          tests/verification/test_f7_contact_reactivation_benchmark.py
+          tests/verification/test_f7_contact_excavation_benchmark.py
+          tests/verification/test_f7_contact_support_equilibrium.py
+          tests/verification/test_f7_contact_activation_equilibrium.py
+          tests/verification/test_f7_contact_partial_equilibrium.py
+          tests/verification/test_f7_contact_equilibrium.py
+          tests/verification/test_f7_contact_static_integration.py
+          tests/verification/test_f7_unilateral_contact.py
+          --junitxml=f7_topology/tests.xml
+      - name: Compare reusable audit with native solutions and independent references
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_topology_benchmark.py \
+            --output f7_topology/topology.json --example f7_topology/notch.ssproj \
+            2>&1 | tee f7_topology/solver.log
+      - name: Audit saved example without running its solver again
+        run: >-
+          python scripts/f7_contact_topology_benchmark.py
+          --project f7_topology/notch.ssproj --output f7_topology/saved-audit.json
+      - name: Require complete unskipped evidence
+        run: |
+          python - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = Path('f7_topology')
+          tests = ET.parse(root/'tests.xml').getroot()
+          assert len(list(tests.iter('testcase'))) >= 714
+          for kind in ('failure', 'error', 'skipped'):
+              assert not list(tests.iter(kind)), kind
+          report = json.loads((root/'topology.json').read_text())
+          assert report['status'] == 'passed'
+          assert report['case_count'] == len(report['cases']) == 52
+          assert report['stage_count'] == 552
+          rows = [s for c in report['cases'] for s in c['audit']['stages']]
+          assert len(rows) == 552
+          assert all(c['status'] == c['audit']['status'] == 'passed'
+                     and c['classification_matches'] for c in report['cases'])
+          assert all(s['status'] == s['transition_equilibrium']['status'] == 'passed'
+                     and all(v['status'] in ('passed', 'not_applicable')
+                             for v in s['checks'].values()) for s in rows)
+          assert sum(s['physical_equilibrium']['status'] == 'passed' for s in rows) == 328
+          assert all(s['physical_equilibrium']['status'] == 'passed'
+                     for s in rows if s['accepted_fraction'] == 1)
+          saved = json.loads((root/'saved-audit.json').read_text())
+          assert saved['status'] == 'passed' and saved['stage_count'] == 6
+          assert (root/'notch.ssproj').stat().st_size > 0
+          PY
+      - name: Summarize actual audit evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('f7_topology')
+          root.mkdir(exist_ok=True)
+          path = root/'topology.json'
+          lines = ['## Elastic changing-topology snapshot audit', '']
+          if path.exists():
+              report = json.loads(path.read_text())
+              rows = [s for c in report['cases'] for s in c['audit']['stages']]
+              physical = sum(s.get('physical_equilibrium', {}).get('status') == 'passed'
+                             for s in rows)
+              lines += [f"- Status: {report['status']}",
+                        f"- Native models/stages: {report['case_count']}/{report['stage_count']}",
+                        f"- Physical-only passes: {physical}/{len(rows)}"]
+          else:
+              lines += ['No completed evidence. Inspect earlier failures; not a pass.']
+          lines += ['', 'No solver or contact-law changes. Original audit boundaries remain.',
+                    'Elastic dry original-mesh history only; not nonlinear backfill validation.',
+                    'Shared continuum shape functions are not an independent FE solver.', '']
+          text = '\n'.join(lines)
+          (root/'summary.md').write_text(text, encoding='utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as out:
+              out.write(text)
+          PY
+      - name: Preserve successful or partial numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-contact-topology-evidence
+          path: f7_topology/
+          retention-days: 14
+          if-no-files-found: warn
