@@ -1,0 +1,110 @@
+name: f7-contact-audit-desktop
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/f7-contact-audit-desktop.yml'
+      - 'src/slipsurface/fe2d/gui/**'
+      - 'src/slipsurface/fe2d/post/contact_*.py'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'tests/unit/test_contact_audit*.py'
+      - 'tests/verification/test_f7_contact_topology_equilibrium.py'
+      - 'scripts/f7_contact_*benchmark.py'
+      - 'requirements*.txt'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/f7-contact-audit-desktop.yml'
+      - 'src/slipsurface/fe2d/gui/**'
+      - 'src/slipsurface/fe2d/post/contact_*.py'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'tests/unit/test_contact_audit*.py'
+      - 'tests/verification/test_f7_contact_topology_equilibrium.py'
+      - 'scripts/f7_contact_*benchmark.py'
+      - 'requirements*.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-audit:
+    name: Read-only Qt history audit and export
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: src
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+      CONTACT_AUDIT_EVIDENCE_DIR: contact_audit
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Capture exact tracked source and provenance
+        run: |
+          mkdir -p contact_audit
+          git archive --format=tar HEAD -o contact_audit/source.tar
+          git rev-parse HEAD > contact_audit/source-commit.txt
+          git rev-parse HEAD^{tree} > contact_audit/source-tree.txt
+      - name: Install real desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0
+          python -m pip install -r requirements.txt pytest ruff
+          python -c "import PySide6; import shapely"
+      - name: Lint complete source and tests
+        run: ruff check src tests
+      - name: Test real Qt audit, lifecycle, JSON and unchanged numerical contracts
+        run: >-
+          python -m pytest -q tests/unit/test_contact_audit_report.py
+          tests/unit/test_contact_audit_desktop.py
+          tests/verification/test_f7_contact_topology_equilibrium.py
+          --junitxml=contact_audit/tests.xml
+      - name: Retain original native topology benchmark
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_topology_benchmark.py \
+            --output contact_audit/topology.json \
+            2>&1 | tee contact_audit/solver.log
+      - name: Require actual GUI and complete numerical evidence
+        run: |
+          python - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          root = Path('contact_audit')
+          tests = ET.parse(root / 'tests.xml').getroot()
+          assert len(list(tests.iter('testcase'))) >= 200, 'Incomplete test execution'
+          assert not list(tests.iter('skipped')), 'Qt tests must actually run'
+          assert not list(tests.iter('failure')) and not list(tests.iter('error'))
+          for name in ('contact-audit.png', 'contact-audit-invalid.png',
+                       'contact-audit.ssproj', 'contact-audit.json',
+                       'contact-audit-invalid.json'):
+              assert (root / name).is_file(), name
+          valid = json.loads((root / 'contact-audit.json').read_text())
+          invalid = json.loads((root / 'contact-audit-invalid.json').read_text())
+          assert valid['audit']['status'] == 'passed'
+          assert invalid['audit']['status'] == 'failed'
+          assert any(s['physical_equilibrium']['status'] == 'failed'
+                     for s in valid['audit']['stages'])
+          numerical = json.loads((root / 'topology.json').read_text())
+          assert numerical['status'] == 'passed'
+          assert numerical['case_count'] == 52 and numerical['stage_count'] == 552
+          PY
+      - name: Archive actual or partial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-contact-audit-desktop-evidence
+          path: contact_audit/
+          retention-days: 14
+          if-no-files-found: warn
