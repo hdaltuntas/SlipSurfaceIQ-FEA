@@ -14,8 +14,11 @@ _BULK = (ElemType.T3, ElemType.T6, ElemType.Q4, ElemType.Q8)
 
 
 class _Context:
-    def __init__(self, model):
+    def __init__(self, model, *, checkpoint=None):
+        self.checkpoint = checkpoint or (lambda: None)
+        self.checkpoint()
         model.validate()
+        self.checkpoint()
         self.model, self.mesh = model, model.mesh
         self.bulk = tuple(self.mesh.continuum_blocks())
         self.tags = normal_contact_tags(model)
@@ -48,18 +51,23 @@ class _Context:
         ):
             raise UnsupportedContactBudget("Water, seismic and property changes are unsupported")
         self.xy = _array(self.mesh.coords, (self.mesh.nn, 2), "mesh coordinates")
-        self.geom = {
-            b.tag: kernel(b.etype).precompute(
+        self.geom = {}
+        for b in self.bulk:
+            self.checkpoint()
+            self.geom[b.tag] = kernel(b.etype).precompute(
                 self.xy, b.conn, model.analysis, model.settings.gauss_order
             )
-            for b in self.bulk
-        }
-        self.contacts = {tag: _geometry(self.mesh, self.mesh.block(tag)) for tag in self.tags}
+        self.contacts = {}
+        for tag in self.tags:
+            self.checkpoint()
+            self.contacts[tag] = _geometry(self.mesh, self.mesh.block(tag))
         self.owners = {}
         # Unique topological edge ownership; never identify coincident opposite faces.
         for b in self.bulk:
             corners = 3 if b.etype in (ElemType.T3, ElemType.T6) else 4
             for e, conn in enumerate(b.conn):
+                if e % 256 == 0:
+                    self.checkpoint()
                 for j in range(corners):
                     edge = [int(conn[j]), int(conn[(j + 1) % corners])]
                     if b.etype.nodes_per_edge == 3:
@@ -72,7 +80,9 @@ class _Context:
             block = self.mesh.block(tag)
             n = block.etype.nen // 2
             rows = []
-            for conn in block.conn:
+            for e, conn in enumerate(block.conn):
+                if e % 256 == 0:
+                    self.checkpoint()
                 row = []
                 for face in (conn[:n], conn[n:]):
                     matches = self.owners.get(tuple(sorted(map(int, face[:2]))), [])
@@ -85,6 +95,7 @@ class _Context:
             self.adjacency[tag] = rows
 
     def activity(self, definition):
+        self.checkpoint()
         regions = definition.active_regions
         active = {
             b.tag: np.ones(b.ne, dtype=bool)
@@ -96,6 +107,7 @@ class _Context:
             raise UnsupportedContactBudget("At least one active continuum element is required")
         structures = definition.active_structures
         for tag in self.tags:
+            self.checkpoint()
             requested = structures is None or tag in structures
             active[tag] = np.array(
                 [
@@ -106,11 +118,13 @@ class _Context:
             )
         used = np.zeros(self.mesh.nn, dtype=bool)
         for block in self.mesh.blocks:
+            self.checkpoint()
             used[block.conn[active[block.tag]].ravel()] = True
         return active, used
 
     def snapshot(self, result, snapshot, active, used):
         """Reject absent, malformed or contradictory evidence before any arithmetic."""
+        self.checkpoint()
         bulk_tags, contact_tags = {b.tag for b in self.bulk}, set(self.tags)
         for name, tags in (
             ("active", {b.tag for b in self.mesh.blocks}),
@@ -129,10 +143,12 @@ class _Context:
         if snapshot.beams or snapshot.bars:
             raise ValueError("Unexpected structural forces")
         for tag, expected in active.items():
+            self.checkpoint()
             mask = _array(snapshot.active[tag], expected.shape, "activity", kind="b")
             if not np.array_equal(mask, expected):
                 raise ValueError(f"{tag}: activity contradicts independently derived adjacency")
         for b in self.bulk:
+            self.checkpoint()
             shape = self.geom[b.tag].wdet.shape
             stress = _array(snapshot.sig[b.tag], (*shape, 4), "stored stress")
             if np.any(stress[~active[b.tag]] != 0):
@@ -151,7 +167,7 @@ class _Context:
                     or not np.isnan(p[~active[b.tag]]).all()
                 ):
                     raise ValueError("Invalid dry pore evidence")
-        for p in contact_points(result, snapshot):
+        for p in contact_points(result, snapshot, checkpoint=self.checkpoint):
             if p.active and p.availability != "available":
                 raise ValueError("Missing active contact evidence")
         u = np.asarray(snapshot.u)
@@ -169,6 +185,7 @@ class _Context:
     def soil_force(self, stress, active):
         force = np.zeros((self.mesh.nn, 2))
         for b in self.bulk:
+            self.checkpoint()
             g = self.geom[b.tag]
             local = np.einsum("egki,egk,eg->ei", g.B, stress[b.tag], g.wdet)
             mask = active[b.tag]
@@ -179,6 +196,7 @@ class _Context:
         force = np.zeros((self.mesh.nn, 2))
         gaps = {}
         for tag in self.tags:
+            self.checkpoint()
             b, spec = self.mesh.block(tag), self.model.interfaces[tag]
             n = b.etype.nen // 2
             first, second = b.conn[:, :n], b.conn[:, n:]
@@ -197,6 +215,7 @@ class _Context:
         return force, gaps
 
     def bodies(self, active, used):
+        self.checkpoint()
         parent = np.arange(self.mesh.nn)
 
         def root(i):
@@ -206,11 +225,15 @@ class _Context:
             return int(i)
 
         for b in self.bulk:
-            for nodes in b.conn[active[b.tag]]:
+            for e, nodes in enumerate(b.conn[active[b.tag]]):
+                if e % 256 == 0:
+                    self.checkpoint()
                 for node in nodes[1:]:
                     parent[root(int(node))] = root(int(nodes[0]))
         groups = {}
-        for i in np.flatnonzero(used):
+        for count, i in enumerate(np.flatnonzero(used)):
+            if count % 256 == 0:
+                self.checkpoint()
             groups.setdefault(root(int(i)), []).append(int(i))
         return tuple(np.array(ids) for ids in groups.values())
 
@@ -218,6 +241,7 @@ class _Context:
         """Isotropic plane strain derived directly from E,nu; no material update call."""
         predicted, start = {}, {}
         for b in self.bulk:
+            self.checkpoint()
             mask = active[b.tag] & previous_active[b.tag]
             s0 = np.where(mask[:, None, None], previous_stress[b.tag], 0.0)
             start[b.tag] = s0
@@ -226,6 +250,7 @@ class _Context:
             )
             expected = np.zeros_like(s0)
             for region in np.unique(b.region):
+                self.checkpoint()
                 material = self.model.materials[self.model.region_material[int(region)]]
                 young, nu = material.params["E"], material.params["nu"]
                 mu, lam = young / (2 * (1 + nu)), young * nu / ((1 + nu) * (1 - 2 * nu))
@@ -240,6 +265,7 @@ class _Context:
 
 
 def _balance(ctx, soil, contact, applied, reactions, active, used, origin, atol, matol, rtol):
+    ctx.checkpoint()
     nodal = soil + contact - applied - reactions
     scale = np.maximum.reduce([np.abs(v) for v in (soil, contact, applied, reactions)])
     checks = {"nodal_force": _criterion(nodal, scale, atol, rtol)}
@@ -253,6 +279,7 @@ def _balance(ctx, soil, contact, applied, reactions, active, used, origin, atol,
     )
     bodies = []
     for ids in ctx.bodies(active, used):
+        ctx.checkpoint()
         terms = {
             key: _resultant(ctx.xy[ids], value[ids], origin)
             for key, value in (

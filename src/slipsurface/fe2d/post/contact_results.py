@@ -64,13 +64,19 @@ def _array(value, shape, name, kinds="fiu"):
     return data
 
 
-def contact_points(result, stage=None, tag=None):
+def contact_points(result, stage=None, tag=None, *, checkpoint=None):
     """Stored IFACE4/IFACE6 point data for one stage, including inactive/missing rows.
 
     Missing optional contact maps (old snapshots) are unavailable, not zero.
     Present but malformed/inconsistent data raise ValueError before export/drawing.
+    An optional synchronous checkpoint supports audit cancellation; it never
+    changes the returned measurements and its exceptions propagate unchanged.
     Inactive masks remain authoritative and require NaN/255 when maps are present.
     """
+    if checkpoint is not None:
+        if not callable(checkpoint):
+            raise TypeError("checkpoint must be callable or None")
+        checkpoint()
     st = stage_result(result, stage)
     tags = normal_contact_tags(result.model)
     if tag is not None:
@@ -79,6 +85,8 @@ def contact_points(result, stage=None, tag=None):
         tags = (tag,)
     points = []
     for key in tags:
+        if checkpoint is not None:
+            checkpoint()
         block = result.model.mesh.block(key)
         if block.etype not in (ElemType.IFACE4, ElemType.IFACE6):
             raise ValueError(f"{key}: normal-contact results require IFACE4 or IFACE6")
@@ -111,6 +119,8 @@ def contact_points(result, stage=None, tag=None):
             if np.any(traction[..., 1][mask][gap[mask] >= 0] != 0):
                 raise ValueError(f"{key}: open/touching contact carries a nonzero traction")
         for e, conn in enumerate(block.conn):
+            if checkpoint is not None and e % 256 == 0:
+                checkpoint()
             for ip in range(n):
                 one, two = int(conn[ip]), int(conn[n + ip])
                 xy = result.model.mesh.coords[one]
@@ -124,4 +134,6 @@ def contact_points(result, stage=None, tag=None):
                     float(traction[e, ip, 1]) if active and available else None,
                     int(code[e, ip]) if active and available else 255 if not active else None,
                 ))
+    if checkpoint is not None:
+        checkpoint()
     return tuple(points)

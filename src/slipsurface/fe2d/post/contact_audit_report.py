@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from .contact_audit_control import _AuditControl
 from .contact_resultants import moment_origin
 from .contact_topology_equilibrium import contact_topology_equilibrium_by_stage
 
@@ -70,19 +71,26 @@ def validate_document(document):
     return data
 
 
-def prepare_contact_audit(result, *, origin=(0.0, 0.0)):
-    """Audit the COMPLETE supplied snapshot history, including its initial record."""
+def prepare_contact_audit(result, *, origin=(0.0, 0.0), progress=None, cancelled=None):
+    """Audit the COMPLETE history; cancellation never yields an exportable document."""
+    control = _AuditControl(progress, cancelled)
+    control.checkpoint()
     if result is None or result.initial is None:
         raise ValueError("Stored accepted results, including the initial snapshot, are required")
     origin = moment_origin(origin)
-    audit = contact_topology_equilibrium_by_stage(result, origin=origin)
-    return validate_document({
+    audit = contact_topology_equilibrium_by_stage(
+        result, origin=origin, progress=progress, cancelled=cancelled,
+    )
+    control.checkpoint()
+    document = validate_document({
         "schema": SCHEMA,
         "origin_m": list(origin),
         "snapshot_names": [result.initial.name, *(s.name for s in result.stages)],
         "units": {"force": "kN/m", "moment": "kN*m/m", "gap": "m", "traction": "kPa"},
         "audit": audit,
     })
+    control.checkpoint()
+    return document
 
 
 def audit_rows(document):

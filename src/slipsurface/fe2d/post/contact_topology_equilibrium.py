@@ -15,6 +15,7 @@ import numpy as np
 
 from ..core.errors import MeshError
 from .contact_activation_equilibrium import _prescribed_targets
+from .contact_audit_control import _AuditControl
 from .contact_equilibrium import UnsupportedContactBudget, _criterion, _resultant
 from .contact_partial_equilibrium import _ERRORS, _fraction, _prescribed
 from .contact_resultants import moment_origin
@@ -41,13 +42,22 @@ def contact_topology_equilibrium_by_stage(
     traction_atol=1e-8,
     gap_atol=1e-10,
     rtol=1e-8,
+    progress=None,
+    cancelled=None,
 ):
     """Check a COMPLETE accepted elastic history, including birth/removal and release.
 
     Original APIs retain their rejection of topology changes. This separate API
     fails closed on invalid, unsupported or failed predecessor records. Passing
     transition balance is NOT passing physical-only balance or engineering safety.
+
+    Optional synchronous ``progress(event)`` and ``cancelled() -> bool`` hooks
+    do not change numerical results. Cancellation raises ContactAuditCancelled,
+    never returns a partial report or a failed-evidence verdict. Checkpoints are
+    cooperative: one array operation / model validation may finish first.
     """
+    control = _AuditControl(progress, cancelled)
+    control.checkpoint()
     origin = moment_origin(origin)
     for tolerance in (force_atol, moment_atol, traction_atol, gap_atol, rtol):
         if (
@@ -59,11 +69,14 @@ def contact_topology_equilibrium_by_stage(
             raise ValueError("Tolerances must be positive finite real values")
     rows, failed = [], None
     initial_status = "invalid"
+    count = len(result.stages) + 1
+    initial_name = getattr(getattr(result, "initial", None), "name", "")
+    control.emit(0, count, 0, initial_name, "initial")
     try:
         model = result.model
         if not model.stages or len(model.stages) != len(result.stages):
             raise ValueError("Complete matching stage history required")
-        ctx = _Context(model)
+        ctx = _Context(model, checkpoint=control.checkpoint)
         previous_active, previous_used = ctx.activity(model.initial)
         u0, r0 = ctx.snapshot(result, result.initial, previous_active, previous_used)
         if (
@@ -73,7 +86,7 @@ def contact_topology_equilibrium_by_stage(
             or any(np.any(s != 0) for s in result.initial.sig.values())
         ):
             raise ValueError("Initial evidence must have zero displacement, stress and reaction")
-        for p in contact_points(result, result.initial):
+        for p in contact_points(result, result.initial, checkpoint=control.checkpoint):
             if p.active and (
                 p.gap_m != model.interfaces[p.tag].initial_gap or p.normal_traction_kpa != 0
             ):
@@ -84,23 +97,29 @@ def contact_topology_equilibrium_by_stage(
         initial_status = "passed"
     except _AUDIT_ERRORS as exc:
         status = "unsupported" if isinstance(exc, UnsupportedContactBudget) else "invalid"
+        control.emit(1, count, 0, initial_name, "initial_complete")
+        blocked = []
+        for i, st in enumerate(result.stages):
+            control.emit(i + 1, count, i + 1, st.name, "blocked")
+            blocked.append({
+                "stage_index": i,
+                "stage": st.name,
+                "status": "blocked",
+                "reason": "Invalid/unsupported initial reference",
+            })
+        control.emit(count, count, count - 1,
+                     result.stages[-1].name if result.stages else initial_name, "complete")
         return {
             "status": "failed",
             "initial_status": status,
             "reason": str(exc),
             "scope": _SCOPE,
             "stage_count": len(result.stages),
-            "stages": [
-                {
-                    "stage_index": i,
-                    "stage": st.name,
-                    "status": "blocked",
-                    "reason": "Invalid/unsupported initial reference",
-                }
-                for i, st in enumerate(result.stages)
-            ],
+            "stages": blocked,
         }
+    control.emit(1, count, 0, initial_name, "initial_complete")
     for i, (definition, snapshot) in enumerate(zip(model.stages, result.stages)):
+        control.emit(i + 1, count, i + 1, snapshot.name, "stage")
         if failed is not None:
             rows.append(
                 {
@@ -110,6 +129,7 @@ def contact_topology_equilibrium_by_stage(
                     "blocked_by_stage_index": failed,
                 }
             )
+            control.emit(i + 2, count, i + 1, snapshot.name, "blocked")
             continue
         try:
             alpha = _fraction(definition.load_split, "Declared fraction")
@@ -120,6 +140,7 @@ def contact_topology_equilibrium_by_stage(
                 raise ValueError("Stage identity/fraction mismatch")
             if not isinstance(definition.reset_displacements, (bool, np.bool_)):
                 raise ValueError("Reporting reset must be boolean")
+            control.emit(i + 1, count, i + 1, snapshot.name, "evidence")
             active, used = ctx.activity(definition)
             reported, reaction = ctx.snapshot(result, snapshot, active, used)
             fresh, removed = used & ~previous_used, previous_used & ~used
@@ -131,6 +152,7 @@ def contact_topology_equilibrium_by_stage(
             current[used] = reported[used] + current_datum[used]
             prescribed = _prescribed(model, definition.displacements) & used[:, None]
             with np.errstate(over="raise", invalid="raise", divide="raise"):
+                control.emit(i + 1, count, i + 1, snapshot.name, "reconstruction")
                 predicted, start_stress = ctx.elastic_prediction(
                     previous.sig, previous_active, active, current - total
                 )
@@ -138,12 +160,15 @@ def contact_topology_equilibrium_by_stage(
                 contact_start, _ = ctx.contact_force(total, active)
                 projected = physical.copy()
                 projected[~used] = 0.0
+                control.checkpoint()
                 target = independent_dry_applied_loads(model, definition, active)
+                control.checkpoint()
                 actual = (1 - alpha) * projected + alpha * target["nodal"][:, :2]
                 retained = (1 - alpha) * (soil_start + contact_start - projected)
                 retained[prescribed | ~used[:, None]] = 0.0
                 soil = ctx.soil_force(snapshot.sig, active)
                 contact, gaps = ctx.contact_force(current, active, snapshot)
+                control.emit(i + 1, count, i + 1, snapshot.name, "balance")
                 effective = _balance(
                     ctx,
                     soil,
@@ -191,6 +216,7 @@ def contact_topology_equilibrium_by_stage(
                     ),
                 }
                 for b in ctx.bulk:
+                    control.checkpoint()
                     checks[f"elastic_stress_history:{b.tag}"] = _criterion(
                         snapshot.sig[b.tag] - predicted[b.tag],
                         np.abs(predicted[b.tag]),
@@ -198,7 +224,7 @@ def contact_topology_equilibrium_by_stage(
                         rtol,
                     )
                 gap_error, gap_scale, traction_error, traction_scale = [], [], [], []
-                for p in contact_points(result, snapshot):
+                for p in contact_points(result, snapshot, checkpoint=control.checkpoint):
                     if p.active:
                         gap = gaps[p.tag][p.element, p.point]
                         traction = model.interfaces[p.tag].kn * min(gap, 0.0)
@@ -270,6 +296,8 @@ def contact_topology_equilibrium_by_stage(
         rows.append(row)
         if row["status"] != "passed":
             failed = i
+        control.emit(i + 2, count, i + 1, snapshot.name, "stage_complete")
+    control.emit(count, count, count - 1, result.stages[-1].name, "complete")
     return {
         "status": "passed" if failed is None else "failed",
         "initial_status": initial_status,

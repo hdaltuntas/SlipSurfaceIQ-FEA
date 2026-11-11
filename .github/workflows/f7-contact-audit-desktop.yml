@@ -66,6 +66,8 @@ jobs:
         run: >-
           python -m pytest -q tests/unit/test_contact_audit_report.py
           tests/unit/test_contact_audit_desktop.py
+          tests/unit/test_contact_audit_control.py
+          tests/unit/test_contact_audit_cancellation_desktop.py
           tests/verification/test_f7_contact_topology_equilibrium.py
           --junitxml=contact_audit/tests.xml
       - name: Retain original native topology benchmark
@@ -83,12 +85,13 @@ jobs:
           from pathlib import Path
           root = Path('contact_audit')
           tests = ET.parse(root / 'tests.xml').getroot()
-          assert len(list(tests.iter('testcase'))) >= 200, 'Incomplete test execution'
+          assert len(list(tests.iter('testcase'))) >= 302, 'Incomplete test execution'
           assert not list(tests.iter('skipped')), 'Qt tests must actually run'
           assert not list(tests.iter('failure')) and not list(tests.iter('error'))
           for name in ('contact-audit.png', 'contact-audit-invalid.png',
                        'contact-audit.ssproj', 'contact-audit.json',
-                       'contact-audit-invalid.json'):
+                       'contact-audit-invalid.json', 'contact-audit-progress.png',
+                       'contact-audit-cancelled.png', 'contact-audit-cancellation.json'):
               assert (root / name).is_file(), name
           valid = json.loads((root / 'contact-audit.json').read_text())
           invalid = json.loads((root / 'contact-audit-invalid.json').read_text())
@@ -96,6 +99,12 @@ jobs:
           assert invalid['audit']['status'] == 'failed'
           assert any(s['physical_equilibrium']['status'] == 'failed'
                      for s in valid['audit']['stages'])
+          cancellation = json.loads((root / 'contact-audit-cancellation.json').read_text())
+          assert cancellation['cancelled'] and cancellation['source_unchanged']
+          assert cancellation['entered_stage_reconstructions'] == 3
+          assert cancellation['completed_stage_reconstructions'] == 2
+          assert not cancellation['complete_report_published']
+          assert not cancellation['export_enabled']
           numerical = json.loads((root / 'topology.json').read_text())
           assert numerical['status'] == 'passed'
           assert numerical['case_count'] == 52 and numerical['stage_count'] == 552
