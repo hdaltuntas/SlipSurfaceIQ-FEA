@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import threading
 
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from ..io.contact_audit_json import export_contact_audit_json
 from ..post.contact_audit_control import ContactAuditCancelled
 from ..post.contact_audit_report import audit_rows, audit_summary, prepare_contact_audit
+from ..post.contact_audit_snapshot import DEFAULT_ARRAY_LIMIT, copy_contact_audit_snapshot
 from ..post.contact_resultants import moment_origin
 
 _PENDING = set()
@@ -51,10 +52,13 @@ def _release_worker(worker):
 class ContactAuditWorker(QThread):
     progressed = Signal(object)
 
-    def __init__(self, result, origin, parent=None):
+    def __init__(self, result, origin, parent=None, *, max_array_bytes=DEFAULT_ARRAY_LIMIT):
         super().__init__(parent)
-        # Freeze before starting: another window may replace/edit the model.
-        self.snapshot = copy.deepcopy(result)
+        # Keep the synchronous detached-input boundary. The unused geometry cache
+        # is omitted and the array limit is checked BEFORE allocating the copy.
+        self.snapshot, self.snapshot_plan = copy_contact_audit_snapshot(
+            result, max_array_bytes=max_array_bytes,
+        )
         self.origin = origin
         self.document = None
         self.error = None
@@ -67,6 +71,7 @@ class ContactAuditWorker(QThread):
     def run(self):
         if self.cancellation_requested():
             self.cancelled = True
+            self.snapshot = None
             return
         try:
             document = prepare_contact_audit(
@@ -82,6 +87,10 @@ class ContactAuditWorker(QThread):
                 self.cancelled = True
             else:
                 self.document = document
+        finally:
+            # Completed/cancelled/error workers may remain referenced by clients.
+            # Keep the compact report/plan, not a second full input history.
+            self.snapshot = None
 
 
 class ContactAuditDialog(QDialog):
@@ -115,6 +124,26 @@ class ContactAuditDialog(QDialog):
                        self.origin_y, self.run_button, self.discard_button):
             controls.addWidget(widget)
         layout.addLayout(controls)
+        resources = QHBoxLayout()
+        self.array_limit = QSpinBox()
+        self.array_limit.setRange(1, 65536)
+        self.array_limit.setValue(DEFAULT_ARRAY_LIMIT // 1048576)
+        self.array_limit.setSuffix(" MiB")
+        self.array_limit.setToolTip(
+            "Per-run copied NumPy payload limit, NOT total memory. "
+            "Python metadata and audit workspace need additional RAM. "
+            "The input copy is synchronous; this is not a latency guarantee."
+        )
+        resources.addWidget(QLabel("Input array copy limit"))
+        resources.addWidget(self.array_limit)
+        resources.addStretch(1)
+        layout.addLayout(resources)
+        self.snapshot_info = QLabel(
+            "Unused solver geometry cache is not copied; audit geometry is rebuilt. "
+            "Array limit excludes Python metadata and audit workspace."
+        )
+        self.snapshot_info.setWordWrap(True)
+        layout.addWidget(self.snapshot_info)
         self.status = QLabel(
             "Not run. The audit uses a detached copy; source results are unchanged."
         )
@@ -175,13 +204,27 @@ class ContactAuditDialog(QDialog):
         if self.worker is not None:
             return
         self.invalidate()
+        self.snapshot_info.setText(
+            "Checking input array payload before copying; unused geometry cache excluded. "
+            "No total-memory or latency guarantee."
+        )
         try:
             origin = moment_origin((float(self.origin_x.text()), float(self.origin_y.text())))
-            self.worker = ContactAuditWorker(self.result, origin, QCoreApplication.instance())
+            self.worker = ContactAuditWorker(
+                self.result, origin, QCoreApplication.instance(),
+                max_array_bytes=self.array_limit.value() * 1048576,
+            )
         except Exception as exc:
             self.status.setText(f"Audit could not start: {exc}")
             return
+        plan = self.worker.snapshot_plan
+        self.snapshot_info.setText(
+            f"Detached input: {plan.array_count} arrays, "
+            f"{plan.array_bytes / 1048576:.2f} MiB payload. Solver geometry cache omitted. "
+            "Python metadata and audit workspace are additional; not total RAM."
+        )
         self._discard, self._closing = False, False
+        self.array_limit.setEnabled(False)
         self.run_button.setEnabled(False)
         self.origin_x.setEnabled(False)
         self.origin_y.setEnabled(False)
@@ -239,6 +282,7 @@ class ContactAuditDialog(QDialog):
         worker = self.worker
         self.worker = None
         self.run_button.setEnabled(True)
+        self.array_limit.setEnabled(True)
         self.origin_x.setEnabled(True)
         self.origin_y.setEnabled(True)
         self.discard_button.setEnabled(False)

@@ -37,8 +37,9 @@ until a new complete audit is run. The GUI cannot relax any tolerance.
 ## Thread and input lifetime
 
 Before starting, the selected accepted result is copied on the GUI thread; the audit
-then runs on a separate QThread. This extra copy costs memory and may briefly take time
-for very large snapshots, but concurrent model editing cannot change the input mid-run.
+then runs on a separate QThread. The completed copy isolates subsequent GUI model edits.
+The copy is synchronous and can pause the GUI for large inputs. It is not protected
+against arbitrary concurrent writers outside the application’s normal GUI ownership.
 The numerical routine never calls `api.run` / `StaticSolver` or writes model/results.
 
 **Cancel audit** now requests cooperative cancellation of the read-only audit,
@@ -69,6 +70,44 @@ threads remain alive until they finish. Application exit requests cancellation f
 ALL pending workers before waiting for safe completion. It never calls `terminate`.
 Late progress cannot replace a cancelled status or a subsequent run. Run is enabled
 again after completion, and a fresh run uses a fresh detached input and cancel flag.
+
+### Input-copy resource limit and cache elision
+
+**Input array copy limit** defaults to **512 MiB per audit**, adjustable explicitly
+before starting (1–65536 MiB). A Qt-free preflight walks native data containers and
+array metadata WITHOUT scanning array values or allocating copied arrays. It counts
+each ndarray object once; repeated references are preserved by deepcopy, while distinct
+views are counted separately because each is copied. Non-contiguous arrays count their
+logical `nbytes`, not the size of a potentially much larger backing allocation.
+
+The detached audit input omits ONLY the top-level `SolveResult.geom` cache: the numerical
+audit already rebuilds geometry from `model.mesh`. Model data, authoring metadata,
+accepted fields, activity and all unsupported/invalid evidence remain present.
+This is not a reduced-physics report or a relaxation of any numerical check. Existing
+invalid/unsupported histories still produce the same verdicts. Unknown custom objects,
+ndarray subclasses and object-dtype arrays are refused by the resource estimator rather
+than assigned a misleading byte count; this is an input-preparation error, not a FEM
+verdict or an exportable audit.
+
+The limit is **copied NumPy array payload**, NOT total process RAM. Python objects,
+allocator overhead, JSON, the source itself, other simultaneous jobs, and reconstructed
+audit matrices require ADDITIONAL memory. No available-RAM or out-of-memory guarantee
+is made. Above the selected limit, no deepcopy or worker run starts; the old report is
+cleared and export stays disabled. An explicit higher limit can be selected after
+checking available resources. A MemoryError during allocation is also an execution
+failure, never a numerical failure/pass.
+
+Successful, cancelled, pre-cancelled and failed workers drop their detached input on
+exit, even when a client still retains the worker wrapper. The compact completed report
+and payload count remain accessible. A worker must not be restarted directly after
+completion; the dialog always creates a fresh worker, as before.
+
+**This does not make input preparation asynchronous or cancellable.** Preflight and
+copying still run on the GUI thread without pumping its event loop. Cache elision
+reduces unnecessary array copies; it does not promise a fixed preparation time or
+remove pauses for very large retained histories. Numerical cancellation starts after
+the detached input is prepared. Resource settings never enter the JSON report or
+change audit tolerances.
 
 ### Optional Qt-free API hooks
 
