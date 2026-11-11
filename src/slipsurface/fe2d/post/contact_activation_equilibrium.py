@@ -1,10 +1,10 @@
 """Partial contact activation budgets with an explicit retained-release load.
 
-This read-only audit is deliberately narrower than the solver: every node must
-belong to unchanged active continuum, and prescribed-DOF membership is fixed.
-These conditions make total displacement recoverable from stored reported
-snapshots and explicit datum resets, even while contact is absent. No native
-residual, private applied-force vector, or restart state is read.
+Every node must belong to unchanged active continuum. The original public audit
+requires fixed prescribed-DOF membership; the private engine also serves the
+explicit temporary-support audit. Total displacement is recovered from stored
+reported snapshots and datum resets. No native residual, private applied-force
+vector, or restart state is read.
 """
 
 from __future__ import annotations
@@ -91,9 +91,10 @@ def _prescribed_targets(model, definition):
     return target
 
 
-def contact_activation_equilibrium_by_stage(
+def _contact_history_equilibrium(
     result, *, origin=(0.0, 0.0), force_atol=1e-8, moment_atol=1e-8,
     traction_atol=1e-8, gap_atol=1e-10, rtol=1e-8,
+    support_changes=False, scope=_SCOPE,
 ):
     """Reconstruct physical loads AND unfinished release from accepted snapshots.
 
@@ -135,7 +136,7 @@ def contact_activation_equilibrium_by_stage(
     except _ERRORS as exc:
         initial_status = "unsupported" if isinstance(exc, UnsupportedContactBudget) else "invalid"
         return {"status": "failed", "initial_status": initial_status, "reason": str(exc),
-                "stage_count": len(result.stages), "scope": _SCOPE,
+                "stage_count": len(result.stages), "scope": scope,
                 "stages": [{"stage_index": i, "stage": st.name, "status": "blocked",
                             "reason": "Invalid/unsupported initial reference"}
                            for i, st in enumerate(result.stages)]}
@@ -158,7 +159,10 @@ def contact_activation_equilibrium_by_stage(
             view = _full_view(result, [*definitions, current], [*snapshots, recorded])
             # Enforce #83's full dry/topology/data contract before reading any arrays.
             _contract(view, index)
-            if not np.array_equal(_prescribed(model, definition.displacements), prescribed):
+            current_prescribed = _prescribed(model, definition.displacements)
+            released = prescribed & ~current_prescribed
+            added = current_prescribed & ~prescribed
+            if not support_changes and not np.array_equal(current_prescribed, prescribed):
                 raise UnsupportedContactBudget("Prescribed-DOF membership must remain fixed")
             if definition.reset_displacements:
                 datum = previous_u.copy()
@@ -171,7 +175,7 @@ def contact_activation_equilibrium_by_stage(
                 contact_start, start_gaps = _geometric_contact(model, previous_u, snapshot.active)
                 start = _soil_internal(model, previous_snapshot) + contact_start
                 retained = (1-alpha)*(start - previous_load)
-                retained[prescribed] = 0.0
+                retained[current_prescribed] = 0.0
                 effective = actual + retained
                 if not np.isfinite(effective).all() or not np.isfinite(total_u).all():
                     raise ValueError("Nonfinite stage-history reconstruction")
@@ -201,8 +205,8 @@ def contact_activation_equilibrium_by_stage(
                 displacement_target = _prescribed_targets(model, definition)
                 prescribed_actual = (1-alpha)*previous_u + alpha*displacement_target
                 row["checks"]["prescribed_displacement_history_m"] = _criterion(
-                    (total_u-prescribed_actual)[prescribed],
-                    np.abs(prescribed_actual[prescribed]), gap_atol, rtol,
+                    (total_u-prescribed_actual)[current_prescribed],
+                    np.abs(prescribed_actual[current_prescribed]), gap_atol, rtol,
                 )
                 # Label effective balance honestly; physical-only imbalance is expected
                 # while a nonzero retained release is present on free DOFs.
@@ -238,13 +242,56 @@ def contact_activation_equilibrium_by_stage(
                     "start_geometric_gap_m": {k: v.tolist() for k, v in start_gaps.items()},
                     "report_datum_reset": bool(definition.reset_displacements),
                 }
-                row["scope"] = _SCOPE
+                if support_changes:
+                    # Check the newly-free imbalance against prior reactions as an
+                    # INDEPENDENT check, never as the source of an applied force.
+                    old_contact, _ = _geometric_contact(
+                        model, previous_u, previous_snapshot.active,
+                    )
+                    old_reactions = _array(
+                        previous_snapshot.reactions, (model.mesh.nn, 3), "previous reactions",
+                    )[:, :2]
+                    delta_contact = contact_start-old_contact
+                    expected_start = old_reactions+delta_contact
+                    row["checks"]["released_dof_start_force"] = _criterion(
+                        (start-previous_load-expected_start)[released],
+                        np.abs(expected_start[released]), force_atol, rtol,
+                    )
+                    row["support_changes"] = {
+                        "released_dofs": np.argwhere(released).tolist(),
+                        "added_dofs": np.argwhere(added).tolist(),
+                        "prescribed_dofs": np.argwhere(current_prescribed).tolist(),
+                        "released_previous_reactions": old_reactions[released].tolist(),
+                        "released_contact_change": delta_contact[released].tolist(),
+                        "released_retained_force": retained[released].tolist(),
+                        "reaction_on_released_dofs": _criterion(
+                            np.asarray(snapshot.reactions)[:, :2][released],
+                            np.zeros(np.count_nonzero(released)), force_atol, rtol,
+                        ),
+                    }
+                    # Physical-only residuals are NOT masked by the retained load.
+                    physical_loads = tuple(PointLoad(i, float(fx), float(fy))
+                                           for i, (fx, fy) in enumerate(actual)
+                                           if fx != 0 or fy != 0)
+                    physical_view = _full_view(
+                        result, [*definitions, replace(current, loads=physical_loads)],
+                        [*snapshots, recorded],
+                    )
+                    physical_row = contact_stage_equilibrium(physical_view, index, **options)
+                    row["physical_equilibrium"] = {
+                        "status": physical_row["status"],
+                        "checks": physical_row["checks"],
+                        "partitions": physical_row["partitions"],
+                        "meaning": "Physical loads and current reactions ONLY; no retained release",
+                    }
+                row["scope"] = scope
                 if any(c["status"] not in ("passed", "not_applicable")
                        for c in row["checks"].values()):
                     row["status"] = "failed"
                 if row["status"] == "passed":
                     previous_load, previous_total = actual, actual_total
                     previous_u, previous_snapshot = total_u, snapshot
+                    prescribed = current_prescribed
                     definitions.append(current)
                     snapshots.append(recorded)
         except _ERRORS as exc:
@@ -256,4 +303,15 @@ def contact_activation_equilibrium_by_stage(
             failed_index = index
     return {"status": "passed" if rows and failed_index is None else "failed",
             "initial_status": initial_status, "stage_count": len(rows),
-            "stages": rows, "scope": _SCOPE}
+            "stages": rows, "scope": scope}
+
+
+def contact_activation_equilibrium_by_stage(
+    result, *, origin=(0.0, 0.0), force_atol=1e-8, moment_atol=1e-8,
+    traction_atol=1e-8, gap_atol=1e-10, rtol=1e-8,
+):
+    """Original contact-switching audit; prescribed-DOF membership remains fixed."""
+    return _contact_history_equilibrium(
+        result, origin=origin, force_atol=force_atol, moment_atol=moment_atol,
+        traction_atol=traction_atol, gap_atol=gap_atol, rtol=rtol,
+    )
