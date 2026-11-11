@@ -102,15 +102,17 @@ class ContactAuditDialog(QDialog):
         layout.addWidget(self.status)
         self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels([
-            "Snapshot", "Stage", "Accepted fraction", "History / transition", "Physical only",
-            "Max nodal residual\n(kN/m)", "Global Fx residual\n(kN/m)",
-            "Global Fy residual\n(kN/m)", "Global Mz residual\n(kN·m/m)",
-            "Max retained nodal\nforce (kN/m)",
+            "Snapshot", "Stage", "Fraction", "Transition", "Physical only",
+            "Max nodal\nresidual (kN/m)", "Residual Fx\n(kN/m)",
+            "Residual Fy\n(kN/m)", "Residual Mz\n(kN·m/m)",
+            "Max retained\nnodal (kN/m)",
         ])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
         layout.addWidget(self.table, 2)
         self.details = QPlainTextEdit()
         self.details.setReadOnly(True)
