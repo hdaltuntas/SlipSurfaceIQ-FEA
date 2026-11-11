@@ -82,13 +82,7 @@ def plan_contact_audit_snapshot(result):
     return _array_inventory(_audit_input(result))
 
 
-def copy_contact_audit_snapshot(result, *, max_array_bytes=DEFAULT_ARRAY_LIMIT):
-    """Return (detached input, plan), refusing an oversized copy before deepcopy.
-
-    Call on the GUI thread while its source is stable; this is not a lock against
-    arbitrary concurrent writers. Python metadata, output JSON, allocator costs
-    and the audit's reconstructed matrices are additional, unbudgeted memory.
-    """
+def _checked_input(result, max_array_bytes):
     if type(max_array_bytes) is not int or max_array_bytes <= 0:
         raise ValueError("Input array limit must be a positive integer number of bytes")
     view = _audit_input(result)
@@ -100,4 +94,33 @@ def copy_contact_audit_snapshot(result, *, max_array_bytes=DEFAULT_ARRAY_LIMIT):
             "Raise the input array limit explicitly only with sufficient memory. "
             "This limit excludes Python metadata and audit workspace."
         )
+    return view, plan
+
+
+def copy_contact_audit_snapshot(result, *, max_array_bytes=DEFAULT_ARRAY_LIMIT):
+    """Return (detached input, plan), refusing an oversized copy before deepcopy.
+
+    Call on the GUI thread while its source is stable; this is not a lock against
+    arbitrary concurrent writers. Python metadata, output JSON, allocator costs
+    and the audit's reconstructed matrices are additional, unbudgeted memory.
+    This standalone API keeps its per-run contract; desktop workers additionally
+    use acquire_contact_audit_snapshot for shared-budget admission.
+    """
+    view, plan = _checked_input(result, max_array_bytes)
     return copy.deepcopy(view), plan
+
+
+def acquire_contact_audit_snapshot(result, budget, *, max_array_bytes=DEFAULT_ARRAY_LIMIT):
+    """Return (input, plan, lease); reserve shared payload BEFORE copying.
+
+    The owner must drop its input before releasing the lease. On copy failure,
+    return the reservation immediately. This never queues or retries an audit.
+    """
+    view, plan = _checked_input(result, max_array_bytes)
+    lease = budget.reserve(plan.array_bytes)
+    try:
+        snapshot = copy.deepcopy(view)
+    except BaseException:
+        lease.release()
+        raise
+    return snapshot, plan, lease

@@ -70,6 +70,8 @@ jobs:
           tests/unit/test_contact_audit_cancellation_desktop.py
           tests/unit/test_contact_audit_snapshot.py
           tests/unit/test_contact_audit_snapshot_desktop.py
+          tests/unit/test_contact_audit_budget.py
+          tests/unit/test_contact_audit_budget_desktop.py
           tests/verification/test_f7_contact_topology_equilibrium.py
           --junitxml=contact_audit/tests.xml
       - name: Retain original native topology benchmark
@@ -87,7 +89,7 @@ jobs:
           from pathlib import Path
           root = Path('contact_audit')
           tests = ET.parse(root / 'tests.xml').getroot()
-          assert len(list(tests.iter('testcase'))) >= 367, 'Incomplete test execution'
+          assert len(list(tests.iter('testcase'))) >= 428, 'Incomplete test execution'
           assert not list(tests.iter('skipped')), 'Qt tests must actually run'
           assert not list(tests.iter('failure')) and not list(tests.iter('error'))
           for name in ('contact-audit.png', 'contact-audit-invalid.png',
@@ -95,7 +97,8 @@ jobs:
                        'contact-audit-invalid.json', 'contact-audit-progress.png',
                        'contact-audit-cancelled.png', 'contact-audit-cancellation.json',
                        'contact-audit-copy-limit.png', 'contact-audit-copy-ready.png',
-                       'contact-audit-copy.json'):
+                       'contact-audit-copy.json', 'contact-audit-shared-limit.png',
+                       'contact-audit-shared-retry.png', 'contact-audit-shared-budget.json'):
               assert (root / name).is_file(), name
           valid = json.loads((root / 'contact-audit.json').read_text())
           invalid = json.loads((root / 'contact-audit-invalid.json').read_text())
@@ -115,6 +118,12 @@ jobs:
           assert copied['worker_input_released'] and not copied['total_ram_estimate']
           assert copied['geometry_cache_array_bytes_avoided'] > 0
           assert copied['input_array_bytes'] < copied['full_copy_array_bytes']
+          shared = json.loads((root / 'contact-audit-shared-budget.json').read_text())
+          assert shared['each_input_fits'] and shared['combined_inputs_exceed_limit']
+          assert shared['refused_before_deepcopy'] and shared['no_automatic_retry']
+          assert shared['explicit_retry_completed'] and shared['source_unchanged']
+          assert shared['final_reserved_bytes'] == 0 and shared['final_reservations'] == 0
+          assert not shared['total_ram_limit']
           numerical = json.loads((root / 'topology.json').read_text())
           assert numerical['status'] == 'passed'
           assert numerical['case_count'] == 52 and numerical['stage_count'] == 552

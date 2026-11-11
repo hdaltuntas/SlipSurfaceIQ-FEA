@@ -109,6 +109,53 @@ remove pauses for very large retained histories. Numerical cancellation starts a
 the detached input is prepared. Resource settings never enter the JSON report or
 change audit tolerances.
 
+### Shared budget for simultaneous audit windows
+
+The separate **All audit windows: shared array limit** defaults to **1024 MiB**
+for this application session (explicitly adjustable 1–65536 MiB). The existing
+512 MiB per-run limit still applies. A new worker must satisfy BOTH limits.
+Prepared-but-not-started workers and running detached inputs reserve their exact
+planned NumPy payload in one thread-safe pool BEFORE `deepcopy` is called. Two
+separately detached copies are counted twice, even if they came from one source.
+A rejected request makes no copy, does not start/queue an audit, clears stale
+results in that requesting dialog and never cancels another audit. Retry is
+explicit, after capacity becomes available or an explicit limit increase.
+
+The displayed reserved bytes/count are session-wide. **Apply shared limit** is
+an explicit resource-setting change, reflected in other open windows; a newly
+opened window does not reset it to the default. Reductions below reserved payload
+are rejected without eviction, changing the old limit, or invalidating completed
+numerical reports. Resource settings never enter audit JSON or alter tolerances.
+The display is refreshed on the GUI thread; workers do not access widgets.
+
+A cancellation REQUEST does not immediately return capacity while its input is
+still in use. Drop the detached input, then return its reservation on successful
+completion, actual cancellation, pre-cancellation, execution error, or failure to
+start the thread. Deleting an unstarted worker or abandoning its Python wrapper
+also clears its owned input and reservation. Cleanup and double release are
+idempotent. Completed reports remain available after inputs are released.
+Application shutdown still requests all running cancellations before waiting.
+
+For non-Qt owners, `acquire_contact_audit_snapshot(result, budget, ...)` returns
+`(detached_input, plan, reservation)`. Keep the reservation for the entire owned
+input lifetime and drop the input BEFORE calling `reservation.release()`.
+The existing standalone `copy_contact_audit_snapshot` API remains per-run-only;
+it does not secretly join the desktop pool. Callers that deliberately retain
+inner array references after ownership ends are outside this accounting contract.
+
+**Not a process memory or latency limit:** source results, Python metadata,
+completed reports, numerical work arrays and unrelated allocations are excluded.
+Active numerical operations may outlive an input cancellation request. Synchronous
+preflight/copy still holds the existing GUI-thread source-consistency boundary;
+this change prevents avoidable additional copies, but does NOT make preparation
+asynchronous or solve all large-model UI pauses. No physical validation is added.
+
+Tests exercise simultaneous admission, exact limits, abandoned/double-release
+leases, allocation failures, two actual Qt dialogs, explicit retry/limit changes,
+pre-start destruction, thread-launch failure and shutdown. CI requires both
+shared-limit/refreshed-result screenshots and machine-readable admission evidence,
+while preserving all previous numerical tests and the 52-model/552-stage benchmark.
+
 ### Optional Qt-free API hooks
 
 `contact_topology_equilibrium_by_stage(result, progress=callback, cancelled=predicate)`
