@@ -1,0 +1,152 @@
+name: f7-contact-reactivation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/f7-contact-reactivation.yml'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/post/contact*equilibrium.py'
+      - 'scripts/f7_contact_reactivation_benchmark.py'
+      - 'scripts/f7_contact_excavation_benchmark.py'
+      - 'tests/verification/test_f7_contact_reactivation_benchmark.py'
+      - 'requirements-core.txt'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/f7-contact-reactivation.yml'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/post/contact*equilibrium.py'
+      - 'scripts/f7_contact_reactivation_benchmark.py'
+      - 'scripts/f7_contact_excavation_benchmark.py'
+      - 'tests/verification/test_f7_contact_reactivation_benchmark.py'
+      - 'requirements-core.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  exact-layer-reactivation:
+    name: Native layer rebirth and original-reference contact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: src
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Record exact tracked source and provenance
+        run: |
+          mkdir -p f7_reactivation
+          git archive --format=tar HEAD -o f7_reactivation/source.tar
+          git rev-parse HEAD > f7_reactivation/source-commit.txt
+          git rev-parse HEAD^{tree} > f7_reactivation/source-tree.txt
+      - name: Install numerical dependencies
+        run: python -m pip install -r requirements-core.txt pytest ruff
+      - name: Lint full source and benchmark
+        run: ruff check src tests scripts/f7_contact_reactivation_benchmark.py
+      - name: Test rebirth and retained numerical contracts
+        run: >-
+          python -m pytest -q tests/verification/test_f7_contact_reactivation_benchmark.py
+          tests/verification/test_f7_contact_excavation_benchmark.py
+          tests/verification/test_f7_contact_support_equilibrium.py
+          tests/verification/test_f7_contact_activation_equilibrium.py
+          tests/verification/test_f7_contact_partial_equilibrium.py
+          tests/verification/test_f7_contact_equilibrium.py
+          tests/verification/test_f7_contact_static_integration.py
+          tests/verification/test_f7_unilateral_contact.py
+          --junitxml=f7_reactivation/tests.xml
+      - name: Solve repeated element removal and rebirth
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_reactivation_benchmark.py \
+            --output f7_reactivation/reactivation.json \
+            --example f7_reactivation/reactivation.ssproj \
+            2>&1 | tee f7_reactivation/reactivation.log
+      - name: Retain exact monotone excavation reference
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_excavation_benchmark.py \
+            --output f7_reactivation/excavation.json \
+            2>&1 | tee f7_reactivation/excavation.log
+      - name: Require complete unskipped evidence
+        run: |
+          python - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = Path('f7_reactivation')
+          tests = ET.parse(root/'tests.xml').getroot()
+          assert len(list(tests.iter('testcase'))) >= 591, 'Incomplete numerical test set'
+          for kind in ('skipped', 'failure', 'error'):
+              assert not list(tests.iter(kind)), kind
+          for filename, count, nstages in [('reactivation.json', 24, 336),
+                                          ('excavation.json', 24, 192)]:
+              report = json.loads((root/filename).read_text())
+              assert report['status'] == 'passed'
+              assert report['case_count'] == count and report['stage_count'] == nstages
+              assert len(report['cases']) == count
+              rows = [s for c in report['cases'] for s in c['stages']]
+              assert len(rows) == nstages
+              assert all(c['status'] == 'passed' and c['stage_count'] == nstages//count
+                         for c in report['cases'])
+              assert all(s['status'] == 'passed' and all(v['status'] == 'passed'
+                         for v in s['checks'].values()) for s in rows)
+          report = json.loads((root/'reactivation.json').read_text())
+          rows = [s for c in report['cases'] for s in c['stages']]
+          assert any(not s['physical_only_equilibrium'] for s in rows)
+          assert all(s['physical_only_equilibrium'] for s in rows
+                     if s['stage_index'] in (0, 6, 9, 13))
+          assert all(s['reactivated_nodes'] > 0 for s in rows if s['stage_index'] in (7, 8, 11))
+          assert all(s['start_stress_kpa'][1] == 0 for s in rows if s['stage_index'] in (8, 11))
+          assert (root/'reactivation.ssproj').stat().st_size > 0
+          PY
+      - name: Summarize actual evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('f7_reactivation')
+          root.mkdir(exist_ok=True)
+          path = root/'reactivation.json'
+          lines = ['## Native elastic layer reactivation', '']
+          if path.exists():
+              report = json.loads(path.read_text())
+              physical = sum(s['physical_only_equilibrium']
+                             for c in report['cases'] for s in c['stages'])
+              lines += [f"- Reference checks: {report['status']}",
+                        f"- Models/stages: {report['case_count']}/{report['stage_count']}",
+                        f"- Physical-only stages: {physical}/{report['stage_count']}"]
+          else:
+              lines += ['No completed evidence; not a pass. Inspect failure logs.']
+          lines += ['', 'Newly active stress resets; original geometric contact gap does not.',
+                    'Reporting datums are not physical position resets.',
+                    'Known elastic fixture only, not a new backfill or restart capability.', '']
+          text = '\n'.join(lines)
+          (root/'summary.md').write_text(text, encoding='utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as out:
+              out.write(text)
+          PY
+      - name: Archive successful or partial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-layered-contact-reactivation-evidence
+          path: f7_reactivation/
+          retention-days: 14
+          if-no-files-found: warn
