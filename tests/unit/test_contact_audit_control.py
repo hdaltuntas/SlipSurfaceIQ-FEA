@@ -36,7 +36,9 @@ def test_observed_and_plain_documents_are_identical(native):
     events = []
     before = pickle.dumps(native)
     expected = reports.prepare_contact_audit(native)
-    observed = reports.prepare_contact_audit(native, progress=events.append, cancelled=lambda: False)
+    observed = reports.prepare_contact_audit(
+        native, progress=events.append, cancelled=lambda: False,
+    )
     assert observed == expected
     assert pickle.dumps(native) == before
     assert events[0].completed_snapshots == 0 and events[0].phase == "initial"

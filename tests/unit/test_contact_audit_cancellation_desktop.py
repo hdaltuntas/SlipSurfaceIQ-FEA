@@ -95,8 +95,11 @@ def test_cancel_inside_real_audit_stops_later_stages_and_can_restart(qt_app, nat
     dialog.run_button.click()
     worker = dialog.worker
     output = os.environ.get("CONTACT_AUDIT_EVIDENCE_DIR")
-    root = Path(output) if output and native.model.mesh.block("contact").etype is api.ElemType.IFACE6 \
+    root = (
+        Path(output)
+        if output and native.model.mesh.block("contact").etype is api.ElemType.IFACE6
         else None
+    )
     try:
         until(qt_app, entered.is_set)
         assert 0 < dialog.progress.value() < 100
