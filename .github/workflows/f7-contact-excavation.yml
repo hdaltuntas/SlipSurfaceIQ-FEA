@@ -1,0 +1,134 @@
+name: f7-contact-excavation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/f7-contact-excavation.yml'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/post/contact*equilibrium.py'
+      - 'scripts/f7_contact_excavation_benchmark.py'
+      - 'tests/verification/test_f7_contact_excavation_benchmark.py'
+      - 'requirements-core.txt'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/f7-contact-excavation.yml'
+      - 'src/slipsurface/fe2d/fem/**'
+      - 'src/slipsurface/fe2d/model/**'
+      - 'src/slipsurface/fe2d/io/**'
+      - 'src/slipsurface/fe2d/post/contact*equilibrium.py'
+      - 'scripts/f7_contact_excavation_benchmark.py'
+      - 'tests/verification/test_f7_contact_excavation_benchmark.py'
+      - 'requirements-core.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  exact-layer-removal:
+    name: Native layered excavation and independent closed-form response
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: src
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Record tracked source and commit provenance
+        run: |
+          mkdir -p f7_excavation
+          git archive --format=tar HEAD -o f7_excavation/source.tar
+          git rev-parse HEAD > f7_excavation/source-commit.txt
+          git rev-parse HEAD^{tree} > f7_excavation/source-tree.txt
+      - name: Install numerical test dependencies
+        run: python -m pip install -r requirements-core.txt pytest ruff
+      - name: Lint full source and tests plus benchmark
+        run: ruff check src tests scripts/f7_contact_excavation_benchmark.py
+      - name: Test excavation references and retained audit boundaries
+        run: >-
+          python -m pytest -q tests/verification/test_f7_contact_excavation_benchmark.py
+          tests/verification/test_f7_contact_support_equilibrium.py
+          tests/verification/test_f7_contact_activation_equilibrium.py
+          tests/verification/test_f7_contact_partial_equilibrium.py
+          tests/verification/test_f7_contact_equilibrium.py
+          tests/verification/test_f7_contact_static_integration.py
+          tests/verification/test_f7_unilateral_contact.py
+          --junitxml=f7_excavation/tests.xml
+      - name: Solve native element-removal histories against independent elasticity
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u scripts/f7_contact_excavation_benchmark.py \
+            --output f7_excavation/excavation.json \
+            --example f7_excavation/layered-excavation.ssproj \
+            2>&1 | tee f7_excavation/solver.log
+      - name: Require complete numerical evidence without skipped tests
+        run: |
+          python - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          tests = ET.parse('f7_excavation/tests.xml').getroot()
+          assert len(list(tests.iter('testcase'))) >= 515, 'Missing tests'
+          for label in ('skipped', 'error', 'failure'):
+              assert not list(tests.iter(label)), label
+          report = json.loads(Path('f7_excavation/excavation.json').read_text())
+          assert report['status'] == 'passed'
+          assert report['case_count'] == 24 and report['stage_count'] == 192
+          assert len(report['cases']) == 24
+          rows = [row for case in report['cases'] for row in case['stages']]
+          assert len(rows) == 192 and all(r['status'] == 'passed' for r in rows)
+          assert all(case['stage_count'] == 8 and case['status'] == 'passed'
+                     for case in report['cases'])
+          assert all(all(c['status'] == 'passed' for c in row['checks'].values())
+                     for row in rows)
+          assert any(not row['physical_only_equilibrium'] for row in rows)
+          assert all(row['physical_only_equilibrium'] for row in rows
+                     if row['stage_index'] in (0, 4, 7))
+          assert all(row['inactive_nodes'] > 0 for row in rows if row['stage_index'] >= 2)
+          assert Path('f7_excavation/layered-excavation.ssproj').stat().st_size > 0
+          PY
+      - name: Summarize observed scope and numerical results
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path('f7_excavation/excavation.json')
+          lines = ['## Native layered excavation reference', '']
+          if path.exists():
+              report = json.loads(path.read_text())
+              physical = sum(r['physical_only_equilibrium']
+                             for c in report['cases'] for r in c['stages'])
+              lines += [f"- Fixture verification: {report['status']}",
+                        f"- Models / stages: {report['case_count']} / {report['stage_count']}",
+                        f"- Physical-only nodal equilibrium: {physical}/{report['stage_count']}"]
+          else:
+              lines += ['Completed evidence unavailable; not a pass. Inspect solver log.']
+          lines += ['', 'Known dry elastic layers only, not a general excavation audit.',
+                    'Removed-node loads are projected out. Partial retained release is separate.',
+                    'Production solver, constitutive laws and previous acceptance gates unchanged.', '']
+          text = '\n'.join(lines)
+          Path('f7_excavation/summary.md').write_text(text, encoding='utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write(text)
+          PY
+      - name: Preserve successful or partial numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-layered-contact-excavation-evidence
+          path: f7_excavation/
+          retention-days: 14
+          if-no-files-found: warn
