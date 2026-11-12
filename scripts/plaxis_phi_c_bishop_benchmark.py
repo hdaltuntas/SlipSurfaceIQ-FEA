@@ -27,8 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
+from slipsurface.fe2d.gui.validation_examples import plaxis_phi_c_bishop_model  # noqa: E402
 from slipsurface.fe2d.fem.srf import strength_reduction  # noqa: E402
-from slipsurface.fe2d.mesh import DistanceSize, Domain, mesh_quality, unstructured_mesh  # noqa: E402
+from slipsurface.fe2d.mesh import mesh_quality  # noqa: E402
 
 SOURCE_URL = (
     "https://bentleysystems.service-now.com/community"
@@ -50,88 +51,7 @@ MESH_LEVELS = {
 
 
 def build_model(h_min: float, h_max: float, *, surcharge_kPa: float = 0.0) -> api.Model:
-    # Figure-1 dimension chain: 3 m horizontal ground, 9 m slope run,
-    # then two 3 m crest segments; base-to-left-ground = 2 m and total
-    # base-to-crest height = 6.5 m.
-    points = [
-        (0.0, 0.0),
-        (18.0, 0.0),
-        (18.0, 6.5),
-        (15.0, 6.5),
-        (12.0, 6.5),
-        (3.0, 2.0),
-        (0.0, 2.0),
-    ]
-    domain = Domain()
-    domain.add_polygon(
-        points,
-        region=1,
-        name="Embankment",
-        edge_names=[
-            "base",
-            "right",
-            "crest_right",
-            "surcharge",
-            "slope",
-            "left_ground",
-            "left",
-        ],
-    )
-    focus = [
-        np.asarray([(3.0, 2.0), (12.0, 6.5)], dtype=float),
-        np.asarray([(12.0, 6.5), (15.0, 6.5)], dtype=float),
-    ]
-    mesh = unstructured_mesh(
-        domain,
-        h=DistanceSize(
-            h_min,
-            h_max,
-            1.25,
-            lines=focus,
-            closed=[False, False],
-        ),
-    )
-    soil = api.MaterialSpec.mohr_coulomb(
-        "soil",
-        E=2600.0,
-        nu=0.3,
-        c=5.0,
-        phi=20.0,
-        psi=20.0,
-        gamma=16.0,
-    )
-    stages = []
-    if surcharge_kPa:
-        stages.append(
-            api.Stage(
-                "30 kPa crest surcharge",
-                loads=(api.EdgeLoad("surcharge", qn=surcharge_kPa),),
-            )
-        )
-    return api.Model(
-        analysis=api.Analysis.PLANE_STRAIN,
-        mesh=mesh,
-        materials={"soil": soil},
-        region_material={1: "soil"},
-        fixities=(
-            api.Fixity("base", True, True),
-            api.Fixity("left", True, False),
-            api.Fixity("right", True, False),
-        ),
-        initial=api.InitialStress("gravity"),
-        stages=stages,
-        settings=api.SolverSettings(
-            method="NR",
-            max_iter=35,
-            tol_force=1e-4,
-            tol_energy=1e-5,
-            dlam0=0.1,
-            dlam_min=1e-4,
-            dlam_max=0.35,
-            line_search=True,
-        ),
-    )
-
+    return plaxis_phi_c_bishop_model(h_min, h_max, surcharge_kPa=surcharge_kPa)
 
 def run_case(level: str, h_min: float, h_max: float, *, surcharge_kPa: float) -> dict:
     model = build_model(h_min, h_max, surcharge_kPa=surcharge_kPa)
