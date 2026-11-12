@@ -130,10 +130,13 @@ def run_level(name: str, h_min: float, h_max: float) -> dict:
         "h_min_m": h_min,
         "h_max_m": h_max,
         "nodes": model.mesh.nn,
-        "continuum_elements": int(sum(block.ne for block in model.mesh.blocks if block.tag == "soil")),
+        "continuum_elements": int(sum(block.ne for block in model.mesh.continuum_blocks())),
         "mesh_quality": {
-            key: float(value) if isinstance(value, (int, float, np.floating)) else value
-            for key, value in quality.items()
+            "min_angle_deg": quality.min_angle,
+            "mean_min_angle_deg": quality.mean_min_angle,
+            "max_aspect": quality.max_aspect,
+            "n_triangles": quality.n_triangles,
+            "n_quads": quality.n_quads,
         },
         "stages": stages,
     }
