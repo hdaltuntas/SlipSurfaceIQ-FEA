@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
-from slipsurface.fe2d.mesh import DistanceSize, Domain, mesh_quality, unstructured_mesh  # noqa: E402
+from slipsurface.fe2d.gui.validation_examples import plaxis_tutorial01a_model  # noqa: E402
+from slipsurface.fe2d.mesh import mesh_quality  # noqa: E402
 
 SOURCE_URL = (
     "https://bentleysystems.service-now.com/community"
@@ -44,72 +45,7 @@ MESH_LEVELS = {
 
 
 def build_model(h_min: float, h_max: float) -> api.Model:
-    # The top edge is split at r=1 m so the rigid-footing prescribed displacement
-    # is applied only over the published footing radius.
-    domain = Domain()
-    domain.add_polygon(
-        [(0.0, 0.0), (5.0, 0.0), (5.0, 4.0), (1.0, 4.0), (0.0, 4.0)],
-        region=1,
-        name="Sand",
-        edge_names=["bottom", "right", "top_free", "footing", "axis"],
-    )
-    footprint = np.asarray([(0.0, 4.0), (1.0, 4.0)], dtype=float)
-    mesh = unstructured_mesh(
-        domain,
-        h=DistanceSize(
-            h_min,
-            h_max,
-            1.25,
-            lines=[footprint],
-            closed=[False],
-        ),
-    )
-    sand = api.MaterialSpec.mohr_coulomb(
-        "Sand",
-        E=13000.0,
-        nu=0.3,
-        c=1.0,
-        phi=30.0,
-        psi=0.0,
-        sig_t=0.0,
-        gamma=17.0,
-        gamma_sat=20.0,
-    )
-    water = api.WaterCondition.piezo([(0.0, 2.0)])
-    return api.Model(
-        analysis=api.Analysis.AXISYMMETRIC,
-        mesh=mesh,
-        materials={"Sand": sand},
-        region_material={1: "Sand"},
-        fixities=(
-            api.Fixity("bottom", True, True),
-            api.Fixity("right", True, False),
-            api.Fixity("axis", True, False),
-        ),
-        initial=api.InitialStress(
-            "k0_field",
-            surface_y=4.0,
-            water=water,
-        ),
-        stages=[
-            api.Stage(
-                "Rigid footing indentation",
-                water=water,
-                displacements=(api.Displacement("footing", ux=0.0, uy=-0.05),),
-            )
-        ],
-        settings=api.SolverSettings(
-            method="NR",
-            max_iter=40,
-            tol_force=1e-4,
-            tol_energy=1e-5,
-            dlam0=0.1,
-            dlam_min=1e-4,
-            dlam_max=0.25,
-            line_search=True,
-        ),
-    )
-
+    return plaxis_tutorial01a_model(h_min, h_max)
 
 def run_level(name: str, h_min: float, h_max: float) -> dict:
     model = build_model(h_min, h_max)
