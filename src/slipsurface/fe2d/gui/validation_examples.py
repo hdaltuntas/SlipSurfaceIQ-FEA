@@ -9,13 +9,13 @@ benchmark pass.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 
 from .. import api
-from ..mesh import DistanceSize, Domain, circle, unstructured_mesh
+from ..mesh import DistanceSize, Domain, circle, rectangle, unstructured_mesh
 from ..mesh.structures import add_embedded_bonded_bar
 
 
@@ -287,16 +287,14 @@ def rs2_b5_embedded_bond_model() -> api.Model:
     diameter = 0.019
     area = math.pi * diameter**2 / 4.0
     ea = 200_000_000.0 * area
-    mesh = api.Mesh(
-        *rectangle_for_bonded_tail(bonded_length, 16)
-    )
-    mesh = add_embedded_bonded_bar(mesh, "bond_path", "tieback")
+    mesh = rectangle(bonded_length, 1.0, 16, 1, api.ElemType.Q4)
+    mesh = add_embedded_bonded_bar(mesh, "bottom", "tieback")
     return api.Model(
         analysis=api.Analysis.PLANE_STRAIN,
         mesh=mesh,
         materials={"host": api.MaterialSpec.elastic("host", 10_000.0, 0.25)},
         region_material={1: "host"},
-        fixities=(api.Fixity("bond_path", True, True),),
+        fixities=(api.Fixity("bottom", True, True),),
         initial=api.InitialStress("none"),
         stages=[
             api.Stage(
@@ -324,18 +322,6 @@ def rs2_b5_embedded_bond_model() -> api.Model:
     )
 
 
-def rectangle_for_bonded_tail(length: float, nx: int):
-    """Small fixed host strip with a named bottom path for the B5 bonded tail."""
-    from ..mesh import rectangle
-
-    base = rectangle(length, 1.0, nx, 1, api.ElemType.Q4)
-    return (
-        base.coords,
-        base.blocks,
-        {**base.node_sets, "bond_path": base.nodes("bottom")},
-        {**base.edge_sets, "bond_path": base.edges("bottom")},
-    )
-
 
 VALIDATION_EXAMPLES = (
     ValidationExample(
@@ -353,7 +339,10 @@ VALIDATION_EXAMPLES = (
     ValidationExample(
         "plaxis-phi-c-bishop",
         "PLAXIS φ-c / Bishop — 30 kPa slope",
-        "Loaded validation slope. Strict FoS verification is performed by the SRF benchmark.",
+        (
+            "Loaded validation slope. Strict FoS verification is performed by the "
+            "SRF benchmark."
+        ),
         plaxis_phi_c_bishop_model,
     ),
     ValidationExample(
@@ -365,7 +354,10 @@ VALIDATION_EXAMPLES = (
     ValidationExample(
         "rs2-b5-embedded-bond",
         "RS2 B5 candidate — embedded tieback bond transfer",
-        "Bounded bonded-tail mechanics only; this is not yet the full RS2 sheet-pile benchmark.",
+        (
+            "Bounded bonded-tail mechanics only; this is not yet the full RS2 "
+            "sheet-pile benchmark."
+        ),
         rs2_b5_embedded_bond_model,
     ),
 )
