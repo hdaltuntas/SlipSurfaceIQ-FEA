@@ -359,6 +359,27 @@ class InterfaceSpec:
 
 
 @dataclass(frozen=True)
+class BondSlipSpec:
+    """Axial bolt/grout bond law per unit bonded length.
+
+    stiffness has units force / length / length (kN/m2 in the project unit system).
+    strength has units force / bonded length (kN/m). The current law is symmetric
+    elastic-perfectly-plastic; residual softening is intentionally outside this contract.
+    """
+
+    name: str
+    stiffness: float
+    strength: float
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ModelError("bond-slip name must not be empty")
+        if not math.isfinite(self.stiffness) or self.stiffness <= 0:
+            raise ModelError(f"bond-slip '{self.name}': stiffness must be finite and positive")
+        if not math.isfinite(self.strength) or self.strength <= 0:
+            raise ModelError(f"bond-slip '{self.name}': strength must be finite and positive")
+
+@dataclass(frozen=True)
 class BoltSpec:
     """End-anchored or fully bonded bar. 2D equivalence: EA/s, T/s."""
 
