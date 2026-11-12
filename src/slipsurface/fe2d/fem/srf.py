@@ -85,6 +85,17 @@ def strength_reduction(
     ifaces = [g for g in solver.groups if isinstance(g, InterfaceGroup)]
 
     def trial(F: float) -> bool:
+        # F=1 is exactly the already accepted base state: no strength has changed.
+        # Re-projecting and re-solving it can turn harmless projection roundoff on a
+        # fine plastic mesh into a false "FoS < 1" bracket. Treat the identity
+        # transformation as the converged base result and start numerical SRF work
+        # only when strength is actually modified.
+        if F == 1.0:
+            trials.append(SRFTrial(F, True, 1.0, 0.0))
+            if "F" not in best or F > best["F"]:  # type: ignore[operator]
+                best.update(F=F, res=base.last)
+            log.info("SRF trial F=1.0000 ok (identity base state)")
+            return True
         mats = {k: v.with_strength_factor(F) for k, v in model.materials.items()}
         for g in ifaces:  # joints are reduced with the soil (as in RS2 / PLAXIS)
             g.set_strength_factor(F)
