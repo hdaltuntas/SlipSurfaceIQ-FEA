@@ -35,8 +35,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..core.enums import Analysis, ElemType, PlasticFlag
-from ..model.materials import BoltSpec, InterfaceSpec, LinerSpec
+from ..model.materials import BondSlipSpec, BoltSpec, InterfaceSpec, LinerSpec
 from ..model.mesh import ElementBlock
+from .bond_slip import bond_slip_return
 
 Arr = NDArray[np.float64]
 _SMALL = 1e-8
@@ -186,6 +187,120 @@ class BarGroup:
     def body_force(self, ids: NDArray[np.int64]) -> Arr:
         return np.zeros((ids.size, 4))
 
+
+# ======================================================================= bonded bar
+class BondedBarGroup:
+    """Embedded axial tendon segment with finite distributed bond-slip transfer.
+
+    BOND4 connectivity is ``[host_a, host_b, slip_a, slip_b]``. Host nodes carry
+    ordinary 2-D displacement. Slip nodes carry one scalar coordinate s such that
+    tendon axial displacement at a station is ``e.u_host + s``. This coordinate
+    transformation enforces transverse embedment exactly without an artificial normal
+    penalty spring.
+    """
+
+    kind = "bond"
+    nd = 6
+
+    _XI = np.array([-1.0 / math.sqrt(3.0), 1.0 / math.sqrt(3.0)])
+    _SHAPE = np.column_stack([(1.0 - _XI) * 0.5, (1.0 + _XI) * 0.5])
+
+    def __init__(
+        self,
+        block: ElementBlock,
+        coords: Arr,
+        bar: BoltSpec,
+        bond: BondSlipSpec,
+        analysis: Analysis,
+    ) -> None:
+        if block.etype is not ElemType.BOND4:
+            raise ValueError("BondedBarGroup requires BOND4 connectivity")
+        if analysis is not Analysis.PLANE_STRAIN:
+            raise NotImplementedError("embedded bonded bars currently support plane strain only")
+        self.block, self.tag, self.spec, self.bond_spec = block, block.tag, bar, bond
+        host = block.conn[:, :2]
+        slip = block.conn[:, 2:]
+        if not np.allclose(coords[host], coords[slip], rtol=0.0, atol=1e-12):
+            raise ValueError(f"bond '{self.tag}': scalar slip nodes must coincide with host nodes")
+        d = coords[host[:, 1]] - coords[host[:, 0]]
+        length = np.linalg.norm(d, axis=1)
+        if np.any(length <= 0):
+            raise ValueError(f"bond '{self.tag}': zero-length element")
+        self.L = length
+        self.e = d / length[:, None]
+        self.scalar_nodes = np.unique(slip)
+        spacing = bar.spacing_out_of_plane
+        self.k = bar.EA / spacing / length
+        self.Ny = bar.T_yield / spacing
+        self.N0 = bar.pretension / spacing
+        self.kb = bond.stiffness / spacing
+        self.qmax = bond.strength / spacing
+        self._scaled_bond = BondSlipSpec(bond.name, self.kb, self.qmax)
+        self.b = np.column_stack([
+            -self.e[:, 0], -self.e[:, 1], self.e[:, 0], self.e[:, 1],
+            -np.ones(self.ne), np.ones(self.ne),
+        ])
+
+    @property
+    def ne(self) -> int:
+        return self.block.ne
+
+    def edofs(self, node_dofs: NDArray[np.int64], ids: NDArray[np.int64]) -> NDArray[np.int64]:
+        host = node_dofs[self.block.conn[ids, :2], :2].reshape(ids.size, 4)
+        slip = node_dofs[self.block.conn[ids, 2:], 0]
+        out = np.column_stack([host, slip])
+        if np.any(out < 0):
+            raise ValueError(f"bond '{self.tag}': active element has missing DOFs")
+        return out
+
+    def zero_state(self) -> dict[str, Arr]:
+        return {"N": np.zeros(self.ne), "q": np.zeros((self.ne, 2))}
+
+    def activate(self, state: dict[str, Arr], ids: NDArray[np.int64]) -> None:
+        state["N"][ids] = self.N0
+        state["q"][ids] = 0.0
+
+    def _bond_terms(self, ids: NDArray[np.int64], q: Arr, kt: Arr) -> tuple[Arr, Arr]:
+        weight = 0.5 * self.L[ids]
+        f = np.einsum("gi,eg,e->ei", self._SHAPE, q, weight)
+        K = np.einsum("gi,eg,gj,e->eij", self._SHAPE, kt, self._SHAPE, weight)
+        return f, K
+
+    def integrate(self, state: dict[str, Arr], ids: NDArray[np.int64], du_e: Arr, p: Arr | None):
+        b, k = self.b[ids], self.k[ids]
+        axial_inc = np.einsum("ei,ei->e", b, du_e)
+        N_trial = state["N"][ids] + k * axial_inc
+        bar_yield = np.abs(N_trial) > self.Ny
+        N = np.where(bar_yield, np.sign(N_trial) * self.Ny, N_trial)
+        kt_bar = np.where(bar_yield, _SMALL * k, k)
+
+        slip_inc = du_e[:, 4:6] @ self._SHAPE.T
+        q, kt_bond, bond_yield = bond_slip_return(
+            state["q"][ids], slip_inc, self._scaled_bond
+        )
+        f = N[:, None] * b
+        K = kt_bar[:, None, None] * np.einsum("ei,ej->eij", b, b)
+        f_bond, K_bond = self._bond_terms(ids, q, kt_bond)
+        f[:, 4:6] += f_bond
+        K[:, 4:6, 4:6] += K_bond
+        flags = np.column_stack([bar_yield, bond_yield]).astype(np.uint8)
+        return {"N": N, "q": q}, f, K, flags
+
+    def elastic_K(self, ids: NDArray[np.int64]) -> Arr:
+        b = self.b[ids]
+        K = self.k[ids, None, None] * np.einsum("ei,ej->eij", b, b)
+        kt = np.full((ids.size, 2), self.kb)
+        _, K_bond = self._bond_terms(ids, np.zeros((ids.size, 2)), kt)
+        K[:, 4:6, 4:6] += K_bond
+        return K
+
+    def body_force(self, ids: NDArray[np.int64]) -> Arr:
+        return np.zeros((ids.size, self.nd))
+
+    def slip_points(self, reported_u: Arr) -> Arr:
+        """Relative tendon/host axial slip at the two Gauss points."""
+        nodal = reported_u[self.block.conn[:, 2:], 0]
+        return nodal @ self._SHAPE.T
 
 # ========================================================================= interface
 @dataclass(frozen=True)
