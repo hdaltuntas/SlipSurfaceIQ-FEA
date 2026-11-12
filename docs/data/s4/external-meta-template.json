@@ -1,0 +1,23 @@
+{
+  "schema": "slipsurface.s4-external.v1",
+  "source": "",
+  "program_version": "",
+  "case_sha256": "503a13bd309116a6e13b81225826a88d885c283db3ccee1a28de60e0ad442088",
+  "analysis": "plane_strain",
+  "stage": "excavate",
+  "converged": false,
+  "mesh_note": "",
+  "model_file_note": "",
+  "input_match": {
+    "geometry": false,
+    "soil": false,
+    "wall": false,
+    "interfaces": false,
+    "initial_stress": false,
+    "boundaries": false,
+    "stages": false,
+    "tip_connection": false,
+    "tension_cutoff": false
+  },
+  "notes": "Set every input_match field true only after checking the locked S4 case. This template is not evidence."
+}
