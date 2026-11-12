@@ -32,3 +32,32 @@ jobs:
           name: external-benchmark-rs2-introduction
           path: external-benchmarks/
           if-no-files-found: error
+
+  plaxis-tutorial01a:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONPATH: src
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install numerical dependencies
+        run: python -m pip install -r requirements-core.txt
+      - name: Run PLAXIS Tutorial 01A characterization
+        run: |
+          mkdir -p external-benchmarks
+          python scripts/plaxis_tutorial01a_benchmark.py \
+            --json external-benchmarks/plaxis-tutorial01a.json \
+            --markdown external-benchmarks/plaxis-tutorial01a.md
+          cat external-benchmarks/plaxis-tutorial01a.md
+      - name: Archive benchmark characterization
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-benchmark-plaxis-tutorial01a
+          path: external-benchmarks/
+          if-no-files-found: error
