@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
-from slipsurface.fe2d.gui.validation_examples import rs2_introduction_model  # noqa: E402
+from slipsurface.fe2d.examples.validation import rs2_introduction_model  # noqa: E402
 from slipsurface.fe2d.mesh import mesh_quality  # noqa: E402
 
 SOURCE_URL = "https://www.rocscience.com/help/rs2/tutorials/introduction"
