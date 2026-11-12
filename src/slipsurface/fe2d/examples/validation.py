@@ -16,7 +16,7 @@ import numpy as np
 
 from .. import api
 from ..mesh import DistanceSize, Domain, circle, rectangle, unstructured_mesh
-from ..mesh.structures import add_embedded_bonded_bar
+from ..mesh.structures import add_tieback_series, tieback_component_tags
 
 
 @dataclass(frozen=True)
@@ -289,14 +289,26 @@ def plaxis_drain_model(h_min: float = 0.45, h_max: float = 1.35) -> api.Model:
 
 
 def rs2_b5_embedded_bond_model() -> api.Model:
-    """Bounded B5 candidate: RS2 tieback bonded-tail properties only."""
-    total_tieback_length = math.sqrt(8.0**2 + 3.0**2)
-    bonded_length = 0.40 * total_tieback_length
+    """Bounded B5 candidate: unbonded + finite-bonded tieback series mechanics."""
+    total_length = math.sqrt(8.0**2 + 3.0**2)
+    bonded_length = 0.40 * total_length
+    free_length = total_length - bonded_length
     diameter = 0.019
     area = math.pi * diameter**2 / 4.0
     ea = 200_000_000.0 * area
-    mesh = rectangle(bonded_length, 1.0, 16, 1, api.ElemType.Q4)
-    mesh = add_embedded_bonded_bar(mesh, "bottom", "tieback")
+
+    base = rectangle(bonded_length, 1.0, 16, 1, api.ElemType.Q4)
+    head = base.nn
+    mesh = api.Mesh(
+        np.vstack([base.coords, [-free_length, 0.0]]),
+        base.blocks,
+        {**base.node_sets, "tieback_head": np.array([head], dtype=np.int64)},
+        base.edge_sets,
+    )
+    start = int(base.nodes("bottom")[np.argmin(base.coords[base.nodes("bottom"), 0])])
+    mesh = add_tieback_series(mesh, head, "bottom", "tieback", bond_start_node=start)
+    free_tag, bond_tag = tieback_component_tags("tieback")
+    common = dict(EA=ea, T_yield=100.0, pretension=0.0, spacing_out_of_plane=1.0)
     return api.Model(
         analysis=api.Analysis.PLANE_STRAIN,
         mesh=mesh,
@@ -306,23 +318,18 @@ def rs2_b5_embedded_bond_model() -> api.Model:
         initial=api.InitialStress("none"),
         stages=[
             api.Stage(
-                "Bonded-tail pull",
-                active_structures={"tieback"},
-                displacements=(api.Displacement("tieback:slip_start", ux=-0.002),),
+                "Tieback series pull",
+                active_structures={free_tag, bond_tag},
+                displacements=(api.Displacement("tieback:head", ux=-0.002, uy=0.0),),
             )
         ],
         bolts={
-            "tieback": api.BoltSpec(
-                "tieback",
-                EA=ea,
-                T_yield=100.0,
-                pretension=0.0,
-                spacing_out_of_plane=1.0,
-            )
+            free_tag: api.BoltSpec(free_tag, **common),
+            bond_tag: api.BoltSpec(bond_tag, **common),
         },
         bonds={
-            "tieback": api.BondSlipSpec(
-                "tieback",
+            bond_tag: api.BondSlipSpec(
+                bond_tag,
                 stiffness=10_000.0,
                 strength=5_000.0,
             )
@@ -360,10 +367,10 @@ VALIDATION_EXAMPLES = (
     ),
     ValidationExample(
         "rs2-b5-embedded-bond",
-        "RS2 B5 candidate — embedded tieback bond transfer",
+        "RS2 B5 candidate — free + bonded tieback series",
         (
-            "Bounded bonded-tail mechanics only; this is not yet the full RS2 "
-            "sheet-pile benchmark."
+            "Verified free-length + bonded-tail series mechanics; constant-force "
+            "pretension staging and the full wall model are still pending."
         ),
         rs2_b5_embedded_bond_model,
     ),
