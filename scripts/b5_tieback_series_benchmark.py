@@ -64,6 +64,17 @@ def build_model(nx: int):
     return model, free_tag, bond_tag
 
 
+def bond_head_transfer(model, stage, tag: str) -> float:
+    """Signed nodal force transferred from the free tendon into the bonded tail."""
+    block = model.mesh.block(tag)
+    conn = block.conn[0]
+    length = float(np.linalg.norm(model.mesh.coords[conn[1]] - model.mesh.coords[conn[0]]))
+    xi = np.array([-1.0 / math.sqrt(3.0), 1.0 / math.sqrt(3.0)])
+    n_start = 0.5 * (1.0 - xi)
+    q = stage.bonds[tag][0, :, 1]
+    bond_nodal_start = 0.5 * length * float(n_start @ q)
+    return float(stage.bars[tag][0] - bond_nodal_start)
+
 def analytical_reaction() -> float:
     ku = EA / FREE_LENGTH
     lam = math.sqrt(KB / EA)
@@ -78,7 +89,7 @@ def run_level(nx: int) -> dict:
     head = int(model.mesh.nodes("tie:head")[0])
     reaction = abs(float(stage.reactions[head, 0]))
     free_force = abs(float(stage.bars[free_tag][0]))
-    bond_head_force = abs(float(stage.bars[bond_tag][0]))
+    bond_transfer = abs(bond_head_transfer(model, stage, bond_tag))
     exact = analytical_reaction()
     scale = max(exact, 1e-30)
     return {
@@ -87,8 +98,8 @@ def run_level(nx: int) -> dict:
         "analytical_kN_per_m": exact,
         "relative_error": abs(reaction - exact) / scale,
         "free_force_kN_per_m": free_force,
-        "bond_head_force_kN_per_m": bond_head_force,
-        "series_force_mismatch": abs(free_force - bond_head_force) / scale,
+        "bond_head_transfer_kN_per_m": bond_transfer,
+        "series_force_mismatch": abs(free_force - bond_transfer) / scale,
     }
 
 
