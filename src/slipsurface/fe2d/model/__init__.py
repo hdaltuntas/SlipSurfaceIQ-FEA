@@ -9,7 +9,7 @@ from .boundary import (
     PointLoad,
     WaterCondition,
 )
-from .materials import BondSlipSpec, BoltSpec, InterfaceSpec, LinerSpec, MaterialSpec
+from .materials import BoltSpec, BondSlipSpec, InterfaceSpec, LinerSpec, MaterialSpec
 from .mesh import ElementBlock, Mesh
 from .model import Model
 from .stages import InitialStress, SolverSettings, Stage
