@@ -9,12 +9,13 @@ from .boundary import (
     PointLoad,
     WaterCondition,
 )
-from .materials import BoltSpec, InterfaceSpec, LinerSpec, MaterialSpec
+from .materials import BondSlipSpec, BoltSpec, InterfaceSpec, LinerSpec, MaterialSpec
 from .mesh import ElementBlock, Mesh
 from .model import Model
 from .stages import InitialStress, SolverSettings, Stage
 
 __all__ = [
+    "BondSlipSpec",
     "BoltSpec",
     "Displacement",
     "EdgeLoad",
