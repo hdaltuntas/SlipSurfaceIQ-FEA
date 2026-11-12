@@ -67,6 +67,17 @@ The characterization does not use RS2 response targets. It checks:
 
 The dedicated `b5-embedded-bond` workflow is the strict gate for this bounded feature.
 
+Current CI result: **PASS**. The fixed-host shear-lag head reaction converges as follows:
+
+- 4 segments: 32.4946445 kN/m, 1.382% from analytical;
+- 8 segments: 32.1627510 kN/m, 0.3464%;
+- 16 segments: 32.0794934 kN/m, 0.08667%;
+- 32 segments: 32.0586610 kN/m, 0.02167%.
+
+The analytical reference is 32.0517153 kN/m. The one-element closed-form reaction,
+local bond-yield separation and persistence checks also pass.
+
+
 ## Deliberate limits
 
 - plane strain only;
