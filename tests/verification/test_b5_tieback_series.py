@@ -80,7 +80,10 @@ def test_free_element_activation_preserves_requested_pretension():
     block = api.ElementBlock(
         api.ElemType.TIE3, np.array([[0, 1, 2]]), np.array([0]), "free"
     )
-    spec = api.BoltSpec("free", EA=60_000.0, T_yield=100.0, pretension=50.0, spacing_out_of_plane=2.0)
+    spec = api.BoltSpec(
+        "free", EA=60_000.0, T_yield=100.0,
+        pretension=50.0, spacing_out_of_plane=2.0,
+    )
     group = TiebackFreeGroup(block, coords, spec, api.Analysis.PLANE_STRAIN)
     ids = np.array([0], dtype=np.int64)
     state = group.zero_state()
