@@ -115,8 +115,8 @@ def export_vtu(
     if st.plastic:
         values = []
         for b in mesh.blocks:
-            if b.etype in (ElemType.IFACE4, ElemType.IFACE6):
-                continue  # zero-thickness joints are not VTU volume/line cells
+            if b.etype in (ElemType.IFACE4, ElemType.IFACE6, ElemType.BOND4):
+                continue  # internal transfer/joint cells are not VTU geometry cells
             if b.tag in st.plastic:
                 mask = st.active.get(b.tag, np.ones(b.ne, bool))
                 value = (st.plastic[b.tag][mask] > 0).mean(axis=1)
