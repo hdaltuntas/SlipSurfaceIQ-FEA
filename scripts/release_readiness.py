@@ -4,15 +4,25 @@ import argparse
 import csv
 import json
 from pathlib import Path
-import tomllib
+import re
 
 REQUIRED_EXTERNAL_COLUMNS = ("depth_m", "M_kNm_per_m", "u_top_mm", "source")
 ALLOWED_EXTERNAL_SOURCES = {"plaxis", "plaxis2d", "rs2"}
 
 
 def _project_version(root: Path) -> str:
-    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    return str(data["project"]["version"])
+    text = (root / "pyproject.toml").read_text(encoding="utf-8")
+    in_project = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            in_project = line == "[project]"
+            continue
+        if in_project:
+            match = re.fullmatch(r'version\s*=\s*"([^"]+)"\s*(?:#.*)?', line)
+            if match:
+                return match.group(1)
+    raise ValueError("pyproject.toml has no [project] version")
 
 
 def _external_validation(root: Path) -> tuple[bool, str]:
