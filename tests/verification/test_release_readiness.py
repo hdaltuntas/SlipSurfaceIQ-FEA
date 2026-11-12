@@ -65,7 +65,12 @@ def write_acceptance(root: Path, *, platform: str = "Windows 11") -> None:
     for name in ("tunnel-ui.png", "sheet-pile-ui.png"):
         path = evidence / name
         path.write_bytes(b"png")
-        screenshots.append({"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+        screenshots.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
     (root / "docs" / "release-acceptance.json").write_text(
         json.dumps({
             "phase5_user_acceptance": True,
