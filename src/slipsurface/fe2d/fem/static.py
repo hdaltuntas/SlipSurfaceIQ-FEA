@@ -54,7 +54,7 @@ from .nonlinear import Problem, StageHistory, solve_stage
 from .progress import SolveCancelled, SolveProgress
 from .seepage import SeepageBlock, SeepageResult, solve_seepage
 from .state import SolverState
-from .structural import GROUP_TYPES, BarGroup, BeamGroup, InterfaceGroup
+from .structural import GROUP_TYPES, BarGroup, BeamGroup, BondedBarGroup, InterfaceGroup
 from .unilateral_contact import StagedNormalContactGroup, normal_contact_response
 
 log = get_logger("static")
@@ -80,6 +80,7 @@ class StageResult:
     beams: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, 2, 3) N, V, M
     bars: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne,) axial force N
     interfaces: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, ip, 2)
+    bonds: dict[str, NDArray[np.float64]] = field(default_factory=dict)  # (ne, ip, [slip, q])
     struct_flags: dict[str, NDArray[np.uint8]] = field(default_factory=dict)
     lam: float = 1.0  # load factor reached (load split)
     # (ne, ngp) excess pore pressure of undrained A/B elements [kPa, compression +]; only
@@ -247,9 +248,18 @@ class StaticSolver:
         for block in self.mesh.blocks:
             if block.etype in _CONT:
                 continue
-            spec = props[kinds[block.tag]][block.tag]
+            kind = kinds[block.tag]
+            if kind == "bond":
+                self.groups.append(
+                    BondedBarGroup(
+                        block, self.mesh.coords, model.bolts[block.tag],
+                        model.bonds[block.tag], model.analysis,
+                    )
+                )
+                continue
+            spec = props[kind][block.tag]
             cls = (StagedNormalContactGroup
-                   if kinds[block.tag] == "interface" and spec.law == "unilateral_normal"
+                   if kind == "interface" and spec.law == "unilateral_normal"
                    else GROUP_TYPES[block.etype])
             self.groups.append(cls(block, self.mesh.coords, spec, model.analysis))
         self._has_normal_contact = any(isinstance(g, StagedNormalContactGroup)
@@ -384,7 +394,15 @@ class StaticSolver:
             g.block.conn[active[g.tag]].ravel() for g in self.groups if isinstance(g, BeamGroup)
         ]
         bn = np.unique(np.concatenate(beam_nodes)) if beam_nodes else np.empty(0, np.int64)
-        dm = DofMap(self.mesh, active, bn, self.model.fixities, displacements, self._ties(active))
+        scalar_nodes = [
+            g.block.conn[active[g.tag], 2:].ravel()
+            for g in self.groups if isinstance(g, BondedBarGroup)
+        ]
+        sn = np.unique(np.concatenate(scalar_nodes)) if scalar_nodes else np.empty(0, np.int64)
+        dm = DofMap(
+            self.mesh, active, bn, self.model.fixities, displacements, self._ties(active),
+            scalar_nodes=sn,
+        )
         seep, p_nodal = None, None
         if water.mode == "seepage":
             seep = self._solve_seepage(lay, active, water)
@@ -426,7 +444,7 @@ class StaticSolver:
                 p_joint = pore.joint_pressure(g.xip[ids], g.f1[ids], p_nodal, water)
                 linear = False
                 symmetric &= g.symmetric
-            elif isinstance(g, BarGroup):
+            elif isinstance(g, (BarGroup, BondedBarGroup)):
                 linear = False
             struct.append(_StructSys(g, ids, g.edofs(dm.node_dofs, ids), p_joint))
         pattern = SparsePattern.build([c.edofs for c in cont] + [s.edofs for s in struct], dm.ndof)
@@ -930,8 +948,14 @@ class StaticSolver:
         # _applied_force for load-split stages)
         r[dm.prescribed] = (fint - f_ext)[dm.prescribed]
         used = dm.used_nodes
-        u = state.reported_u()[:, :2].copy()
+        reported = state.reported_u()
+        u = reported[:, :2].copy()
         u[~used] = np.nan
+        scalar_nodes = np.concatenate([
+            g.scalar_nodes for g in self.groups if isinstance(g, BondedBarGroup)
+        ]) if any(isinstance(g, BondedBarGroup) for g in self.groups) else np.empty(0, dtype=int)
+        if scalar_nodes.size:
+            u[np.unique(scalar_nodes)] = np.nan
         rot = np.full(self.mesh.nn, np.nan)
         has_rot = dm.node_dofs[:, 2] >= 0
         rot[has_rot] = state.reported_u()[has_rot, 2]
@@ -945,7 +969,7 @@ class StaticSolver:
                 ex = pe.copy()
                 ex[~state.active[c.tag]] = np.nan
                 excess[c.tag] = ex
-        beams, bars, ifs = {}, {}, {}
+        beams, bars, ifs, bonds = {}, {}, {}, {}
         contact_gap, contact_status = {}, {}
         for g in self.groups:
             act = state.active[g.tag]
@@ -957,6 +981,15 @@ class StaticSolver:
                 v = state.struct[g.tag]["N"].copy()
                 v[~act] = np.nan
                 bars[g.tag] = v
+            elif isinstance(g, BondedBarGroup):
+                axial = state.struct[g.tag]["N"].copy()
+                axial[~act] = np.nan
+                bars[g.tag] = axial
+                slip = g.slip_points(state.reported_u())
+                shear = state.struct[g.tag]["q"].copy()
+                slip[~act] = np.nan
+                shear[~act] = np.nan
+                bonds[g.tag] = np.stack([slip, shear], axis=-1)
             elif isinstance(g, StagedNormalContactGroup):
                 gap = state.struct[g.tag]["gap"].copy()
                 normal, _, status, _ = normal_contact_response(gap, g.kn)
@@ -984,6 +1017,7 @@ class StaticSolver:
             beams=beams,
             bars=bars,
             interfaces=ifs,
+            bonds=bonds,
             struct_flags={k: v.copy() for k, v in state.struct_flag.items()
                           if k not in contact_gap},
             contact_gap=contact_gap,
