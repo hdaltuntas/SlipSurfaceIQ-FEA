@@ -20,6 +20,7 @@ from ..core.enums import Analysis, Drainage, ElemType
 from ..core.errors import ModelError
 from ..model import (
     BoltSpec,
+    BondSlipSpec,
     Displacement,
     EdgeLoad,
     ElementBlock,
@@ -100,6 +101,7 @@ def model_to_dict(
         "stages": _enc(model.stages),
         "liners": _enc(model.liners),
         "bolts": _enc(model.bolts),
+        "bonds": _enc(model.bonds),
         "settings": _enc(model.settings),
         "interfaces": _enc(model.interfaces),
         "geometry": _enc(model.geometry),
@@ -212,6 +214,7 @@ def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
         liners={k: LinerSpec(**v) for k, v in doc["liners"].items()},
         bolts={k: BoltSpec(**v) for k, v in doc["bolts"].items()},
         interfaces={k: InterfaceSpec(**v) for k, v in doc.get("interfaces", {}).items()},
+        bonds={k: BondSlipSpec(**v) for k, v in doc.get("bonds", {}).items()},
         settings=SolverSettings(**doc["settings"]),
         geometry=deepcopy(doc.get("geometry")),
     )
