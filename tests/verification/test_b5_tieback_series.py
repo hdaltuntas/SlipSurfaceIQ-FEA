@@ -55,6 +55,17 @@ def _series_model(
     return model, free_tag, bond_tag
 
 
+def _bond_head_transfer(model, stage, tag: str) -> float:
+    """Signed tendon force transferred into the bonded tail at its first scalar node."""
+    block = model.mesh.block(tag)
+    conn = block.conn[0]
+    length = float(np.linalg.norm(model.mesh.coords[conn[1]] - model.mesh.coords[conn[0]]))
+    xi = np.array([-1.0 / math.sqrt(3.0), 1.0 / math.sqrt(3.0)])
+    n_start = 0.5 * (1.0 - xi)
+    q = stage.bonds[tag][0, :, 1]
+    bond_nodal_start = 0.5 * length * float(n_start @ q)
+    return float(stage.bars[tag][0] - bond_nodal_start)
+
 def _series_exact(ea: float, kb: float, free_length: float, bond_length: float) -> float:
     ku = ea / free_length
     lam = math.sqrt(kb / ea)
@@ -109,7 +120,7 @@ def test_unbonded_plus_bonded_series_converges_to_closed_form(nx):
     limits = {4: 0.02, 8: 0.006, 16: 0.002, 32: 0.0006}
     assert rel <= limits[nx]
     assert stage.bars[free_tag][0] == pytest.approx(reaction, rel=1e-9)
-    assert stage.bars[bond_tag][0] == pytest.approx(reaction, rel=5e-3)
+    assert _bond_head_transfer(model, stage, bond_tag) == pytest.approx(reaction, rel=1e-9)
 
 
 def test_series_model_and_results_roundtrip(tmp_path):
