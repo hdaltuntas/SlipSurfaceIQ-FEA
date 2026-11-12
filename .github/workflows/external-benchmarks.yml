@@ -24,7 +24,10 @@ jobs:
       - name: Run RS2 Introduction reproduction
         run: |
           mkdir -p external-benchmarks
-          python scripts/rs2_introduction_benchmark.py             --json external-benchmarks/rs2-introduction.json             --markdown external-benchmarks/rs2-introduction.md
+          python scripts/rs2_introduction_benchmark.py \
+            --require-pass \
+            --json external-benchmarks/rs2-introduction.json \
+            --markdown external-benchmarks/rs2-introduction.md
           cat external-benchmarks/rs2-introduction.md
       - name: Archive benchmark characterization
         uses: actions/upload-artifact@v4
