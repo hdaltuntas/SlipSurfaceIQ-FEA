@@ -19,8 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
-from slipsurface.fe2d.mesh import rectangle  # noqa: E402
-from slipsurface.fe2d.mesh import structures as mesh_structures  # noqa: E402
+from slipsurface.fe2d.mesh import rectangle, structures as mesh_structures  # noqa: E402
 
 
 FREE_LENGTH = 3.0
