@@ -10,6 +10,8 @@
   grout bond-slip stiffness or strength.
 * :func:`add_embedded_bonded_bar` — a BOND4 chain with host continuum nodes and
   duplicated scalar-slip tendon nodes for finite axial bond transfer.
+* :func:`add_tieback_series` — one unbonded TIE3 element from the wall/head node to
+  the first BOND4 scalar tendon station, followed by the finite-bonded tail.
 * :func:`insert_interface` — zero-thickness interface along an edge set: the nodes of the
   line are duplicated, the continuum elements on one side are reconnected to the copies
   and IFACE4 / IFACE6 elements pair the two faces. Ends of an open line that lie inside the
@@ -236,6 +238,64 @@ def add_embedded_bonded_bar(
     return _replace_blocks(
         mesh, [*mesh.blocks, block], coords=new_coords, node_sets=node_sets
     )
+
+def add_tieback_series(
+    mesh: Mesh,
+    node_head: int,
+    bonded_edge_set: str,
+    tag: str,
+    *,
+    bond_start_node: int | None = None,
+) -> Mesh:
+    """Create a straight unbonded + finite-bonded tieback series topology.
+
+    Two structural blocks are created:
+
+    * <tag>:free — one TIE3 unbonded tendon element with connectivity
+      [head, host_bond_start, scalar_bond_start];
+    * <tag>:bond — the BOND4 bonded tail created by add_embedded_bonded_bar.
+
+    The free element uses the same scalar tendon displacement at the bond start as the
+    bonded tail, so axial force is transferred in series without tying the tendon to the
+    host soil at the free/bond transition.
+    """
+    free_tag = f"{tag}:free"
+    bond_tag = f"{tag}:bond"
+    _check_tag(mesh, free_tag)
+    _check_tag(mesh, bond_tag)
+    if not 0 <= int(node_head) < mesh.nn:
+        raise MeshError("tieback head node id must be inside the mesh")
+
+    out = add_embedded_bonded_bar(
+        mesh, bonded_edge_set, bond_tag, start_node=bond_start_node
+    )
+    bond = out.block(bond_tag)
+    host_start = int(bond.conn[0, 0])
+    slip_start = int(bond.conn[0, 2])
+    if int(node_head) == host_start:
+        raise MeshError("tieback unbonded length must be non-zero")
+
+    free_vec = out.coords[host_start] - out.coords[int(node_head)]
+    bond_vec = out.coords[int(bond.conn[0, 1])] - out.coords[host_start]
+    lf = float(np.linalg.norm(free_vec))
+    lb = float(np.linalg.norm(bond_vec))
+    if lf <= 0 or lb <= 0:
+        raise MeshError("tieback free and bonded segments must have positive length")
+    cross = abs(float(free_vec[0] * bond_vec[1] - free_vec[1] * bond_vec[0]))
+    if cross > 1e-10 * lf * lb or float(free_vec @ bond_vec) <= 0:
+        raise MeshError("tieback free length must continue straight into the bonded tail")
+
+    conn = np.array([[int(node_head), host_start, slip_start]], dtype=np.int64)
+    block = ElementBlock(ElemType.TIE3, conn, np.zeros(1, dtype=np.int32), free_tag)
+    node_sets = dict(out.node_sets)
+    node_sets[f"{tag}:head"] = np.array([int(node_head)], dtype=np.int64)
+    node_sets[f"{tag}:bond_start"] = np.array([host_start], dtype=np.int64)
+    return _replace_blocks(out, [*out.blocks, block], node_sets=node_sets)
+
+
+def tieback_component_tags(tag: str) -> tuple[str, str]:
+    """Return (free_tag, bonded_tag) for add_tieback_series."""
+    return f"{tag}:free", f"{tag}:bond"
 
 def boundary_node_mask(mesh: Mesh) -> NDArray[np.bool_]:
     """Exterior node mask with existing paired interface faces identified."""
