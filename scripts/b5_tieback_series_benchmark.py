@@ -5,6 +5,8 @@ in series with an elastic shear-lag bonded tail. The reference is closed form an
 does not use RS2 response targets.
 """
 
+# ruff: noqa: I001
+
 from __future__ import annotations
 
 import argparse
