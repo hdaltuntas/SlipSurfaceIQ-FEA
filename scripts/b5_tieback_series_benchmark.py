@@ -16,7 +16,10 @@ import numpy as np
 
 from slipsurface.fe2d import api
 from slipsurface.fe2d.mesh import rectangle
-from slipsurface.fe2d.mesh.structures import add_tieback_series, tieback_component_tags
+from slipsurface.fe2d.mesh.structures import (
+    add_tieback_series,
+    tieback_component_tags,
+)
 
 
 FREE_LENGTH = 3.0
