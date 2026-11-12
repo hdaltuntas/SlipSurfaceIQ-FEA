@@ -100,7 +100,39 @@ projection imbalance to create a false failure bracket below 1.0. F=1 is now tre
 as the already accepted identity base state; reduced-strength trials still execute
 normally for F>1. The full standard/F7 regression suite remains required.
 
-## B4 candidate — RS2 Anchored Sheet Pile Wall
+## B4 — PLAXIS Drain / Dupuit groundwater flow
+
+Official source: Bentley PLAXIS Drain verification, with Dupuit's analytical
+unconfined-flow solution as an independent closed-form reference.
+
+Coverage:
+- steady plane-strain saturated/unsaturated seepage;
+- prescribed external head and internal drain head;
+- seepage/open boundaries;
+- integrated discharge;
+- global mass balance;
+- hydraulic mesh convergence.
+
+Published/reference one-side discharge:
+- Dupuit analytical: **4.480 m3/day/m**;
+- PLAXIS 2D: approximately **4.489 m3/day/m**.
+
+Acceptance:
+- finest one-side discharge within 1% of Dupuit;
+- finest one-side discharge within 1% of PLAXIS 2D;
+- medium-to-fine discharge change within 1%;
+- relative global flow-balance residual <= 1e-8;
+- solved total-head extrema remain 10 m and 18 m.
+
+Current verified result: **PASS**. Fine-mesh discharge is approximately
+**4.49162 m3/day/m**, differing by about 0.259% from Dupuit and 0.058% from
+PLAXIS 2D. Medium-to-fine change is about 0.083%; the fine relative global
+flow-balance residual is of order 1e-15.
+
+This benchmark is enforced by the dedicated `plaxis-drain-benchmark` workflow
+with `--require-pass`.
+
+## B5 candidate — RS2 Anchored Sheet Pile Wall
 
 Official source: Rocscience RS2 Anchored Sheet Pile Wall tutorial and its scripting
 variant.
