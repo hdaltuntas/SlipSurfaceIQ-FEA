@@ -107,13 +107,17 @@ and outside the model, both before and after deformation.
 
 Regression coverage is in `tests/unit/test_result_display_regressions.py` and
 `tests/unit/test_inspection.py`. The dedicated desktop CI job includes the new cases.
-These corrections do not close Phase 5 or the S4 external-validation gap.
+These corrections do not by themselves close Phase 5. The exact custom S4
+external-validation gap remains open advanced validation, but the v1 release gate now
+uses the official RS2/PLAXIS benchmark suite described in
+[external-benchmark-suite.md](external-benchmark-suite.md).
 
 ## Release acceptance
 
-Release instruction (22 October 2026): **The interface is not usable; the release
-is not ready, withdraw the publication.** Phase 5 is open again; a new release and the
-PyPI publication were stopped.
+The 22 October 2026 withdrawal remains the historical reason the package was returned
+to 0.9.0. The identified desktop contrast/layout/workflow issues were subsequently
+corrected. The current state is a **0.9.0 release candidate**: numerical and external
+benchmark gates are in place, while real Windows user acceptance remains open.
 This repository is the Python `slipsurface.fe2d` / **SlipSurfaceIQ-FEA** project.
 
 ## What is already delivered
@@ -159,9 +163,9 @@ Linux/Windows CI was 10/10 and the independent Windows portable test passed. Tes
 publication status, and the preserved exceptions are in
 [phase5-release.md](phase5-release.md).
 
-These automated checks do not replace user acceptance. The user’s Windows screenshot
-shows menu/tool text that disappears on a light background, weak control contrast, and
-a panel layout that squeezes the model area. Remaining work:
+These automated checks do not replace user acceptance. The earlier Windows screenshot
+identified menu/tool contrast and panel-layout problems; those defects were corrected
+and remain covered by regression tests. Remaining release work:
 
 1. ~~Readable menu/tool/tab colours on Windows light/dark themes and display scales.~~
    Done (27 October 2026): light colour scheme fixed, Windows dark mode off,
@@ -171,9 +175,10 @@ a panel layout that squeezes the model area. Remaining work:
 3. ~~A balanced, adjustable layout of the model area, the stage list, and the solution log.~~
    Done: a full-width workflow row, a View menu, and a persistent layout.
 4. Visual check on a real Windows display, and user usability acceptance.
-   **Still open**: Linux offscreen images do not replace acceptance. To produce numbers,
-   `scripts/phase5_cases.py` (the four-stage tunnel and, with `--sheet-pile`, the S4 wall)
-   writes the log and N–V–M; this script does not close Phase 5.
+   **Still open**: Linux/offscreen images do not replace acceptance. Use
+   `python scripts/windows_release_acceptance.py prepare --out windows-v1-acceptance`
+   to generate the checklist and internal numerical references, then record acceptance
+   only after the real Windows workflow is accepted.
 5. ~~Preserving material, stage, interface, and structural definitions on remesh.~~
    Done: [detail](integrated-modeler.md#save-undo-and-remeshing).
 
