@@ -135,21 +135,30 @@ with `--require-pass`.
 ## B5 candidate — RS2 Anchored Sheet Pile Wall
 
 Official source: Rocscience RS2 Anchored Sheet Pile Wall tutorial and its scripting
-variant.
+variant. The public input lock is maintained in
+[rs2-anchored-sheet-pile-b5.md](rs2-anchored-sheet-pile-b5.md).
 
 Published response checks include approximately **59 kN** maximum axial force in the
 lower tieback and approximately **71 kNm** maximum wall bending moment in the current
-online tutorial. The official geometry/staging is also published: 30 m by 18 m domain,
-material boundary at y=14 m, excavation boundary at x=10 m / y=10 m, wall from
-(10,18) to (10,8), tiebacks (10,17)->(18,14) and (10,13)->(18,10), and a Stage-5
-10 kPa surcharge.
+online tutorial. Geometry, stages, wall/joint properties and tieback properties are now
+recorded from the official pages, including the 40% bonded length and the specified
+bond shear stiffness/strength.
 
-This case is **not yet a benchmark pass**. The current online tutorial starts from an
-installed `.fez` model and leaves several soil/default-property values in that file
-or in tutorial CSV/image assets rather than defining all of them in machine-readable
-page text. We will not guess those values merely to match the published force/moment.
-B4 becomes a strict gate only after the exact official starting inputs are captured
-and locked in the repository.
+A new mesh helper can represent the free length followed by a *perfectly bonded* tail
+without falsely treating the full tieback as grouted. That is a topology prerequisite,
+not RS2 equivalence: the official tieback uses finite grout bond-slip stiffness and
+strength, while the current shared-node bonded tail imposes zero slip.
+
+This case is therefore **not yet a benchmark pass**. Two strict blockers remain:
+
+- Material 1 Young's modulus and friction angle are inherited from the installed
+  tutorial starting model and are not set by the current public scripting page.
+- SlipSurfaceIQ-FEA does not yet implement the finite axial grout bond-slip transfer
+  law required by the published tieback properties.
+
+B5 becomes a strict gate only after those inputs are captured and the finite bond law
+is independently verified. The 59 kN / 71 kNm values must not be used to tune guessed
+soil properties or a non-equivalent support model.
 
 ## Advanced S4 — exact custom sheet-pile comparison
 
