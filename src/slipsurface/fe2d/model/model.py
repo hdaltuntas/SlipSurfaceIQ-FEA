@@ -9,7 +9,7 @@ import numpy as np
 from ..core.enums import Analysis, Drainage, ElemType
 from ..core.errors import ModelError
 from .boundary import Displacement, EdgeLoad, Fixity, PointLoad
-from .materials import BondSlipSpec, BoltSpec, InterfaceSpec, LinerSpec, MaterialSpec
+from .materials import BoltSpec, BondSlipSpec, InterfaceSpec, LinerSpec, MaterialSpec
 from .mesh import Mesh
 from .stages import InitialStress, SolverSettings, Stage
 
