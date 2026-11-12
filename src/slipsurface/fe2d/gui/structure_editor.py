@@ -182,11 +182,13 @@ class StructureDialog(EditorDialog):
         tag = self.selected()
         if tag is None:
             return
-        cls = (
-            InterfaceDialog
-            if self.model.structure_tags()[tag] == "interface"
-            else StructureSpecDialog
-        )
+        kind = self.model.structure_tags()[tag]
+        if kind == "bond":
+            self.error(ValueError(
+                "Embedded tieback bond-transfer elements are read-only in this editor."
+            ))
+            return
+        cls = InterfaceDialog if kind == "interface" else StructureSpecDialog
         dialog = cls(self.model, tag, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.model = dialog.updated
