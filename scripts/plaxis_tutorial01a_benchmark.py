@@ -34,6 +34,8 @@ SOURCE_URL = (
     "?id=kb_article&sysparm_article=KB0108033"
 )
 PUBLISHED_TOTAL_REACTION_KN = 588.0
+PUBLISHED_RELATIVE_LIMIT = 0.10
+MESH_CONVERGENCE_LIMIT = 0.02
 MESH_LEVELS = {
     "coarse": (0.16, 0.55),
     "medium": (0.11, 0.40),
@@ -145,6 +147,18 @@ def run_level(name: str, h_min: float, h_max: float) -> dict:
 
 def benchmark(levels: tuple[str, ...]) -> dict:
     runs = [run_level(name, *MESH_LEVELS[name]) for name in levels]
+    finest = runs[-1]
+    published_ok = finest["relative_difference"] <= PUBLISHED_RELATIVE_LIMIT
+    convergence_change = None
+    convergence_ok = True
+    if len(runs) >= 2:
+        previous = runs[-2]["total_circular_reaction_kN"]
+        current = finest["total_circular_reaction_kN"]
+        convergence_change = abs(current - previous) / max(abs(current), 1e-12)
+        convergence_ok = convergence_change <= MESH_CONVERGENCE_LIMIT
+    settlement_ok = abs(finest["mean_settlement_mm"] - 50.0) <= 1e-8
+    uniform_ok = abs(finest["settlement_spread_mm"]) <= 1e-8
+    acceptance = published_ok and convergence_ok and settlement_ok and uniform_ok
     return {
         "schema": "slipsurface.external-benchmark.plaxis-tutorial01a.v1",
         "benchmark": "PLAXIS 2D Tutorial 01A - rigid circular footing on sand",
@@ -172,7 +186,16 @@ def benchmark(levels: tuple[str, ...]) -> dict:
             "published_total_reaction_kN": PUBLISHED_TOTAL_REACTION_KN,
         },
         "runs": runs,
-        "acceptance_status": "characterization_pending_review",
+        "acceptance": {
+            "published_reaction_relative_limit": PUBLISHED_RELATIVE_LIMIT,
+            "medium_to_fine_relative_change_limit": MESH_CONVERGENCE_LIMIT,
+            "published_reaction_check": published_ok,
+            "medium_to_fine_relative_change": convergence_change,
+            "mesh_convergence_check": convergence_ok,
+            "prescribed_50mm_check": settlement_ok,
+            "rigid_uniform_settlement_check": uniform_ok,
+        },
+        "acceptance_status": "passed" if acceptance else "failed",
     }
 
 
@@ -180,7 +203,7 @@ def markdown(report: dict) -> str:
     lines = [
         "# PLAXIS Tutorial 01A benchmark",
         "",
-        "Status: **CHARACTERIZATION — acceptance tolerance not enabled yet**",
+        f"Status: **{report['acceptance_status'].upper()}**",
         "",
         "| Mesh | Nodes | Settlement (mm) | Total reaction (kN) | Difference vs 588 kN |",
         "|---|---:|---:|---:|---:|",
@@ -196,7 +219,9 @@ def markdown(report: dict) -> str:
             "",
             "PLAXIS publishes a prescribed 50 mm indentation and a total reaction of about 588 kN.",
             "",
-            "No pass is claimed until the reaction level and mesh trend are reviewed.",
+            "Acceptance: finest-mesh reaction within 10% of the published approximate value; "
+            "medium-to-fine reaction change within 2%; prescribed settlement must remain exactly "
+            "50 mm and uniform over the rigid footing.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -212,6 +237,7 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--json", dest="json_path", type=Path)
     parser.add_argument("--markdown", dest="markdown_path", type=Path)
+    parser.add_argument("--require-pass", action="store_true")
     args = parser.parse_args(argv)
     report = benchmark(tuple(args.levels))
     payload = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
@@ -222,7 +248,7 @@ def main(argv=None) -> int:
     if args.markdown_path:
         args.markdown_path.parent.mkdir(parents=True, exist_ok=True)
         args.markdown_path.write_text(markdown(report), encoding="utf-8")
-    return 0
+    return 1 if args.require_pass and report["acceptance_status"] != "passed" else 0
 
 
 if __name__ == "__main__":
