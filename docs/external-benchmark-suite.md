@@ -82,9 +82,21 @@ Acceptance:
 - medium-to-fine FoS change within 2%;
 - SRF bracket width <= 0.011.
 
-The first medium-mesh characterization returned FoS 1.557 unloaded and 1.230 loaded,
-already within 1.6% of the published PLAXIS values. The full coarse/medium/fine strict
-CI run is the acceptance evidence.
+Current verified CI result: **PASS**.
+
+Coarse / medium / fine FoS values are:
+- unloaded: 1.566 / 1.557 / 1.548;
+- loaded 30 kPa: 1.2375 / 1.230 / 1.230.
+
+The finest differences are approximately 1.40% from PLAXIS 1.57, 1.02% from
+Bishop 1.564, and 1.60% from loaded PLAXIS 1.25. Medium-to-fine change is about
+0.58% unloaded and 0% loaded.
+
+This benchmark also exposed an SRF initialization defect: on a fine plastic mesh,
+F=1.0 (no strength change) was being re-projected and re-solved, allowing tiny
+projection imbalance to create a false failure bracket below 1.0. F=1 is now treated
+as the already accepted identity base state; reduced-strength trials still execute
+normally for F>1. The full standard/F7 regression suite remains required.
 
 ## Advanced S4 — exact custom sheet-pile comparison
 
