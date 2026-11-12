@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
 from slipsurface.fe2d.mesh import rectangle  # noqa: E402
-from slipsurface.fe2d.mesh.structures import add_tieback_series, tieback_component_tags  # noqa: E402
+from slipsurface.fe2d.mesh import structures as mesh_structures  # noqa: E402
 
 
 FREE_LENGTH = 3.0
@@ -41,8 +41,10 @@ def build_model(nx: int):
     )
     bottom = base.nodes("bottom")
     start = int(bottom[np.argmin(base.coords[bottom, 0])])
-    mesh = add_tieback_series(mesh, head, "bottom", "tie", bond_start_node=start)
-    free_tag, bond_tag = tieback_component_tags("tie")
+    mesh = mesh_structures.add_tieback_series(
+        mesh, head, "bottom", "tie", bond_start_node=start
+    )
+    free_tag, bond_tag = mesh_structures.tieback_component_tags("tie")
     model = api.Model(
         analysis=api.Analysis.PLANE_STRAIN,
         mesh=mesh,
