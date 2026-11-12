@@ -197,6 +197,14 @@ def plaxis_phi_c_bishop_model(
         psi=20.0,
         gamma=16.0,
     )
+    stages = []
+    if surcharge_kPa:
+        stages.append(
+            api.Stage(
+                "30 kPa crest surcharge",
+                loads=(api.EdgeLoad("surcharge", qn=surcharge_kPa),),
+            )
+        )
     return api.Model(
         analysis=api.Analysis.PLANE_STRAIN,
         mesh=mesh,
@@ -208,16 +216,7 @@ def plaxis_phi_c_bishop_model(
             api.Fixity("right", True, False),
         ),
         initial=api.InitialStress("gravity"),
-        stages=(
-            [
-                api.Stage(
-                    "30 kPa crest surcharge",
-                    loads=(api.EdgeLoad("surcharge", qn=surcharge_kPa),),
-                )
-            ]
-            if surcharge_kPa
-            else []
-        ),
+        stages=stages,
         settings=api.SolverSettings(
             method="NR",
             max_iter=35,
@@ -329,7 +328,6 @@ def rs2_b5_embedded_bond_model() -> api.Model:
             )
         },
     )
-
 
 
 VALIDATION_EXAMPLES = (
