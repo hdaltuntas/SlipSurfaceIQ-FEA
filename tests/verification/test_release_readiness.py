@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import runpy
 from pathlib import Path
@@ -64,7 +65,7 @@ def write_acceptance(root: Path, *, platform: str = "Windows 11") -> None:
     for name in ("tunnel-ui.png", "sheet-pile-ui.png"):
         path = evidence / name
         path.write_bytes(b"png")
-        screenshots.append({"path": path.relative_to(root).as_posix(), "sha256": "a" * 64})
+        screenshots.append({"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     (root / "docs" / "release-acceptance.json").write_text(
         json.dumps({
             "phase5_user_acceptance": True,
@@ -127,6 +128,16 @@ def test_custom_s4_external_files_are_not_required_for_v1(tmp_path):
     assert not (root / "docs" / "data" / "s4" / "external.csv").exists()
     assert assess(root)["ready_for_v1"] is True
 
+
+
+def test_modified_screenshot_does_not_close_windows_acceptance(tmp_path):
+    root = fixture(tmp_path)
+    write_acceptance(root)
+    screenshot = root / "docs" / "data" / "release-acceptance" / "tunnel-ui.png"
+    screenshot.write_bytes(b"changed")
+    report = assess(root)
+    assert report["checks"]["manual_windows_acceptance"]["status"] == "blocked"
+    assert "hash" in report["checks"]["manual_windows_acceptance"]["detail"].lower()
 
 def test_non_windows_manual_acceptance_does_not_close_gate(tmp_path):
     root = fixture(tmp_path)
