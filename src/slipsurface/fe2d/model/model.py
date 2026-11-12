@@ -9,7 +9,7 @@ import numpy as np
 from ..core.enums import Analysis, Drainage, ElemType
 from ..core.errors import ModelError
 from .boundary import Displacement, EdgeLoad, Fixity, PointLoad
-from .materials import BoltSpec, InterfaceSpec, LinerSpec, MaterialSpec
+from .materials import BondSlipSpec, BoltSpec, InterfaceSpec, LinerSpec, MaterialSpec
 from .mesh import Mesh
 from .stages import InitialStress, SolverSettings, Stage
 
@@ -26,6 +26,7 @@ class Model:
     stages: list[Stage] = field(default_factory=list)
     liners: dict[str, LinerSpec] = field(default_factory=dict)
     bolts: dict[str, BoltSpec] = field(default_factory=dict)
+    bonds: dict[str, BondSlipSpec] = field(default_factory=dict)
     settings: SolverSettings = field(default_factory=SolverSettings)
     interfaces: dict[str, InterfaceSpec] = field(default_factory=dict)
     # Optional CAD authoring snapshot. The solver uses mesh, never this drawing.
@@ -34,7 +35,7 @@ class Model:
     def structure_tags(self) -> dict[str, str]:
         """Structural block tag -> kind ("beam" | "bar" | "interface")."""
         kinds = {ElemType.BEAM2: "beam", ElemType.BAR2: "bar", ElemType.IFACE4: "interface",
-                 ElemType.IFACE6: "interface"}  # fmt: skip
+                 ElemType.IFACE6: "interface", ElemType.BOND4: "bond"}  # fmt: skip
         return {b.tag: kinds[b.etype] for b in self.mesh.blocks if b.etype in kinds}
 
     def validate(self) -> None:
@@ -75,10 +76,15 @@ class Model:
             "beam": set(self.liners),
             "bar": set(self.bolts),
             "interface": set(self.interfaces),
+            "bond": set(self.bonds) & set(self.bolts),
         }
         tags = self.structure_tags()
         for tag, kind in tags.items():
             if tag not in props[kind]:
+                if kind == "bond":
+                    raise ModelError(
+                        f"bond block '{tag}' needs matching BoltSpec and BondSlipSpec"
+                    )
                 raise ModelError(f"{kind} block '{tag}' has no property set of that name")
         if tags and self.analysis is Analysis.AXISYMMETRIC and "beam" in tags.values():
             raise ModelError("beam (liner) elements are not available in axisymmetry yet")
