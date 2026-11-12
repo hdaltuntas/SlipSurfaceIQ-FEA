@@ -27,8 +27,8 @@ class ValidationExample:
     builder: Callable[[], api.Model]
 
 
-def rs2_introduction_model() -> api.Model:
-    """RS2 Introduction / Surface Excavation, medium benchmark mesh."""
+def rs2_introduction_model(h_min: float = 0.25, h_max: float = 0.85) -> api.Model:
+    """RS2 Introduction / Surface Excavation benchmark model."""
     outer = [
         (-10.0, -8.0),
         (15.0, -8.0),
@@ -61,8 +61,8 @@ def rs2_introduction_model() -> api.Model:
     mesh = unstructured_mesh(
         domain,
         h=DistanceSize(
-            0.25,
-            0.85,
+            h_min,
+            h_max,
             1.25,
             lines=[np.asarray(tunnel), trench],
             closed=[True, True],
@@ -92,8 +92,8 @@ def rs2_introduction_model() -> api.Model:
     )
 
 
-def plaxis_tutorial01a_model() -> api.Model:
-    """PLAXIS Tutorial 01A rigid circular footing, medium benchmark mesh."""
+def plaxis_tutorial01a_model(h_min: float = 0.11, h_max: float = 0.40) -> api.Model:
+    """PLAXIS Tutorial 01A rigid circular footing benchmark model."""
     domain = Domain()
     domain.add_polygon(
         [(0.0, 0.0), (5.0, 0.0), (5.0, 4.0), (1.0, 4.0), (0.0, 4.0)],
@@ -104,7 +104,7 @@ def plaxis_tutorial01a_model() -> api.Model:
     footprint = np.asarray([(0.0, 4.0), (1.0, 4.0)], dtype=float)
     mesh = unstructured_mesh(
         domain,
-        h=DistanceSize(0.11, 0.40, 1.25, lines=[footprint], closed=[False]),
+        h=DistanceSize(h_min, h_max, 1.25, lines=[footprint], closed=[False]),
     )
     sand = api.MaterialSpec.mohr_coulomb(
         "Sand",
@@ -149,8 +149,13 @@ def plaxis_tutorial01a_model() -> api.Model:
     )
 
 
-def plaxis_phi_c_bishop_model() -> api.Model:
-    """PLAXIS phi-c/Bishop validation slope with the 30 kPa surcharge."""
+def plaxis_phi_c_bishop_model(
+    h_min: float = 0.32,
+    h_max: float = 0.65,
+    *,
+    surcharge_kPa: float = 30.0,
+) -> api.Model:
+    """PLAXIS phi-c/Bishop validation slope benchmark model."""
     points = [
         (0.0, 0.0),
         (18.0, 0.0),
@@ -181,7 +186,7 @@ def plaxis_phi_c_bishop_model() -> api.Model:
     ]
     mesh = unstructured_mesh(
         domain,
-        h=DistanceSize(0.32, 0.65, 1.25, lines=focus, closed=[False, False]),
+        h=DistanceSize(h_min, h_max, 1.25, lines=focus, closed=[False, False]),
     )
     soil = api.MaterialSpec.mohr_coulomb(
         "soil",
@@ -203,12 +208,16 @@ def plaxis_phi_c_bishop_model() -> api.Model:
             api.Fixity("right", True, False),
         ),
         initial=api.InitialStress("gravity"),
-        stages=[
-            api.Stage(
-                "30 kPa crest surcharge",
-                loads=(api.EdgeLoad("surcharge", qn=30.0),),
-            )
-        ],
+        stages=(
+            [
+                api.Stage(
+                    "30 kPa crest surcharge",
+                    loads=(api.EdgeLoad("surcharge", qn=surcharge_kPa),),
+                )
+            ]
+            if surcharge_kPa
+            else []
+        ),
         settings=api.SolverSettings(
             method="NR",
             max_iter=35,
@@ -222,8 +231,8 @@ def plaxis_phi_c_bishop_model() -> api.Model:
     )
 
 
-def plaxis_drain_model() -> api.Model:
-    """PLAXIS Drain / Dupuit groundwater verification, medium benchmark mesh."""
+def plaxis_drain_model(h_min: float = 0.45, h_max: float = 1.35) -> api.Model:
+    """PLAXIS Drain / Dupuit groundwater benchmark model."""
     domain = Domain()
     domain.add_polygon(
         [
@@ -249,7 +258,7 @@ def plaxis_drain_model() -> api.Model:
     domain.add_line(drain, name="drain")
     mesh = unstructured_mesh(
         domain,
-        h=DistanceSize(0.45, 1.35, 1.22, lines=[drain], closed=[False]),
+        h=DistanceSize(h_min, h_max, 1.22, lines=[drain], closed=[False]),
     )
     day_s = 86_400.0
     soil = api.MaterialSpec(
