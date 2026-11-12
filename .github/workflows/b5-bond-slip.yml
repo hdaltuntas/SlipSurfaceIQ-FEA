@@ -26,9 +26,9 @@ jobs:
       - name: Run strict constitutive benchmark
         run: |
           mkdir -p b5-bond-slip
-          python scripts/b5_bond_slip_benchmark.py \\
-            --require-pass \\
-            --json b5-bond-slip/report.json \\
+          python scripts/b5_bond_slip_benchmark.py \
+            --require-pass \
+            --json b5-bond-slip/report.json \
             --markdown b5-bond-slip/report.md
           cat b5-bond-slip/report.md
       - name: Archive benchmark characterization
