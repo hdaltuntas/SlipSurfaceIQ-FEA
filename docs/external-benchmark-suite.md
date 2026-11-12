@@ -149,16 +149,22 @@ without falsely treating the full tieback as grouted. That is a topology prerequ
 not RS2 equivalence: the official tieback uses finite grout bond-slip stiffness and
 strength, while the current shared-node bonded tail imposes zero slip.
 
+The scalar finite axial grout bond-slip **constitutive law is now independently
+verified** and protected by the dedicated `b5-bond-slip` workflow. This closes the
+local material-law prerequisite only; it does not make the shared-node perfect-bond
+topology equivalent to the RS2 tieback.
+
 This case is therefore **not yet a benchmark pass**. Two strict blockers remain:
 
 - Material 1 Young's modulus and friction angle are inherited from the installed
   tutorial starting model and are not set by the current public scripting page.
-- SlipSurfaceIQ-FEA does not yet implement the finite axial grout bond-slip transfer
-  law required by the published tieback properties.
+- The verified bond-slip law still needs a solver-level embedded transfer element so
+  tendon axial slip can occur relative to the host continuum without introducing a
+  false perfect bond.
 
-B5 becomes a strict gate only after those inputs are captured and the finite bond law
-is independently verified. The 59 kN / 71 kNm values must not be used to tune guessed
-soil properties or a non-equivalent support model.
+B5 becomes a strict external gate only after those inputs are captured and the embedded
+transfer formulation is independently verified. The 59 kN / 71 kNm values must not be
+used to tune guessed soil properties or a non-equivalent support model.
 
 ## Advanced S4 — exact custom sheet-pile comparison
 

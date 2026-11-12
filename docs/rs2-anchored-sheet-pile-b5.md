@@ -74,7 +74,7 @@ The property image shows:
 - E = 200,000,000 kPa;
 - tensile capacity = 100 kN;
 - spacing = 1 m;
-- bond shear stiffness = 10,000 kN/m;
+- bond shear stiffness = 10,000 kN/m2;
 - bond strength = 5,000 kN/m;
 - borehole diameter = 50 mm;
 - pretension = 20 kN;
@@ -129,22 +129,27 @@ and that the bond-start node is its endpoint. For the RS2 geometry, a 40% bonded
 therefore be represented geometrically without replacing the free length by a fully
 bonded bar.
 
-## Remaining physical blocker: finite bond-slip
+## Finite bond-slip status
 
 The helper above is deliberately a **perfect-bond topology**. Shared continuum/bar nodes
 impose zero relative displacement in the bonded tail.
 
-The RS2 tiebacks are not perfect-bond bars: the tutorial specifies finite bond shear
-stiffness (10,000 kN/m) and finite bond strength (5,000 kN/m). SlipSurfaceIQ-FEA does
-not yet have a dedicated axial grout bond-slip transfer law for a partially bonded
-tieback. Replacing that law by shared nodes or by a point anchor would change the
-physical problem.
+The local axial grout law is now implemented and independently characterized as a
+symmetric elastic-perfectly-plastic relation. The RS2 documentation defines bond strength
+as force per unit bonded length and bond shear stiffness as force per length per length;
+the tutorial values are therefore recorded as 5,000 kN/m and 10,000 kN/m2 respectively.
+See [b5-bond-slip-law.md](b5-bond-slip-law.md).
+
+This does **not** yet make the perfect-bond topology physically equivalent to the RS2
+tieback. A solver-level embedded transfer element is still required so the tendon axial
+field can slip relative to the host continuum while remaining kinematically embedded.
 
 Therefore B5 remains **BLOCKED / NOT A PASS** until both conditions are met:
 
 1. the exact Material 1 E and friction angle from the official starting model are
    captured from an authoritative source; and
-2. a finite bond-slip tieback formulation is implemented and independently verified.
+2. the verified bond-slip primitive is integrated into an independently verified
+   embedded tieback transfer element and staged solver path.
 
 Only after those blockers are closed should the 59 kN / 71 kNm response targets and
 mesh-convergence tolerances be promoted into a strict CI gate.

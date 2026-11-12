@@ -1,5 +1,19 @@
 # Current status and remaining work
 
+## 12 November 2026 B5 tieback prerequisite
+
+The scalar finite grout bond-slip law is now separated from element assembly and covered
+by a strict characterization gate. It uses bond shear stiffness in kN/m2 and bond
+strength in kN/m, with exact elastic-perfectly-plastic return mapping, unloading and
+finite-difference tangent checks. [Law and scope](b5-bond-slip-law.md).
+
+This does not close RS2 Anchored Sheet Pile Wall B5. Next numerical work is the
+solver-level embedded tieback transfer formulation: independent tendon axial motion must
+couple to host-continuum displacement through the verified bond law without reverting to
+the existing shared-node perfect bond. The other B5 blocker remains the authoritative
+Material 1 Young's modulus and friction angle from the official starting model.
+
+
 ## 4 November 2026 F7 local execution
 
 The actual pile/anchor excavation completed at h=2.5, 1.8 and 1.2 m:

@@ -44,6 +44,7 @@ from ..io.ssproj import open_project_results
 from ..io.vtk_export import write_vtu
 from ..model import (
     BoltSpec,
+    BondSlipSpec,
     Displacement,
     EdgeLoad,
     ElementBlock,
@@ -138,6 +139,7 @@ __all__ = [
     "Fixity",
     "InitialStress",
     "InterfaceSpec",
+    "BondSlipSpec",
     "BoltSpec",
     "LinerSpec",
     "WaterCondition",
