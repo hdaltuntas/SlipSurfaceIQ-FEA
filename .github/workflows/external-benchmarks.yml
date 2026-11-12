@@ -52,6 +52,7 @@ jobs:
         run: |
           mkdir -p external-benchmarks
           python scripts/plaxis_tutorial01a_benchmark.py \
+            --require-pass \
             --json external-benchmarks/plaxis-tutorial01a.json \
             --markdown external-benchmarks/plaxis-tutorial01a.md
           cat external-benchmarks/plaxis-tutorial01a.md
