@@ -470,12 +470,15 @@ class MainWindow(QMainWindow):
             )
         file_menu.addSeparator()
         self.examples_menu = file_menu.addMenu("Examples")
-        for title, slot in [
-            ("Four-stage tunnel", self.open_tunnel_example),
-            ("Staged excavation (sheet pile + anchor)", self.open_excavation_example),
-            ("Two-layer strip footing", self.open_footing_example),
-        ]:
-            ex_action = action(title, slot)
+        from .validation_examples import VALIDATION_EXAMPLES
+
+        for example in VALIDATION_EXAMPLES:
+            ex_action = action(
+                example.title,
+                lambda _=False, key=example.key: self.open_validation_example(key),
+            )
+            ex_action.setToolTip(example.description)
+            ex_action.setStatusTip(example.description)
             self.examples_menu.addAction(ex_action)
             self.edit_actions.append(ex_action)
         edit_menu = self.menuBar().addMenu("Edit")
@@ -1248,6 +1251,21 @@ class MainWindow(QMainWindow):
                 self.save_path(path if path.endswith(".ssproj") else path + ".ssproj")
             except Exception as exc:
                 self.show_error(str(exc))
+
+    def open_validation_example(self, key: str):
+        """Open one official-validation example from the curated Examples menu."""
+        if self.busy or not self.discard_changes():
+            return
+        from .validation_examples import validation_example
+
+        example = validation_example(key)
+        try:
+            model = example.builder()
+        except Exception as exc:
+            self.show_error(f"Example could not be created: {exc}")
+            return
+        self.set_model(model, dirty=True)
+        self.statusBar().showMessage(example.description, 10000)
 
     def open_tunnel_example(self):
         if self.busy or not self.discard_changes():
