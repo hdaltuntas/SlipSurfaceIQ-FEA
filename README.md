@@ -5,11 +5,13 @@ excavation & support, seepage coupling and elasto-plasticity — as a GUI-indepe
 MIT-licensed Python package. The roadmap and architecture are described in
 *SlipSurface 2D — Technical Architecture and Roadmap* (Oct 2026).
 
-**Status: 0.9.0. Phase 5 is open; the interface is not ready for use. The v1.0.0 release was withdrawn.**
+**Status: 0.9.0 release candidate. Phase 5 remains open for real Windows user acceptance.**
 
-The 22 October 2026 user review withdrew the v1.0.0 release. The package version is
-deliberately 0.9.0. Passing automated tests is not user acceptance. No new release
-will be published until interface usability is corrected and accepted by the user.
+The 22 October 2026 user review withdrew the earlier v1.0.0 release because the desktop
+interface was not usable. The identified contrast, workflow-layout and remesh issues were
+subsequently corrected and automated GUI/API checks pass, but automated tests are still
+not user acceptance. The package therefore remains deliberately at 0.9.0 until a real
+Windows end-to-end usability acceptance is recorded.
 
 [Review and test record](docs/phase4-review.md) ·
 [Desktop interface / how to run](docs/phase5-desktop.md) ·
@@ -17,12 +19,18 @@ will be published until interface usability is corrected and accepted by the use
 [CAD, DXF, supports/loads, and mesh-from-drawing](docs/phase5-cad.md) ·
 [Material, structure, load/water, and stage builders](docs/phase5-model-editors.md) ·
 [Phase 5 version and verification record](docs/phase5-release.md).
-Gate 5 and v1.0 are not complete.
+Gate 5 and v1.0 are not complete because the manual Windows acceptance is still open.
 
-The S4 work record is closed. That does not mean the external verification passed, and it
-is no longer written as “deferred”: there is no RS2/PLAXIS comparison.
-[File format](docs/s4-external.md) · [Current status](docs/phase3-status.md) ·
+Four official external benchmark gates are now enforced in CI: RS2 Introduction,
+PLAXIS Tutorial 01A, PLAXIS phi-c/Bishop, and PLAXIS Drain/Dupuit.
+[Benchmark suite](docs/external-benchmark-suite.md) ·
+[Release readiness](docs/release-1.0-readiness.md) ·
 [What remains to be done](docs/next-steps.md).
+
+The exact custom S4 sheet-pile comparison remains advanced external validation. It has
+not been closed with like-for-like RS2/PLAXIS data and is not counted as a v1 release
+pass merely because the official tutorial suite succeeds.
+[Exact S4 evidence format](docs/s4-external.md).
 
 Hiding a Mohr–Coulomb local return failure behind the elastic trial stress was fixed.
 In P4 that error cannot be used as an SRF collapse bound. The explicit Rankine-apex model
