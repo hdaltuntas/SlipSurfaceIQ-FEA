@@ -10,13 +10,17 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
 
-from slipsurface.fe2d import api
-from slipsurface.fe2d.mesh import rectangle
-from slipsurface.fe2d.mesh.structures import (
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from slipsurface.fe2d import api  # noqa: E402
+from slipsurface.fe2d.mesh import rectangle  # noqa: E402
+from slipsurface.fe2d.mesh.structures import (  # noqa: E402
     add_tieback_series,
     tieback_component_tags,
 )
