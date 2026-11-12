@@ -470,7 +470,7 @@ class MainWindow(QMainWindow):
             )
         file_menu.addSeparator()
         self.examples_menu = file_menu.addMenu("Examples")
-        from .validation_examples import VALIDATION_EXAMPLES
+        from ..examples.validation import VALIDATION_EXAMPLES
 
         for example in VALIDATION_EXAMPLES:
             ex_action = action(
@@ -1256,7 +1256,7 @@ class MainWindow(QMainWindow):
         """Open one official-validation example from the curated Examples menu."""
         if self.busy or not self.discard_changes():
             return
-        from .validation_examples import validation_example
+        from ..examples.validation import validation_example
 
         example = validation_example(key)
         try:
