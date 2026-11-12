@@ -241,10 +241,13 @@ def test_validation_example_menu_opens_bounded_b5_model(application):
     window = MainWindow()
     window.open_validation_example("rs2-b5-embedded-bond")
     assert window.model is not None
-    assert window.model.mesh.block("tieback").etype is api.ElemType.BOND4
-    assert window.model.bonds["tieback"].stiffness == pytest.approx(10_000.0)
-    assert window.model.bonds["tieback"].strength == pytest.approx(5_000.0)
-    assert window.stages.count() == 2  # Initial + bonded-tail pull
+    free_tag, bond_tag = "tieback:free", "tieback:bond"
+    assert window.model.mesh.block(free_tag).etype is api.ElemType.TIE3
+    assert window.model.mesh.block(bond_tag).etype is api.ElemType.BOND4
+    assert window.model.bonds[bond_tag].stiffness == pytest.approx(10_000.0)
+    assert window.model.bonds[bond_tag].strength == pytest.approx(5_000.0)
+    assert window.model.stages[0].active_structures == {free_tag, bond_tag}
+    assert window.stages.count() == 2  # Initial + series pull
     window.dirty = False
     window.close()
 

@@ -159,16 +159,22 @@ The bonded-length solver formulation is now independently verified by the strict
 internal axial-slip field and matches a closed-form elastic shear-lag reference with
 monotone mesh convergence; the 32-segment head-reaction error is about 0.0217%.
 
+The unbonded length is now represented by one TIE3 element in series with the verified
+BOND4 tail. The strict `b5-tieback-series` gate compares the combined system against a
+closed-form unbonded-spring + shear-lag reference and checks force continuity at the
+free/bond transition.
+
 This case is therefore **not yet a benchmark pass**. Two strict blockers remain:
 
 - Material 1 Young's modulus and friction angle are inherited from the installed
   tutorial starting model and are not set by the current public scripting page.
-- The RS2 tieback's unbonded length and pretensioned wall-head connection still need a
-  solver-level series formulation and independent verification with the bonded BOND4 tail.
+- The tutorial enables RS2 **Constant Force in Install Stage** pretensioning; SlipSurface
+  still treats pretension as an initial force that may evolve during the installation
+  stage and needs an independently verified constant-force stage controller.
 
-B5 becomes a strict external gate only after those inputs and the complete tieback series
-system are captured. The 59 kN / 71 kNm values must not be used to tune guessed soil
-properties or an incomplete support model.
+B5 becomes a strict external gate only after those inputs and the exact pretension-stage
+semantics are captured. The 59 kN / 71 kNm values must not be used to tune guessed soil
+properties or incomplete staging.
 
 ## Advanced S4 — exact custom sheet-pile comparison
 

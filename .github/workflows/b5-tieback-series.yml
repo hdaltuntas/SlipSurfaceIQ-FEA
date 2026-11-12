@@ -1,0 +1,42 @@
+name: b5-tieback-series
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  series-mechanics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: src
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install numerical dependencies
+        run: python -m pip install -r requirements-core.txt pytest ruff
+      - name: Lint tieback series sources and tests
+        run: |
+          ruff check src tests/verification/test_b5_tieback_series.py scripts/b5_tieback_series_benchmark.py
+      - name: Run tieback series verification
+        run: pytest -q tests/verification/test_b5_tieback_series.py
+      - name: Run strict series characterization
+        run: |
+          mkdir -p b5-tieback-series
+          python scripts/b5_tieback_series_benchmark.py \
+            --require-pass \
+            --json b5-tieback-series/report.json \
+            --markdown b5-tieback-series/report.md
+          cat b5-tieback-series/report.md
+      - name: Archive benchmark characterization
+        uses: actions/upload-artifact@v4
+        with:
+          name: b5-tieback-series-characterization
+          path: b5-tieback-series/
+          if-no-files-found: error

@@ -34,8 +34,9 @@ class Model:
 
     def structure_tags(self) -> dict[str, str]:
         """Structural block tag -> kind ("beam" | "bar" | "interface")."""
-        kinds = {ElemType.BEAM2: "beam", ElemType.BAR2: "bar", ElemType.IFACE4: "interface",
-                 ElemType.IFACE6: "interface", ElemType.BOND4: "bond"}  # fmt: skip
+        kinds = {ElemType.BEAM2: "beam", ElemType.BAR2: "bar", ElemType.TIE3: "bar",
+                 ElemType.IFACE4: "interface", ElemType.IFACE6: "interface",
+                 ElemType.BOND4: "bond"}  # fmt: skip
         return {b.tag: kinds[b.etype] for b in self.mesh.blocks if b.etype in kinds}
 
     def validate(self) -> None:

@@ -293,7 +293,7 @@ class MeshCanvas(QGraphicsView):
                         line = self.scene().addLine(a[0], -a[1], b[0], -b[1], QPen(color, 0))
                         line.setData(0, ("structure", block.tag))
                         line.setZValue(2.5)
-            if block.etype not in (ElemType.BEAM2, ElemType.BAR2):
+            if block.etype not in (ElemType.BEAM2, ElemType.BAR2, ElemType.TIE3):
                 continue
             context = selection is not None and selection != ("structure", block.tag)
             if stage is None:
@@ -314,7 +314,8 @@ class MeshCanvas(QGraphicsView):
                 s_lbl = structure_label(model, block.tag)
                 state_txt = "Active" if is_active else "Inactive (click to activate)"
                 for conn in block.conn:
-                    a, b = coords[conn]
+                    pair = conn[:2] if block.etype is ElemType.TIE3 else conn
+                    a, b = coords[pair]
                     line_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
                     line_item.setZValue(2.5 if is_active else 1.8)
                     line_item.setData(0, ("structure", block.tag))
@@ -322,19 +323,25 @@ class MeshCanvas(QGraphicsView):
             else:
                 active = stage.active.get(block.tag, np.ones(block.ne, bool))
                 s_lbl = structure_label(model, block.tag)
-                if block.etype is ElemType.BAR2 or selection == ("structure", block.tag):
+                if block.etype in (ElemType.BAR2, ElemType.TIE3) or selection == (
+                    "structure", block.tag
+                ):
                     pen = QPen(QColor("#64748b"), 1.8, Qt.PenStyle.DashLine)
                     pen.setCosmetic(True)
                     for conn in block.conn[~active]:
-                        a, b = mesh.coords[conn]
+                        pair = conn[:2] if block.etype is ElemType.TIE3 else conn
+                        a, b = mesh.coords[pair]
                         item = self.scene().addLine(a[0], -a[1], b[0], -b[1], pen)
                         item.setData(0, ("structure", block.tag))
                         item.setToolTip(f"{s_lbl} · Inactive in this stage")
                         item.setZValue(2.5)
                 for conn in block.conn[active]:
-                    a, b = coords[conn]
-                    if field in DISPLACEMENT_FIELDS and block.etype is not ElemType.BAR2:
-                        v = stage.u[conn]
+                    pair = conn[:2] if block.etype is ElemType.TIE3 else conn
+                    a, b = coords[pair]
+                    if field in DISPLACEMENT_FIELDS and block.etype not in (
+                        ElemType.BAR2, ElemType.TIE3
+                    ):
+                        v = stage.u[pair]
                         value = (
                             np.linalg.norm(v, axis=1).mean()
                             if field == "|u|"
@@ -352,9 +359,11 @@ class MeshCanvas(QGraphicsView):
                         p.setColor(QColor("#b7c2cc"))
                         p.setWidthF(1.0)
                     line_item = self.scene().addLine(a[0], -a[1], b[0], -b[1], p)
-                    line_item.setZValue(5 if block.etype is ElemType.BAR2 else 2.5)
+                    line_item.setZValue(
+                        5 if block.etype in (ElemType.BAR2, ElemType.TIE3) else 2.5
+                    )
                     line_item.setData(0, ("structure", block.tag))
-                    ua, ub = stage.u[conn]
+                    ua, ub = stage.u[pair]
                     line_item.setToolTip(
                         f"{s_lbl} · |u|={np.linalg.norm(ua):.4g} … {np.linalg.norm(ub):.4g} m"
                     )

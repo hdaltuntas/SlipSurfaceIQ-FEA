@@ -451,14 +451,14 @@ def structure_segments(result, stage, tag):
                     StructureSegment(X[a], X[b], s, np.asarray(f, float), (int(a), int(b)))
                 )
         return "beam", segments
-    if block.etype is ElemType.BAR2:
+    if block.etype in (ElemType.BAR2, ElemType.TIE3):
         forces = stage.bars.get(tag)
         if forces is None:
             return "bar", []
         active = stage.active.get(tag, np.ones(block.ne, bool))
         distance = 0.0
         for e in np.flatnonzero(active):
-            a, b = block.conn[e]
+            a, b = block.conn[e, :2]
             length = float(np.linalg.norm(X[b] - X[a]))
             n = float(np.ravel(forces[e])[0])
             segments.append(

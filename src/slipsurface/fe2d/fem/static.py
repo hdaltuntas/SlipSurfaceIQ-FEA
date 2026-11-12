@@ -54,7 +54,14 @@ from .nonlinear import Problem, StageHistory, solve_stage
 from .progress import SolveCancelled, SolveProgress
 from .seepage import SeepageBlock, SeepageResult, solve_seepage
 from .state import SolverState
-from .structural import GROUP_TYPES, BarGroup, BeamGroup, BondedBarGroup, InterfaceGroup
+from .structural import (
+    GROUP_TYPES,
+    BarGroup,
+    BeamGroup,
+    BondedBarGroup,
+    InterfaceGroup,
+    TiebackFreeGroup,
+)
 from .unilateral_contact import StagedNormalContactGroup, normal_contact_response
 
 log = get_logger("static")
@@ -395,8 +402,10 @@ class StaticSolver:
         ]
         bn = np.unique(np.concatenate(beam_nodes)) if beam_nodes else np.empty(0, np.int64)
         scalar_nodes = [
-            g.block.conn[active[g.tag], 2:].ravel()
-            for g in self.groups if isinstance(g, BondedBarGroup)
+            (g.block.conn[active[g.tag], 2:].ravel()
+             if isinstance(g, BondedBarGroup)
+             else g.block.conn[active[g.tag], 2].ravel())
+            for g in self.groups if isinstance(g, (BondedBarGroup, TiebackFreeGroup))
         ]
         sn = np.unique(np.concatenate(scalar_nodes)) if scalar_nodes else np.empty(0, np.int64)
         dm = DofMap(
@@ -444,7 +453,7 @@ class StaticSolver:
                 p_joint = pore.joint_pressure(g.xip[ids], g.f1[ids], p_nodal, water)
                 linear = False
                 symmetric &= g.symmetric
-            elif isinstance(g, (BarGroup, BondedBarGroup)):
+            elif isinstance(g, (BarGroup, BondedBarGroup, TiebackFreeGroup)):
                 linear = False
             struct.append(_StructSys(g, ids, g.edofs(dm.node_dofs, ids), p_joint))
         pattern = SparsePattern.build([c.edofs for c in cont] + [s.edofs for s in struct], dm.ndof)
@@ -977,7 +986,7 @@ class StaticSolver:
                 v = g.end_forces(state.struct[g.tag]["f"])
                 v[~act] = np.nan
                 beams[g.tag] = v
-            elif isinstance(g, BarGroup):
+            elif isinstance(g, (BarGroup, TiebackFreeGroup)):
                 v = state.struct[g.tag]["N"].copy()
                 v[~act] = np.nan
                 bars[g.tag] = v
