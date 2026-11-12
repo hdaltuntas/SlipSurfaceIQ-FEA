@@ -21,3 +21,20 @@ Results from an independent sheet-pile program are **absent** from this director
 absence is not a deferral note; it is a product boundary: internal Winkler agreement is
 not an RS2/PLAXIS pass.
 External table format: [s4-external.md](../../s4-external.md).
+
+
+## Independent-program evidence workflow
+
+`external-template.csv` and `external-meta-template.json` are blank input templates,
+not verification evidence. After solving the exact locked S4 problem in RS2 or
+PLAXIS/PLAXIS2D, save the completed files as `external.csv` and
+`external-meta.json`, then run:
+
+```bash
+python scripts/s4_external_compare.py --require-pass
+```
+
+The comparison uses the current h=0.125 m SlipSurface wall record, preserves the
+documented signed-moment convention and applies the existing 10% independent
+maximum-moment criterion. Moment-profile and wall-head displacement differences are
+reported as diagnostics. Until real external files are committed, S4 remains open.
