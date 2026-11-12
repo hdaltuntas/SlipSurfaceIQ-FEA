@@ -26,11 +26,11 @@ class Model:
     stages: list[Stage] = field(default_factory=list)
     liners: dict[str, LinerSpec] = field(default_factory=dict)
     bolts: dict[str, BoltSpec] = field(default_factory=dict)
-    bonds: dict[str, BondSlipSpec] = field(default_factory=dict)
     settings: SolverSettings = field(default_factory=SolverSettings)
     interfaces: dict[str, InterfaceSpec] = field(default_factory=dict)
     # Optional CAD authoring snapshot. The solver uses mesh, never this drawing.
     geometry: dict | None = None
+    bonds: dict[str, BondSlipSpec] = field(default_factory=dict)
 
     def structure_tags(self) -> dict[str, str]:
         """Structural block tag -> kind ("beam" | "bar" | "interface")."""
