@@ -379,6 +379,7 @@ class BondSlipSpec:
         if not math.isfinite(self.strength) or self.strength <= 0:
             raise ModelError(f"bond-slip '{self.name}': strength must be finite and positive")
 
+
 @dataclass(frozen=True)
 class BoltSpec:
     """End-anchored or fully bonded bar. 2D equivalence: EA/s, T/s."""
