@@ -5,6 +5,9 @@
   beam node coincides with a continuum node.
 * :func:`add_bar` / :func:`add_bars_along` — BAR2 elements between two nodes (end-anchored
   bolt, free length of an anchor) or along an embedded line (fully grouted bolt, grout body).
+* :func:`add_bar_with_bonded_tail` — one free BAR2 length followed by a perfectly bonded
+  BAR2 tail on a named embedded edge chain. This is topology only; it does not add finite
+  grout bond-slip stiffness or strength.
 * :func:`insert_interface` — zero-thickness interface along an edge set: the nodes of the
   line are duplicated, the continuum elements on one side are reconnected to the copies
   and IFACE4 / IFACE6 elements pair the two faces. Ends of an open line that lie inside the
@@ -87,6 +90,64 @@ def add_bars_along(mesh: Mesh, edge_set: str, tag: str) -> Mesh:
     _check_tag(mesh, tag)
     seg = _linear_segments(mesh.edges(edge_set))
     blk = ElementBlock(ElemType.BAR2, seg, np.zeros(seg.shape[0], dtype=np.int32), tag)
+    return _replace_blocks(mesh, [*mesh.blocks, blk])
+
+
+def add_bar_with_bonded_tail(
+    mesh: Mesh,
+    node_head: int,
+    bond_start_node: int,
+    bonded_edge_set: str,
+    tag: str,
+) -> Mesh:
+    """Add an anchor free length followed by a perfectly bonded BAR2 tail.
+
+    The free length is one BAR2 element from node_head to bond_start_node.
+    The named edge set must be one connected, non-branching open chain whose endpoint
+    is bond_start_node. Its BAR2 segments share continuum nodes and therefore model
+    a perfect bond. Finite grout bond-slip stiffness/strength needs a separate element
+    law and is deliberately not approximated here.
+    """
+    _check_tag(mesh, tag)
+    if not (0 <= node_head < mesh.nn and 0 <= bond_start_node < mesh.nn):
+        raise MeshError("bar head and bond-start node ids must be inside the mesh")
+    if node_head == bond_start_node:
+        raise MeshError("bar head and bond-start nodes must differ")
+
+    seg = _linear_segments(mesh.edges(bonded_edge_set))
+    if seg.shape[0] == 0:
+        raise MeshError("bonded edge set must contain at least one segment")
+    if np.any(seg[:, 0] == seg[:, 1]):
+        raise MeshError("bonded edge set contains a zero-length topological segment")
+
+    nodes, degree = np.unique(seg, return_counts=True)
+    if np.any(degree > 2) or np.count_nonzero(degree == 1) != 2:
+        raise MeshError("bonded edge set must form one non-branching open chain")
+    where_start = np.flatnonzero(nodes == bond_start_node)
+    if where_start.size != 1 or degree[int(where_start[0])] != 1:
+        raise MeshError("bond-start node must be an endpoint of the bonded edge chain")
+    if np.any(nodes == node_head):
+        raise MeshError("bar head must lie outside the bonded edge chain")
+
+    adjacency: dict[int, list[int]] = {int(n): [] for n in nodes}
+    for a, b in seg:
+        ia, ib = int(a), int(b)
+        adjacency[ia].append(ib)
+        adjacency[ib].append(ia)
+    seen = {int(bond_start_node)}
+    stack = [int(bond_start_node)]
+    while stack:
+        current = stack.pop()
+        for neighbour in adjacency[current]:
+            if neighbour not in seen:
+                seen.add(neighbour)
+                stack.append(neighbour)
+    if len(seen) != len(nodes):
+        raise MeshError("bonded edge set must form one connected chain")
+
+    free = np.array([[node_head, bond_start_node]], dtype=np.int64)
+    conn = np.vstack([free, seg])
+    blk = ElementBlock(ElemType.BAR2, conn, np.zeros(conn.shape[0], dtype=np.int32), tag)
     return _replace_blocks(mesh, [*mesh.blocks, blk])
 
 
