@@ -5,20 +5,14 @@ in series with an elastic shear-lag bonded tail. The reference is closed form an
 does not use RS2 response targets.
 """
 
-# ruff: noqa: E402
-
 from __future__ import annotations
 
 import argparse
 import json
 import math
-import sys
 from pathlib import Path
 
 import numpy as np
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api
 from slipsurface.fe2d.mesh import rectangle
