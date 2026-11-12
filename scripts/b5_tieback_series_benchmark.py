@@ -20,10 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
 from slipsurface.fe2d.mesh import rectangle  # noqa: E402
-from slipsurface.fe2d.mesh.structures import (  # noqa: E402
-    add_tieback_series,
-    tieback_component_tags,
-)
+from slipsurface.fe2d.mesh.structures import add_tieback_series, tieback_component_tags  # noqa: E402
 
 
 FREE_LENGTH = 3.0
