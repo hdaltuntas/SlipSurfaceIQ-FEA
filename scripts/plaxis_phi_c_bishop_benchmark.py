@@ -53,6 +53,7 @@ MESH_LEVELS = {
 def build_model(h_min: float, h_max: float, *, surcharge_kPa: float = 0.0) -> api.Model:
     return plaxis_phi_c_bishop_model(h_min, h_max, surcharge_kPa=surcharge_kPa)
 
+
 def run_case(level: str, h_min: float, h_max: float, *, surcharge_kPa: float) -> dict:
     model = build_model(h_min, h_max, surcharge_kPa=surcharge_kPa)
     result = strength_reduction(
