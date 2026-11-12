@@ -147,17 +147,24 @@ field, and the verified bond law is integrated at two Gauss points. The dedicate
 32-segment head-reaction error is approximately 0.0217%.
 See [b5-embedded-bond-transfer.md](b5-embedded-bond-transfer.md).
 
-This closes the **bonded tail** mechanics prerequisite only. The RS2 tieback also contains
-an unbonded length in series with the bonded length and a pretensioned wall-head
-connection. Those pieces must be assembled and verified before the tutorial response can
-be compared.
+The unbonded length and wall/head connection are now represented by one TIE3 element
+connected directly to the first BOND4 scalar tendon station. The dedicated
+`b5-tieback-series` workflow verifies the combined free+bonded system against an
+independent closed-form series/shear-lag solution. See
+[b5-tieback-series.md](b5-tieback-series.md).
+
+This closes the **series topology and mechanics** prerequisite. It does not yet reproduce
+the tutorial's pretension staging. RS2 documents the selected **Constant Force in Install
+Stage** option as holding the bolt force at the requested pretension throughout the
+installation stage; the current SlipSurface pretension is an initial axial force that may
+evolve during that same stage.
 
 Therefore B5 remains **BLOCKED / NOT A PASS** until both conditions are met:
 
 1. the exact Material 1 E and friction angle from the official starting model are
    captured from an authoritative source; and
-2. an independently verified unbonded tendon / wall-head connector is assembled in
-   series with the verified BOND4 bonded tail, including pretension staging.
+2. the RS2 constant-force installation-stage pretension behavior is implemented and
+   independently verified for the TIE3+BOND4 series system.
 
 Only after those blockers are closed should the 59 kN / 71 kNm response targets and
 full-model mesh-convergence tolerances be promoted into a strict CI gate.
