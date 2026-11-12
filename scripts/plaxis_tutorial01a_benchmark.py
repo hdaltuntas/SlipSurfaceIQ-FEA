@@ -69,6 +69,7 @@ def build_model(h_min: float, h_max: float) -> api.Model:
         c=1.0,
         phi=30.0,
         psi=0.0,
+        sig_t=0.0,
         gamma=17.0,
         gamma_sat=20.0,
     )
@@ -165,6 +166,7 @@ def benchmark(levels: tuple[str, ...]) -> dict:
                 "c_kPa": 1.0,
                 "phi_deg": 30.0,
                 "psi_deg": 0.0,
+                "tension_cutoff_kPa": 0.0,
             },
             "footing_prescribed_displacement": {"ux_m": 0.0, "uy_m": -0.05},
             "published_total_reaction_kN": PUBLISHED_TOTAL_REACTION_KN,
