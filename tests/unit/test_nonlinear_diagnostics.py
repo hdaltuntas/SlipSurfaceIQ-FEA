@@ -232,3 +232,41 @@ def test_srf_local_failure_is_not_a_collapse_bracket(monkeypatch, wrapped):
     with pytest.raises(MaterialIntegrationError, match="local.*failure|local.*failed") as caught:
         api.strength_reduction(m)
     assert caught.value.details == {"test_trial": 1.0}
+
+
+
+def test_srf_identity_factor_uses_accepted_base_without_resolving(monkeypatch):
+    """F=1 changes no strength and must not become a false failure bracket."""
+    from slipsurface.fe2d import api
+    from slipsurface.fe2d.core.errors import NonConvergence
+    from slipsurface.fe2d.fem.static import StaticSolver
+    from slipsurface.fe2d.mesh import rectangle
+
+    calls = []
+
+    def fail_reduced_trial(*args, **kwargs):
+        calls.append(1)
+        raise NonConvergence(0.0, history=StageHistory())
+
+    model = api.Model(
+        analysis=api.Analysis.PLANE_STRAIN,
+        mesh=rectangle(1.0, 1.0, 1, 1),
+        materials={
+            "m": api.MaterialSpec.mohr_coulomb(
+                "m", 3e4, 0.3, 10.0, 30.0, 0.0
+            )
+        },
+        region_material={1: "m"},
+        initial=api.InitialStress("none"),
+        fixities=(api.Fixity("bottom", True, True),),
+    )
+    monkeypatch.setattr(StaticSolver, "solve_increment", fail_reduced_trial)
+    result = api.strength_reduction(model, tol=0.01, F_first=1.0, growth=1.25)
+
+    assert result.trials[0].F == 1.0
+    assert result.trials[0].converged is True
+    assert result.trials[0].lam == 1.0
+    assert result.trials[0].max_disp == 0.0
+    assert result.factor == 1.0
+    assert result.at_factor is result.base.last
+    assert calls  # reduced-strength trials still execute and form the failed bracket
