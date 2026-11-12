@@ -82,12 +82,13 @@ local bond-yield separation and persistence checks also pass.
 
 - plane strain only;
 - straight conforming host edge chain;
-- bonded tendon length only;
-- no unbonded/free tendon segment or wall-head connector yet;
+- bonded tendon length only in this document;
+- the unbonded/free tendon segment is delivered separately by TIE3;
 - no direct groundwater/bond coupling;
 - no axisymmetric formulation;
 - no claim that the full RS2 B5 tutorial has been reproduced.
 
-The full B5 case remains blocked until the unbonded length and head connection are
-assembled in series with this bonded tail and the remaining authoritative Material 1
-properties are captured.
+The unbonded length and head connection are now assembled in series with this bonded tail;
+see [b5-tieback-series.md](b5-tieback-series.md). The full B5 case still requires exact
+RS2 constant-force installation pretension semantics and the remaining authoritative
+Material 1 properties.
