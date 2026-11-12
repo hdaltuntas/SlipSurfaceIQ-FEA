@@ -47,6 +47,7 @@ MESH_LEVELS = {
 def build_model(h_min: float, h_max: float) -> api.Model:
     return plaxis_tutorial01a_model(h_min, h_max)
 
+
 def run_level(name: str, h_min: float, h_max: float) -> dict:
     model = build_model(h_min, h_max)
     result = api.run(model)
