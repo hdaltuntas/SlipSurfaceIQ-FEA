@@ -38,10 +38,10 @@ class DofMap:
         mesh: Mesh,
         active: dict[str, NDArray[np.bool_]] | None = None,
         beam_nodes: NDArray[np.int64] | None = None,
-        scalar_nodes: NDArray[np.int64] | None = None,
         fixities: tuple[Fixity, ...] = (),
         displacements: tuple[Displacement, ...] = (),
         ties: NDArray[np.int64] | None = None,
+        scalar_nodes: NDArray[np.int64] | None = None,
     ) -> None:
         nn = mesh.nn
         self.active = {
