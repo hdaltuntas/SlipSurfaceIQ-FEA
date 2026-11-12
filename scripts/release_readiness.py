@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -27,6 +28,14 @@ BENCHMARK_GATES = (
         "scripts/plaxis_drain_benchmark.py",
     ),
 )
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _project_version(root: Path) -> str:
@@ -107,6 +116,8 @@ def _user_acceptance(root: Path) -> tuple[bool, str]:
         target = root / rel
         if not rel or not target.is_file() or len(digest) != 64:
             return False, "Windows acceptance screenshot evidence is missing or incomplete."
+        if _sha256(target).lower() != digest.lower():
+            return False, "Windows acceptance screenshot hash does not match the recorded file."
     note = str(data.get("note", "")).strip()
     detail = f"Manual usability acceptance recorded for {data.get('platform')}."
     return True, detail + (f" {note}" if note else "")
