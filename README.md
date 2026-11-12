@@ -75,12 +75,13 @@ limited to the externally documented validation models:
 - PLAXIS Tutorial 01A — rigid circular footing;
 - PLAXIS phi-c / Bishop — 30 kPa slope model;
 - PLAXIS Drain / Dupuit — groundwater flow;
-- RS2 B5 candidate — embedded tieback bond transfer.
+- RS2 B5 candidate — free + bonded tieback series.
 
 The menu models use the same parameterized builders as the strict B1-B4 benchmark scripts.
 They use medium interactive meshes by default; release acceptance still comes from the
-documented multi-mesh CI gates. The B5 menu case remains a bounded bonded-tail candidate,
-not a completed RS2 anchored-sheet-pile reproduction.
+documented multi-mesh CI gates. The B5 menu case now includes the unbonded TIE3 length
+in series with the BOND4 bonded tail, but it still excludes RS2 constant-force installation
+pretension and is not a completed anchored-sheet-pile reproduction.
 
 ## Quick start
 
@@ -130,7 +131,7 @@ multi-surface return in principal stress space, consistent tangent), `drucker_pr
 (plane-strain/outer/inner match), `von_mises` (linear hardening). Stages may prescribe
 displacements (`Stage.displacements`) for displacement-controlled loading; the initial
 state can be `gravity`, `k0_field`, a constant `field` or `none`. Elements: T3, T6, Q4
-(B-bar), Q8, BEAM2, BAR2, IFACE4/6 and the embedded-tieback BOND4 transfer element. Nodal stresses use superconvergent patch recovery (`api.nodal_stress`).
+(B-bar), Q8, BEAM2, BAR2, IFACE4/6, the embedded-tieback BOND4 transfer element and the TIE3 unbonded tieback connector. Nodal stresses use superconvergent patch recovery (`api.nodal_stress`).
 `slipsurface.fe2d.gui.show_result` gives a quick PyVista view (`python -m pip install pyvista`).
 
 ### Staged construction, supports and project files
