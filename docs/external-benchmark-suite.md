@@ -30,7 +30,9 @@ Acceptance:
 - maximum locations remain in the documented tunnel/trench/load regions.
 
 Current verified CI result: **PASS**. Finest differences are approximately 2.76%,
-0.83% and 1.20%.
+0.83% and 1.20%. This benchmark is a strict `--require-pass` CI gate; a numerical
+regression in the published-value, mesh-convergence or location checks fails the
+`external-benchmarks` workflow.
 
 ## B2 — PLAXIS Tutorial 01A / Rigid circular footing
 
@@ -97,6 +99,25 @@ F=1.0 (no strength change) was being re-projected and re-solved, allowing tiny
 projection imbalance to create a false failure bracket below 1.0. F=1 is now treated
 as the already accepted identity base state; reduced-strength trials still execute
 normally for F>1. The full standard/F7 regression suite remains required.
+
+## B4 candidate — RS2 Anchored Sheet Pile Wall
+
+Official source: Rocscience RS2 Anchored Sheet Pile Wall tutorial and its scripting
+variant.
+
+Published response checks include approximately **59 kN** maximum axial force in the
+lower tieback and approximately **71 kNm** maximum wall bending moment in the current
+online tutorial. The official geometry/staging is also published: 30 m by 18 m domain,
+material boundary at y=14 m, excavation boundary at x=10 m / y=10 m, wall from
+(10,18) to (10,8), tiebacks (10,17)->(18,14) and (10,13)->(18,10), and a Stage-5
+10 kPa surcharge.
+
+This case is **not yet a benchmark pass**. The current online tutorial starts from an
+installed `.fez` model and leaves several soil/default-property values in that file
+or in tutorial CSV/image assets rather than defining all of them in machine-readable
+page text. We will not guess those values merely to match the published force/moment.
+B4 becomes a strict gate only after the exact official starting inputs are captured
+and locked in the repository.
 
 ## Advanced S4 — exact custom sheet-pile comparison
 
