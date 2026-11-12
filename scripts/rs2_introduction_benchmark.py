@@ -38,6 +38,7 @@ MESH_LEVELS = {
 def build_model(h_min: float, h_max: float) -> api.Model:
     return rs2_introduction_model(h_min, h_max)
 
+
 def _stage_max(stage, coords: np.ndarray) -> dict:
     valid = np.isfinite(stage.u[:, 0]) & np.isfinite(stage.u[:, 1])
     if not np.any(valid):
