@@ -12,11 +12,15 @@ shear-lag gate: 4/8/16/32 segment head-reaction errors are approximately 1.382%,
 0.3464%, 0.08667% and 0.02167%. It uses a scalar axial slip field, not a guessed normal
 penalty. [Embedded transfer](b5-embedded-bond-transfer.md).
 
-This does not close RS2 Anchored Sheet Pile Wall B5. Next numerical work is the
-**unbonded pretensioned tendon / wall-head connector** in series with the BOND4 bonded
-tail, followed by a combined-system benchmark. The other B5 blocker remains the
-authoritative Material 1 Young's modulus and friction angle from the official starting
-model.
+The unbonded length / wall-head connector is now represented by TIE3 and is connected
+directly to the first BOND4 tendon-slip coordinate. The dedicated series gate checks the
+combined system against the analytical unbonded-spring + shear-lag solution and checks
+force continuity at the transition. [Series formulation](b5-tieback-series.md).
+
+This does not close RS2 Anchored Sheet Pile Wall B5. Next numerical work is the tutorial's
+**Constant Force in Install Stage** pretension behavior, followed by the full staged wall
+model. The other B5 blocker remains the authoritative Material 1 Young's modulus and
+friction angle from the official starting model.
 
 
 ## 4 November 2026 F7 local execution
