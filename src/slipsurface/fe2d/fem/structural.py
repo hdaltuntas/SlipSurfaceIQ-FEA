@@ -35,7 +35,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..core.enums import Analysis, ElemType, PlasticFlag
-from ..model.materials import BondSlipSpec, BoltSpec, InterfaceSpec, LinerSpec
+from ..model.materials import BoltSpec, BondSlipSpec, InterfaceSpec, LinerSpec
 from ..model.mesh import ElementBlock
 from .bond_slip import bond_slip_return
 
