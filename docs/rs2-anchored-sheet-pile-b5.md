@@ -140,16 +140,24 @@ as force per unit bonded length and bond shear stiffness as force per length per
 the tutorial values are therefore recorded as 5,000 kN/m and 10,000 kN/m2 respectively.
 See [b5-bond-slip-law.md](b5-bond-slip-law.md).
 
-This does **not** yet make the perfect-bond topology physically equivalent to the RS2
-tieback. A solver-level embedded transfer element is still required so the tendon axial
-field can slip relative to the host continuum while remaining kinematically embedded.
+The solver-level bonded-length transfer is now implemented as BOND4 without a guessed
+normal penalty. Host continuum motion is combined with an internal scalar tendon-slip
+field, and the verified bond law is integrated at two Gauss points. The dedicated
+`b5-embedded-bond` workflow passes an independent elastic shear-lag comparison; the
+32-segment head-reaction error is approximately 0.0217%.
+See [b5-embedded-bond-transfer.md](b5-embedded-bond-transfer.md).
+
+This closes the **bonded tail** mechanics prerequisite only. The RS2 tieback also contains
+an unbonded length in series with the bonded length and a pretensioned wall-head
+connection. Those pieces must be assembled and verified before the tutorial response can
+be compared.
 
 Therefore B5 remains **BLOCKED / NOT A PASS** until both conditions are met:
 
 1. the exact Material 1 E and friction angle from the official starting model are
    captured from an authoritative source; and
-2. the verified bond-slip primitive is integrated into an independently verified
-   embedded tieback transfer element and staged solver path.
+2. an independently verified unbonded tendon / wall-head connector is assembled in
+   series with the verified BOND4 bonded tail, including pretension staging.
 
 Only after those blockers are closed should the 59 kN / 71 kNm response targets and
-mesh-convergence tolerances be promoted into a strict CI gate.
+full-model mesh-convergence tolerances be promoted into a strict CI gate.

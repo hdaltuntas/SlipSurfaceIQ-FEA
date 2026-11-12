@@ -7,11 +7,16 @@ by a strict characterization gate. It uses bond shear stiffness in kN/m2 and bon
 strength in kN/m, with exact elastic-perfectly-plastic return mapping, unloading and
 finite-difference tangent checks. [Law and scope](b5-bond-slip-law.md).
 
+The bonded-length solver transfer is now implemented as BOND4 and passes the independent
+shear-lag gate: 4/8/16/32 segment head-reaction errors are approximately 1.382%,
+0.3464%, 0.08667% and 0.02167%. It uses a scalar axial slip field, not a guessed normal
+penalty. [Embedded transfer](b5-embedded-bond-transfer.md).
+
 This does not close RS2 Anchored Sheet Pile Wall B5. Next numerical work is the
-solver-level embedded tieback transfer formulation: independent tendon axial motion must
-couple to host-continuum displacement through the verified bond law without reverting to
-the existing shared-node perfect bond. The other B5 blocker remains the authoritative
-Material 1 Young's modulus and friction angle from the official starting model.
+**unbonded pretensioned tendon / wall-head connector** in series with the BOND4 bonded
+tail, followed by a combined-system benchmark. The other B5 blocker remains the
+authoritative Material 1 Young's modulus and friction angle from the official starting
+model.
 
 
 ## 4 November 2026 F7 local execution

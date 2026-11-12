@@ -13,7 +13,7 @@ Layout of a results file::
         sig/<tag> (ne, ngp, 4), q/<tag>, plastic/<tag>, active/<tag>, pore/<tag>,
         excess_pore/<tag> [undrained stages]
         beams/<tag> (ne, 2, 3), bars/<tag> (ne,), interfaces/<tag> (ne, ip, 2),
-        struct_flags/<tag>
+        bonds/<tag> (ne, ip, [slip, shear]), struct_flags/<tag>
 
 Group and dataset names that are not valid HDF5 path components (block tags may contain
 ``/``) are percent-encoded. :class:`ResultsFile` reads arrays only when accessed.
@@ -41,7 +41,7 @@ from ..model.model import Model
 FORMAT = "slipsurface-results"
 FORMAT_VERSION = 1
 _COMP = {"compression": "gzip", "compression_opts": 4, "shuffle": True}
-_DICT_FIELDS = ("sig", "q", "plastic", "active", "pore", "beams", "bars", "interfaces",
+_DICT_FIELDS = ("sig", "q", "plastic", "active", "pore", "beams", "bars", "interfaces", "bonds",
                 "struct_flags", "excess_pore", "contact_gap", "contact_status")  # fmt: skip
 
 

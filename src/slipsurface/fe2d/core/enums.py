@@ -16,6 +16,7 @@ class ElemType(IntEnum):
     BAR2 = 20
     IFACE4 = 30
     IFACE6 = 31
+    BOND4 = 40
 
     @property
     def nen(self) -> int:
@@ -35,6 +36,7 @@ _NEN = {
     ElemType.BAR2: 2,
     ElemType.IFACE4: 4,
     ElemType.IFACE6: 6,
+    ElemType.BOND4: 4,
 }
 
 

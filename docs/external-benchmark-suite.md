@@ -154,17 +154,21 @@ verified** and protected by the dedicated `b5-bond-slip` workflow. This closes t
 local material-law prerequisite only; it does not make the shared-node perfect-bond
 topology equivalent to the RS2 tieback.
 
+The bonded-length solver formulation is now independently verified by the strict
+`b5-embedded-bond` workflow. Its BOND4 formulation uses host-continuum motion plus an
+internal axial-slip field and matches a closed-form elastic shear-lag reference with
+monotone mesh convergence; the 32-segment head-reaction error is about 0.0217%.
+
 This case is therefore **not yet a benchmark pass**. Two strict blockers remain:
 
 - Material 1 Young's modulus and friction angle are inherited from the installed
   tutorial starting model and are not set by the current public scripting page.
-- The verified bond-slip law still needs a solver-level embedded transfer element so
-  tendon axial slip can occur relative to the host continuum without introducing a
-  false perfect bond.
+- The RS2 tieback's unbonded length and pretensioned wall-head connection still need a
+  solver-level series formulation and independent verification with the bonded BOND4 tail.
 
-B5 becomes a strict external gate only after those inputs are captured and the embedded
-transfer formulation is independently verified. The 59 kN / 71 kNm values must not be
-used to tune guessed soil properties or a non-equivalent support model.
+B5 becomes a strict external gate only after those inputs and the complete tieback series
+system are captured. The 59 kN / 71 kNm values must not be used to tune guessed soil
+properties or an incomplete support model.
 
 ## Advanced S4 — exact custom sheet-pile comparison
 

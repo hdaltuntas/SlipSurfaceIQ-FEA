@@ -8,6 +8,8 @@
 * :func:`add_bar_with_bonded_tail` — one free BAR2 length followed by a perfectly bonded
   BAR2 tail on a named embedded edge chain. This is topology only; it does not add finite
   grout bond-slip stiffness or strength.
+* :func:`add_embedded_bonded_bar` — a BOND4 chain with host continuum nodes and
+  duplicated scalar-slip tendon nodes for finite axial bond transfer.
 * :func:`insert_interface` — zero-thickness interface along an edge set: the nodes of the
   line are duplicated, the continuum elements on one side are reconnected to the copies
   and IFACE4 / IFACE6 elements pair the two faces. Ends of an open line that lie inside the
@@ -58,6 +60,46 @@ def _linear_segments(edges: NDArray[np.int64]) -> NDArray[np.int64]:
         return np.vstack([edges[:, [0, 2]], edges[:, [2, 1]]])
     raise MeshError(f"unsupported edge width {edges.shape[1]}")
 
+
+def _ordered_open_chain(
+    seg: NDArray[np.int64], start_node: int | None = None
+) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """Return oriented 2-node segments and node order for one open non-branching chain."""
+    if seg.ndim != 2 or seg.shape[1] != 2 or seg.shape[0] == 0:
+        raise MeshError("edge chain must contain at least one 2-node segment")
+    if np.any(seg[:, 0] == seg[:, 1]):
+        raise MeshError("edge chain contains a zero-length topological segment")
+    nodes, degree = np.unique(seg, return_counts=True)
+    if np.any(degree > 2) or np.count_nonzero(degree == 1) != 2:
+        raise MeshError("edge set must form one non-branching open chain")
+    endpoints = nodes[degree == 1]
+    if start_node is None:
+        first = int(seg[0, 0])
+        start = first if first in endpoints else int(endpoints.min())
+    else:
+        start = int(start_node)
+        if start not in endpoints:
+            raise MeshError("start node must be an endpoint of the edge chain")
+    adjacency: dict[int, list[int]] = {int(n): [] for n in nodes}
+    for a, b in seg:
+        ia, ib = int(a), int(b)
+        adjacency[ia].append(ib)
+        adjacency[ib].append(ia)
+    order = [start]
+    previous = -1
+    current = start
+    while True:
+        nxt = [n for n in adjacency[current] if n != previous]
+        if not nxt:
+            break
+        if len(nxt) != 1:
+            raise MeshError("edge set must form one non-branching open chain")
+        previous, current = current, nxt[0]
+        order.append(current)
+    if len(order) != len(nodes):
+        raise MeshError("edge set must form one connected chain")
+    ordered = np.column_stack([order[:-1], order[1:]]).astype(np.int64)
+    return ordered, np.asarray(order, dtype=np.int64)
 
 def add_beams(mesh: Mesh, edge_set: str, tag: str) -> Mesh:
     """BEAM2 block (tag = liner name) along ``edge_set``."""
@@ -150,6 +192,50 @@ def add_bar_with_bonded_tail(
     blk = ElementBlock(ElemType.BAR2, conn, np.zeros(conn.shape[0], dtype=np.int32), tag)
     return _replace_blocks(mesh, [*mesh.blocks, blk])
 
+
+def add_embedded_bonded_bar(
+    mesh: Mesh,
+    edge_set: str,
+    tag: str,
+    *,
+    start_node: int | None = None,
+) -> Mesh:
+    """Create a finite-bond embedded tendon chain on a host edge set.
+
+    Each BOND4 row is ``[host_a, host_b, slip_a, slip_b]``. The host nodes retain
+    ordinary continuum displacement DOFs. The duplicated nodes are colocated but are
+    interpreted by the solver as one scalar axial-slip DOF each; they are not physical
+    2-D tendon nodes. The structural group combines tendon axial stiffness with the
+    separately defined BondSlipSpec transfer law.
+
+    Node sets ``<tag>:slip``, ``<tag>:slip_start`` and ``<tag>:slip_end`` are added
+    for diagnostics and controlled verification.
+    """
+    _check_tag(mesh, tag)
+    seg, order = _ordered_open_chain(_linear_segments(mesh.edges(edge_set)), start_node)
+    if np.any(np.linalg.norm(mesh.coords[seg[:, 1]] - mesh.coords[seg[:, 0]], axis=1) <= 0):
+        raise MeshError("embedded bond path contains a zero-length geometric segment")
+
+    nn = mesh.nn
+    slip_of = {int(host): nn + i for i, host in enumerate(order.tolist())}
+    slip_nodes = np.asarray([slip_of[int(host)] for host in order], dtype=np.int64)
+    new_coords = np.vstack([mesh.coords, mesh.coords[order]])
+    conn = np.column_stack([
+        seg[:, 0],
+        seg[:, 1],
+        np.asarray([slip_of[int(n)] for n in seg[:, 0]], dtype=np.int64),
+        np.asarray([slip_of[int(n)] for n in seg[:, 1]], dtype=np.int64),
+    ])
+    block = ElementBlock(
+        ElemType.BOND4, conn, np.zeros(conn.shape[0], dtype=np.int32), tag
+    )
+    node_sets = dict(mesh.node_sets)
+    node_sets[f"{tag}:slip"] = slip_nodes
+    node_sets[f"{tag}:slip_start"] = slip_nodes[:1]
+    node_sets[f"{tag}:slip_end"] = slip_nodes[-1:]
+    return _replace_blocks(
+        mesh, [*mesh.blocks, block], coords=new_coords, node_sets=node_sets
+    )
 
 def boundary_node_mask(mesh: Mesh) -> NDArray[np.bool_]:
     """Exterior node mask with existing paired interface faces identified."""
