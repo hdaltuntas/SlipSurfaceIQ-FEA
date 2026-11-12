@@ -189,10 +189,14 @@ def remove_structure(model, tag):
         raise ValueError(
             "Deleting an interface requires welding nodes; this form does not support it."
         )
+    node_sets = {
+        k: v for k, v in model.mesh.node_sets.items()
+        if not k.startswith(f"{tag}:slip")
+    }
     mesh = api.Mesh(
         model.mesh.coords,
         tuple(b for b in model.mesh.blocks if b.tag != tag),
-        model.mesh.node_sets,
+        node_sets,
         model.mesh.edge_sets,
     )
     init = model.initial
@@ -205,6 +209,7 @@ def remove_structure(model, tag):
             initial=init,
             liners={k: v for k, v in model.liners.items() if k != tag},
             bolts={k: v for k, v in model.bolts.items() if k != tag},
+            bonds={k: v for k, v in model.bonds.items() if k != tag},
             stages=[
                 replace(s, active_structures=s.active_structures - {tag}) for s in model.stages
             ],
@@ -251,7 +256,7 @@ def region_label(model, region: int) -> str:
 
 
 def structure_label(model, tag: str) -> str:
-    kind_map = {"beam": "Beam", "bar": "Anchor/nail", "interface": "Interface"}
+    kind_map = {"beam": "Beam", "bar": "Anchor/nail", "bond": "Embedded tieback", "interface": "Interface"}
     kind = (model.structure_tags().get(tag) if model is not None else None) or ""
     if model is not None and model.geometry:
         for sup in model.geometry.get("supports", ()):
