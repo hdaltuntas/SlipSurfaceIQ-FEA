@@ -40,6 +40,8 @@ VALIDATION_PDF = (
 )
 PUBLISHED_FS = {"unloaded": 1.57, "loaded_30kPa": 1.25}
 PUBLISHED_BISHOP_FS = 1.564
+PUBLISHED_RELATIVE_LIMIT = 0.05
+MESH_CONVERGENCE_LIMIT = 0.02
 MESH_LEVELS = {
     "coarse": (0.45, 0.90),
     "medium": (0.32, 0.65),
@@ -167,8 +169,40 @@ def run_case(level: str, h_min: float, h_max: float, *, surcharge_kPa: float) ->
 
 def benchmark(levels: tuple[str, ...]) -> dict:
     runs = {}
+    checks = {}
     for case, surcharge in (("unloaded", 0.0), ("loaded_30kPa", 30.0)):
-        runs[case] = [run_case(name, *MESH_LEVELS[name], surcharge_kPa=surcharge) for name in levels]
+        case_runs = [
+            run_case(name, *MESH_LEVELS[name], surcharge_kPa=surcharge)
+            for name in levels
+        ]
+        runs[case] = case_runs
+        finest = case_runs[-1]
+        target = PUBLISHED_FS[case]
+        published_error = abs(finest["factor"] - target) / target
+        convergence_change = None
+        convergence_ok = True
+        if len(case_runs) >= 2:
+            previous = case_runs[-2]["factor"]
+            current = finest["factor"]
+            convergence_change = abs(current - previous) / max(abs(current), 1e-12)
+            convergence_ok = convergence_change <= MESH_CONVERGENCE_LIMIT
+        checks[case] = {
+            "published_relative_error": published_error,
+            "published_check": published_error <= PUBLISHED_RELATIVE_LIMIT,
+            "medium_to_fine_relative_change": convergence_change,
+            "mesh_convergence_check": convergence_ok,
+            "bracket_width_check": finest["bracket_width"] <= 0.011,
+        }
+    bishop_error = abs(runs["unloaded"][-1]["factor"] - PUBLISHED_BISHOP_FS) / PUBLISHED_BISHOP_FS
+    checks["bishop_unloaded"] = {
+        "relative_error": bishop_error,
+        "check": bishop_error <= PUBLISHED_RELATIVE_LIMIT,
+    }
+    acceptance = all(
+        item["published_check"] and item["mesh_convergence_check"] and item["bracket_width_check"]
+        for name, item in checks.items()
+        if name in ("unloaded", "loaded_30kPa")
+    ) and checks["bishop_unloaded"]["check"]
     return {
         "schema": "slipsurface.external-benchmark.plaxis-phi-c-bishop.v1",
         "benchmark": "PLAXIS Phi-c reduction and comparison with Bishop's method",
@@ -200,7 +234,12 @@ def benchmark(levels: tuple[str, ...]) -> dict:
             "published_bishop_unloaded_fs": PUBLISHED_BISHOP_FS,
         },
         "runs": runs,
-        "acceptance_status": "characterization_pending_review",
+        "acceptance": {
+            "published_fs_relative_limit": PUBLISHED_RELATIVE_LIMIT,
+            "medium_to_fine_relative_change_limit": MESH_CONVERGENCE_LIMIT,
+            "checks": checks,
+        },
+        "acceptance_status": "passed" if acceptance else "failed",
     }
 
 
@@ -208,7 +247,7 @@ def markdown(report: dict) -> str:
     lines = [
         "# PLAXIS phi-c / Bishop benchmark",
         "",
-        "Status: **CHARACTERIZATION — acceptance tolerance not enabled yet**",
+        f"Status: **{report['acceptance_status'].upper()}**",
         "",
         "| Case | Mesh | Nodes | SlipSurface FoS | PLAXIS FoS | Difference |",
         "|---|---|---:|---:|---:|---:|",
@@ -226,7 +265,9 @@ def markdown(report: dict) -> str:
             "",
             "Published Bishop unloaded FoS: **1.564**.",
             "",
-            "No pass is claimed until the FoS levels, mesh trend and failure location are reviewed.",
+            "Acceptance: finest-mesh FoS within 5% of each published PLAXIS target; "
+            "unloaded FoS also within 5% of Bishop 1.564; medium-to-fine FoS change "
+            "within 2%; SRF bracket width at most 0.011.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -242,6 +283,7 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--json", dest="json_path", type=Path)
     parser.add_argument("--markdown", dest="markdown_path", type=Path)
+    parser.add_argument("--require-pass", action="store_true")
     args = parser.parse_args(argv)
     report = benchmark(tuple(args.levels))
     payload = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
@@ -252,7 +294,7 @@ def main(argv=None) -> int:
     if args.markdown_path:
         args.markdown_path.parent.mkdir(parents=True, exist_ok=True)
         args.markdown_path.write_text(markdown(report), encoding="utf-8")
-    return 0
+    return 1 if args.require_pass and report["acceptance_status"] != "passed" else 0
 
 
 if __name__ == "__main__":
