@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
-from slipsurface.fe2d.mesh import DistanceSize, Domain, circle, mesh_quality, unstructured_mesh  # noqa: E402
+from slipsurface.fe2d.examples.validation import rs2_introduction_model  # noqa: E402
+from slipsurface.fe2d.mesh import mesh_quality  # noqa: E402
 
 SOURCE_URL = "https://www.rocscience.com/help/rs2/tutorials/introduction"
 LEGACY_SOURCE_URL = "https://www.rocscience.com/downloads/phase2/Phase2_TutorialManual.pdf"
@@ -35,70 +36,7 @@ MESH_LEVELS = {
 
 
 def build_model(h_min: float, h_max: float) -> api.Model:
-    outer = [
-        (-10.0, -8.0),
-        (15.0, -8.0),
-        (15.0, 4.0),
-        (6.5, 4.0),
-        (4.5, 4.0),
-        (1.0, 4.0),
-        (-1.0, 4.0),
-        (-10.0, 4.0),
-    ]
-    outer_edges = [
-        "bottom",
-        "right",
-        "top_right",
-        "trench_top",
-        "top_middle",
-        "surface_load",
-        "top_left",
-        "left",
-    ]
-    tunnel = circle(0.0, 0.0, 1.0, 60)
-    trench = np.asarray(
-        [(4.5, 4.0), (4.5, -1.0), (6.5, -1.0), (6.5, 4.0)],
-        dtype=float,
-    )
-
-    domain = Domain()
-    domain.add_polygon(outer, region=1, name="Till", edge_names=outer_edges)
-    domain.add_polygon(tunnel, region=2, name="Tunnel")
-    domain.add_polygon(trench, region=3, name="Trench")
-
-    size = DistanceSize(
-        h_min,
-        h_max,
-        1.25,
-        lines=[np.asarray(tunnel), trench],
-        closed=[True, True],
-    )
-    mesh = unstructured_mesh(domain, h=size)
-
-    # RS2 tutorial is an elastic stress/deformation analysis. Its c/phi values are
-    # used for the displayed strength-factor diagnostic, not for plastic yielding.
-    till = api.MaterialSpec.elastic("Till", E=50000.0, nu=0.25, gamma=20.0)
-    return api.Model(
-        analysis=api.Analysis.PLANE_STRAIN,
-        mesh=mesh,
-        materials={"Till": till},
-        region_material={1: "Till", 2: "Till", 3: "Till"},
-        fixities=(
-            api.Fixity("bottom", False, True),
-            api.Fixity("left", True, False),
-            api.Fixity("right", True, False),
-        ),
-        initial=api.InitialStress("k0_field", k0=0.5, surface_y=4.0),
-        stages=[
-            api.Stage("Excavate Tunnel", active_regions={1, 3}),
-            api.Stage("Excavate Trench", active_regions={1}),
-            api.Stage(
-                "Surface Load",
-                active_regions={1},
-                loads=(api.EdgeLoad("surface_load", qn=200.0),),
-            ),
-        ],
-    )
+    return rs2_introduction_model(h_min, h_max)
 
 
 def _stage_max(stage, coords: np.ndarray) -> dict:

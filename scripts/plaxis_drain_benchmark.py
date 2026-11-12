@@ -31,7 +31,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
-from slipsurface.fe2d.mesh import DistanceSize, Domain, mesh_quality, unstructured_mesh  # noqa: E402
+from slipsurface.fe2d.examples.validation import plaxis_drain_model  # noqa: E402
+from slipsurface.fe2d.mesh import mesh_quality  # noqa: E402
 
 PLAXIS_PAGE = (
     "https://bentleysystems.service-now.com/community"
@@ -52,77 +53,7 @@ MESH_LEVELS = {
 
 
 def build_model(h_min: float, h_max: float) -> api.Model:
-    # Split vertical outer edges at the 18 m phreatic level. Below it the total
-    # head is prescribed; above it the outer boundary is a potential seepage face.
-    domain = Domain()
-    domain.add_polygon(
-        [
-            (0.0, 0.0),
-            (50.0, 0.0),
-            (50.0, 18.0),
-            (50.0, 20.0),
-            (0.0, 20.0),
-            (0.0, 18.0),
-        ],
-        region=1,
-        name="Soil",
-        edge_names=[
-            "bottom",
-            "right_wet",
-            "right_dry",
-            "top",
-            "left_dry",
-            "left_wet",
-        ],
-    )
-    # A normal drain with h=10 m only constrains the saturated part; above y=10
-    # the equivalent pressure is non-positive and is left to the unsaturated flow.
-    drain = np.asarray([(25.0, 0.0), (25.0, 10.0)], dtype=float)
-    domain.add_line(drain, name="drain")
-    mesh = unstructured_mesh(
-        domain,
-        h=DistanceSize(
-            h_min,
-            h_max,
-            1.22,
-            lines=[drain],
-            closed=[False],
-        ),
-    )
-
-    # PLAXIS Standard "Coarse" is based on Hypres topsoil. Match alpha/n and
-    # saturated k. SlipSurface currently fixes the Mualem connectivity exponent
-    # and therefore this is explicitly not claimed as an identical retention law.
-    soil = api.MaterialSpec(
-        "soil",
-        "elastic",
-        {"E": 1.0e4, "nu": 0.3},
-        gamma_unsat=0.0,
-        gamma_sat=0.0,
-        k_sat=(K_M_DAY / DAY_S, K_M_DAY / DAY_S),
-        vg=(3.83, 1.3774, 1.0e-8),
-    )
-    water = api.WaterCondition.seepage(
-        {
-            "left_wet": 18.0,
-            "right_wet": 18.0,
-            "drain": 10.0,
-        },
-        seepage_faces=("left_dry", "top", "right_dry"),
-    )
-    return api.Model(
-        analysis=api.Analysis.PLANE_STRAIN,
-        mesh=mesh,
-        materials={"soil": soil},
-        region_material={1: "soil"},
-        fixities=(
-            api.Fixity("bottom", True, True),
-            api.Fixity("left_wet", True, False),
-            api.Fixity("right_wet", True, False),
-        ),
-        initial=api.InitialStress("none"),
-        stages=[api.Stage("PLAXIS Drain steady flow", water=water)],
-    )
+    return plaxis_drain_model(h_min, h_max)
 
 
 def run_level(name: str, h_min: float, h_max: float) -> dict:

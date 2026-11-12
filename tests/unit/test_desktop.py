@@ -223,10 +223,30 @@ def test_main_entry_does_not_open_main_py_as_json_and_examples_under_file_menu(
     submenus = [a.text() for a in file_menu.actions() if a.menu() is not None]
     assert "Examples" in submenus
     example_titles = [a.text() for a in window.examples_menu.actions()]
-    assert any("tunnel" in t.lower() for t in example_titles)
-    assert any("excavation" in t.lower() for t in example_titles)
+    assert len(example_titles) == 5
+    assert any("RS2 Introduction" in t for t in example_titles)
+    assert any("PLAXIS Tutorial 01A" in t for t in example_titles)
+    assert any("φ-c / Bishop" in t for t in example_titles)
+    assert any("PLAXIS Drain" in t for t in example_titles)
+    assert any("RS2 B5 candidate" in t for t in example_titles)
+    assert "Four-stage tunnel" not in example_titles
+    assert "Staged excavation (sheet pile + anchor)" not in example_titles
+    assert "Two-layer strip footing" not in example_titles
     window.close()
 
+
+
+
+def test_validation_example_menu_opens_bounded_b5_model(application):
+    window = MainWindow()
+    window.open_validation_example("rs2-b5-embedded-bond")
+    assert window.model is not None
+    assert window.model.mesh.block("tieback").etype is api.ElemType.BOND4
+    assert window.model.bonds["tieback"].stiffness == pytest.approx(10_000.0)
+    assert window.model.bonds["tieback"].strength == pytest.approx(5_000.0)
+    assert window.stages.count() == 2  # Initial + bonded-tail pull
+    window.dirty = False
+    window.close()
 
 def test_rs2_staged_excavation_workflow_split_and_interactive_assign(application):
     from slipsurface.fe2d.cad.geometry import Drawing, Entity
