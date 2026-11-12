@@ -25,6 +25,9 @@ class DofMap:
     ``node_dofs[n] = [ux, uy, theta]``; ``-1`` means the DOF does not exist (node not used by
     any active element, or no rotation on a continuum node).
 
+    ``scalar_nodes`` identifies internal nodes that carry only component 0. They are used
+    for embedded-tendon axial slip coordinates and never represent physical 2-D points.
+
     ``ties`` (m, 2) lists (master, slave) node pairs that share all their DOFs when both are
     used — e.g. the duplicated nodes of an inactive interface, which then behaves as full
     continuity. ``owner[n]`` is the node that carries the DOFs of ``n`` (itself if untied).
@@ -35,6 +38,7 @@ class DofMap:
         mesh: Mesh,
         active: dict[str, NDArray[np.bool_]] | None = None,
         beam_nodes: NDArray[np.int64] | None = None,
+        scalar_nodes: NDArray[np.int64] | None = None,
         fixities: tuple[Fixity, ...] = (),
         displacements: tuple[Displacement, ...] = (),
         ties: NDArray[np.int64] | None = None,
@@ -82,17 +86,43 @@ class DofMap:
             has_rot = has_rot_rep & used
         owner_mask = used & (rep == np.arange(nn))
 
+        scalar = np.zeros(nn, dtype=bool)
+        if scalar_nodes is not None and np.asarray(scalar_nodes).size:
+            ids = np.asarray(scalar_nodes, dtype=np.int64).ravel()
+            if int(ids.min()) < 0 or int(ids.max()) >= nn:
+                raise ModelError("scalar node index out of range")
+            scalar[ids] = True
+            if ties is not None and len(ties):
+                t = np.asarray(ties, dtype=np.int64).reshape(-1, 2)
+                if scalar[t].any():
+                    raise ModelError("scalar slip nodes cannot participate in full node ties")
+
         node_dofs = np.full((nn, 3), -1, dtype=np.int64)
-        n_used = int(owner_mask.sum())
-        node_dofs[owner_mask, 0] = 2 * np.arange(n_used)
-        node_dofs[owner_mask, 1] = 2 * np.arange(n_used) + 1
-        rot_own = has_rot & owner_mask
-        n_rot = int(rot_own.sum())
-        node_dofs[rot_own, 2] = 2 * n_used + np.arange(n_rot)
+        scalar_own = owner_mask & scalar
+        normal_own = owner_mask & ~scalar
+        if not scalar_own.any():
+            # Preserve the historical numbering exactly when no scalar-slip node is present.
+            n_used = int(owner_mask.sum())
+            node_dofs[owner_mask, 0] = 2 * np.arange(n_used)
+            node_dofs[owner_mask, 1] = 2 * np.arange(n_used) + 1
+            rot_own = has_rot & owner_mask
+            n_rot = int(rot_own.sum())
+            node_dofs[rot_own, 2] = 2 * n_used + np.arange(n_rot)
+            ndof = 2 * n_used + n_rot
+        else:
+            n_normal = int(normal_own.sum())
+            n_scalar = int(scalar_own.sum())
+            node_dofs[normal_own, 0] = 2 * np.arange(n_normal)
+            node_dofs[normal_own, 1] = 2 * np.arange(n_normal) + 1
+            node_dofs[scalar_own, 0] = 2 * n_normal + np.arange(n_scalar)
+            rot_own = has_rot & normal_own
+            n_rot = int(rot_own.sum())
+            node_dofs[rot_own, 2] = 2 * n_normal + n_scalar + np.arange(n_rot)
+            ndof = 2 * n_normal + n_scalar + n_rot
         tied = used & ~owner_mask
         node_dofs[tied] = node_dofs[rep[tied]]
         self.node_dofs = node_dofs
-        self.ndof = 2 * n_used + n_rot
+        self.ndof = ndof
         self.used_nodes = used
         self.owner = rep
         self.owner_mask = owner_mask
