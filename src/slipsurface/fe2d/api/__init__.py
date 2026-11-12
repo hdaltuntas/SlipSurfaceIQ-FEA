@@ -43,8 +43,8 @@ from ..io.results_h5 import (
 from ..io.ssproj import open_project_results
 from ..io.vtk_export import write_vtu
 from ..model import (
-    BondSlipSpec,
     BoltSpec,
+    BondSlipSpec,
     Displacement,
     EdgeLoad,
     ElementBlock,
