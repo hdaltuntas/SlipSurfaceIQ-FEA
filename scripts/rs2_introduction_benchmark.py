@@ -25,6 +25,8 @@ from slipsurface.fe2d.mesh import DistanceSize, Domain, circle, mesh_quality, un
 SOURCE_URL = "https://www.rocscience.com/help/rs2/tutorials/introduction"
 LEGACY_SOURCE_URL = "https://www.rocscience.com/downloads/phase2/Phase2_TutorialManual.pdf"
 PUBLISHED_MAX_MM = (3.0, 4.7, 18.0)
+PUBLISHED_RELATIVE_LIMIT = 0.05
+MESH_CONVERGENCE_LIMIT = 0.02
 MESH_LEVELS = {
     "coarse": (0.35, 1.20),
     "medium": (0.25, 0.85),
@@ -142,9 +144,44 @@ def run_level(name: str, h_min: float, h_max: float) -> dict:
     }
 
 
+def _distance_to_trench_boundary(x: float, y: float) -> float:
+    if 4.5 <= x <= 6.5:
+        vertical = min(abs(y + 1.0), abs(y - 4.0))
+    else:
+        vertical = min(math.hypot(x - 4.5, y + 1.0), math.hypot(x - 6.5, y + 1.0))
+    if -1.0 <= y <= 4.0:
+        horizontal = min(abs(x - 4.5), abs(x - 6.5))
+    else:
+        horizontal = min(math.hypot(x - 4.5, y - 4.0), math.hypot(x - 6.5, y - 4.0))
+    return min(vertical, horizontal)
+
+
+def _location_checks(stages: list[dict]) -> dict:
+    p1, p2, p3 = (stage["max_xy_m"] for stage in stages)
+    return {
+        "stage1_tunnel_bottom": math.hypot(p1[0], p1[1] + 1.0) <= 0.25,
+        "stage2_on_trench_boundary": _distance_to_trench_boundary(*p2) <= 0.15,
+        "stage3_below_surface_load": abs(p3[0]) <= 1.1 and abs(p3[1] - 4.0) <= 0.15,
+    }
+
+
 def benchmark(levels: tuple[str, ...]) -> dict:
     runs = [run_level(name, *MESH_LEVELS[name]) for name in levels]
     finest = runs[-1]
+    target_checks = {
+        stage["name"]: stage["relative_difference"] <= PUBLISHED_RELATIVE_LIMIT
+        for stage in finest["stages"]
+    }
+    convergence_checks = {}
+    if len(runs) >= 2:
+        previous = runs[-2]
+        for old, new in zip(previous["stages"], finest["stages"]):
+            denominator = max(abs(new["max_total_displacement_mm"]), 1e-12)
+            change = abs(new["max_total_displacement_mm"] - old["max_total_displacement_mm"])
+            convergence_checks[new["name"]] = change / denominator <= MESH_CONVERGENCE_LIMIT
+    location_checks = _location_checks(finest["stages"])
+    acceptance = all(target_checks.values()) and all(convergence_checks.values())
+    acceptance = acceptance and all(location_checks.values())
     max_relative = max(stage["relative_difference"] for stage in finest["stages"])
     return {
         "schema": "slipsurface.external-benchmark.rs2-introduction.v1",
@@ -164,8 +201,15 @@ def benchmark(levels: tuple[str, ...]) -> dict:
             "published_max_displacement_mm": list(PUBLISHED_MAX_MM),
         },
         "runs": runs,
+        "acceptance": {
+            "published_relative_limit": PUBLISHED_RELATIVE_LIMIT,
+            "medium_to_fine_relative_change_limit": MESH_CONVERGENCE_LIMIT,
+            "published_value_checks": target_checks,
+            "mesh_convergence_checks": convergence_checks,
+            "qualitative_location_checks": location_checks,
+        },
         "finest_max_relative_difference": max_relative,
-        "acceptance_status": "characterization_pending_review",
+        "acceptance_status": "passed" if acceptance else "failed",
     }
 
 
@@ -173,7 +217,7 @@ def markdown(report: dict) -> str:
     lines = [
         "# RS2 Introduction benchmark",
         "",
-        "Status: **CHARACTERIZATION — acceptance tolerance not enabled yet**",
+        f"Status: **{report['acceptance_status'].upper()}**",
         "",
         "| Mesh | Nodes | Stage 1 (mm) | Stage 2 (mm) | Stage 3 (mm) |",
         "|---|---:|---:|---:|---:|",
@@ -189,7 +233,9 @@ def markdown(report: dict) -> str:
             "",
             "Published RS2 approximate maxima: **3.0 mm, 4.7 mm, 18 mm**.",
             "",
-            "No pass is claimed until the reproduced values, peak locations and mesh trend are reviewed.",
+            "Acceptance: each finest-mesh maximum within 5% of the published approximate value; "
+            "medium-to-fine change within 2%; maximum locations must remain in the documented "
+            "tunnel/trench/load regions.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -205,6 +251,7 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--json", dest="json_path", type=Path)
     parser.add_argument("--markdown", dest="markdown_path", type=Path)
+    parser.add_argument("--require-pass", action="store_true")
     args = parser.parse_args(argv)
     report = benchmark(tuple(args.levels))
     payload = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
@@ -215,7 +262,7 @@ def main(argv=None) -> int:
     if args.markdown_path:
         args.markdown_path.parent.mkdir(parents=True, exist_ok=True)
         args.markdown_path.write_text(markdown(report), encoding="utf-8")
-    return 0
+    return 1 if args.require_pass and report["acceptance_status"] != "passed" else 0
 
 
 if __name__ == "__main__":
