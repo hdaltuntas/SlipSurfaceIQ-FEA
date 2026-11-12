@@ -188,6 +188,79 @@ class BarGroup:
         return np.zeros((ids.size, 4))
 
 
+# ==================================================================== tieback free length
+class TiebackFreeGroup:
+    """Single unbonded tieback element joined to a bonded-tail scalar tendon DOF.
+
+    TIE3 connectivity is [head, host_bond_start, scalar_bond_start]. The tendon
+    displacement at the second end is e.u_host + s, so the element is in series with
+    the BOND4 bonded tail without creating a false soil tie at the transition.
+    """
+
+    kind = "bar"
+    nd = 5
+
+    def __init__(self, block: ElementBlock, coords: Arr, spec: BoltSpec, analysis: Analysis):
+        if block.etype is not ElemType.TIE3:
+            raise ValueError("TiebackFreeGroup requires TIE3 connectivity")
+        if analysis is not Analysis.PLANE_STRAIN:
+            raise NotImplementedError("tieback free elements currently support plane strain only")
+        self.block, self.tag, self.spec = block, block.tag, spec
+        head, host, slip = block.conn[:, 0], block.conn[:, 1], block.conn[:, 2]
+        if not np.allclose(coords[host], coords[slip], rtol=0.0, atol=1e-12):
+            raise ValueError(f"tieback '{self.tag}': scalar node must coincide with bond start")
+        d = coords[host] - coords[head]
+        length = np.linalg.norm(d, axis=1)
+        if np.any(length <= 0):
+            raise ValueError(f"tieback '{self.tag}': zero unbonded length")
+        self.L = length
+        self.e = d / length[:, None]
+        self.scalar_nodes = np.unique(slip)
+        spacing = spec.spacing_out_of_plane
+        self.k = spec.EA / spacing / length
+        self.Ny = spec.T_yield / spacing
+        self.N0 = spec.pretension / spacing
+        self.b = np.column_stack([
+            -self.e[:, 0], -self.e[:, 1],
+            self.e[:, 0], self.e[:, 1], np.ones(self.ne),
+        ])
+
+    @property
+    def ne(self) -> int:
+        return self.block.ne
+
+    def edofs(self, node_dofs: NDArray[np.int64], ids: NDArray[np.int64]) -> NDArray[np.int64]:
+        head = node_dofs[self.block.conn[ids, 0], :2]
+        host = node_dofs[self.block.conn[ids, 1], :2]
+        slip = node_dofs[self.block.conn[ids, 2], 0, None]
+        out = np.concatenate([head, host, slip], axis=1)
+        if np.any(out < 0):
+            raise ValueError(f"tieback '{self.tag}': active element has missing DOFs")
+        return out
+
+    def zero_state(self) -> dict[str, Arr]:
+        return {"N": np.zeros(self.ne)}
+
+    def activate(self, state: dict[str, Arr], ids: NDArray[np.int64]) -> None:
+        state["N"][ids] = self.N0
+
+    def integrate(self, state: dict[str, Arr], ids: NDArray[np.int64], du_e: Arr, p: Arr | None):
+        b, k = self.b[ids], self.k[ids]
+        N = state["N"][ids] + k * np.einsum("ei,ei->e", b, du_e)
+        yielded = np.abs(N) > self.Ny
+        N = np.where(yielded, np.sign(N) * self.Ny, N)
+        kt = np.where(yielded, _SMALL * k, k)
+        f = N[:, None] * b
+        K = kt[:, None, None] * np.einsum("ei,ej->eij", b, b)
+        return {"N": N}, f, K, yielded.astype(np.uint8)[:, None]
+
+    def elastic_K(self, ids: NDArray[np.int64]) -> Arr:
+        b = self.b[ids]
+        return self.k[ids, None, None] * np.einsum("ei,ej->eij", b, b)
+
+    def body_force(self, ids: NDArray[np.int64]) -> Arr:
+        return np.zeros((ids.size, self.nd))
+
 # ======================================================================= bonded bar
 class BondedBarGroup:
     """Embedded axial tendon segment with finite distributed bond-slip transfer.
@@ -488,4 +561,5 @@ class InterfaceGroup:
 
 
 GROUP_TYPES = {ElemType.BEAM2: BeamGroup, ElemType.BAR2: BarGroup,
-               ElemType.IFACE4: InterfaceGroup, ElemType.IFACE6: InterfaceGroup}  # fmt: skip
+               ElemType.TIE3: TiebackFreeGroup, ElemType.IFACE4: InterfaceGroup,
+               ElemType.IFACE6: InterfaceGroup}  # fmt: skip
