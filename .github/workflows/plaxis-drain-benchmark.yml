@@ -24,7 +24,10 @@ jobs:
       - name: Run PLAXIS Drain verification
         run: |
           mkdir -p external-benchmarks
-          python scripts/plaxis_drain_benchmark.py             --json external-benchmarks/plaxis-drain.json             --markdown external-benchmarks/plaxis-drain.md
+          python scripts/plaxis_drain_benchmark.py \
+            --require-pass \
+            --json external-benchmarks/plaxis-drain.json \
+            --markdown external-benchmarks/plaxis-drain.md
           cat external-benchmarks/plaxis-drain.md
       - name: Archive benchmark characterization
         uses: actions/upload-artifact@v4
