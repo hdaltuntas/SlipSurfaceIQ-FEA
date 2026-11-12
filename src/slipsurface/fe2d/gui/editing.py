@@ -256,7 +256,10 @@ def region_label(model, region: int) -> str:
 
 
 def structure_label(model, tag: str) -> str:
-    kind_map = {"beam": "Beam", "bar": "Anchor/nail", "bond": "Embedded tieback", "interface": "Interface"}
+    kind_map = {
+        "beam": "Beam", "bar": "Anchor/nail",
+        "bond": "Embedded tieback", "interface": "Interface",
+    }
     kind = (model.structure_tags().get(tag) if model is not None else None) or ""
     if model is not None and model.geometry:
         for sup in model.geometry.get("supports", ()):
