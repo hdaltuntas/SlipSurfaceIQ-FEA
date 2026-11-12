@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from slipsurface.fe2d import api  # noqa: E402
-from slipsurface.fe2d.gui.validation_examples import plaxis_drain_model  # noqa: E402
+from slipsurface.fe2d.examples.validation import plaxis_drain_model  # noqa: E402
 from slipsurface.fe2d.mesh import mesh_quality  # noqa: E402
 
 PLAXIS_PAGE = (
