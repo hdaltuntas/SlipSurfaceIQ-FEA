@@ -1223,7 +1223,7 @@ class MainWindow(QMainWindow):
                 self.cad.canvas.fit_drawing()
             elif Path(path).suffix.lower() in (".fea", ".fez"):
                 imported = api.import_rs2(path)
-                self.set_model(imported.model, dirty=True)
+                self.set_model(imported.model, path=path, dirty=True)
                 self.rs2_import_report = imported.report
                 report = imported.report
                 details = [
