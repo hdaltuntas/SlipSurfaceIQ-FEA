@@ -14,8 +14,10 @@ model inspectable without claiming solver equivalence.
 
 ## Explicit limitations
 
-The importer report lists unsupported content. In particular, bonded-bolt grout transfer
-and residual-property differences are not silently approximated.
+The importer report lists unsupported content. In particular, bonded-bolt grout transfer,
+RS2 beam joint parameters, residual-property differences, and non-uniform beam activation
+histories within one material group are not silently approximated. RS2 body-force fields
+are transferred cumulatively by stage.
 An imported model with any unsupported feature is a preview-only model: the desktop app blocks
 solving and saving it as a native `.ssproj` until those mappings are implemented. RS2
 `.r##` result files are not loaded as SlipSurface solver results.
