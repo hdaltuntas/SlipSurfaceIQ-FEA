@@ -14,7 +14,16 @@ from pathlib import Path
 import numpy as np
 
 from ..core.enums import Analysis, ElemType
-from ..model import ElementBlock, Fixity, InitialStress, MaterialSpec, Mesh, Model, SolverSettings, Stage
+from ..model import (
+    ElementBlock,
+    Fixity,
+    InitialStress,
+    MaterialSpec,
+    Mesh,
+    Model,
+    SolverSettings,
+    Stage,
+)
 
 
 class RS2ImportError(ValueError):
@@ -303,7 +312,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "Peak Mohr-Coulomb properties are imported; residual properties are not.",
             "Only continuum stage deletion and material reassignment are transferred.",
             "RS2 result files are not imported as SlipSurface solver results.",
-            "Do not treat this preview model as analysis-equivalent while unsupported features remain.",
+            "Do not treat this preview as analysis-equivalent while features remain unsupported.",
         ),
     )
     return RS2ImportResult(model, report)
