@@ -80,7 +80,8 @@ class Model:
             for tag, spec in st.liner_override.items():
                 if spec.name != tag:
                     raise ModelError(
-                        f"stage '{st.name}': liner override key '{tag}' does not match '{spec.name}'"
+                        f"stage '{st.name}': liner override key '{tag}' "
+                        f"does not match '{spec.name}'"
                     )
         props = {
             "beam": set(self.liners),
