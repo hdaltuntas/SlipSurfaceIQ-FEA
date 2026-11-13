@@ -101,6 +101,7 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     )
     restored = model_from_dict(model_to_dict(model))
     assert restored.initial.element_field == model.initial.element_field
+    assert restored.stages[1].liner_override == model.stages[1].liner_override
     assert [stage.name for stage in model.stages] == ["Excavation", "Support"]
     assert model.stages[0].active_regions == frozenset({1})
     assert model.stages[1].active_regions == frozenset()
