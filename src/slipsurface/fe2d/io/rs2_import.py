@@ -19,6 +19,7 @@ from ..model import (
     Fixity,
     InitialStress,
     MaterialSpec,
+    LinerSpec,
     Mesh,
     Model,
     SolverSettings,
@@ -168,6 +169,81 @@ def _residual_property_differences(text: str) -> tuple[str, ...]:
     return tuple(changed)
 
 
+def _beam_specs(text: str) -> dict[str, LinerSpec]:
+    section = _section(text, "material types:", "element types:")
+    starts = list(re.finditer(
+        r"(?m)^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*formulation:\s*([^\s]+)", section
+    ))
+    specs = {}
+    for i, match in enumerate(starts):
+        if match.group(2).lower() != "eulerbeam":
+            continue
+        stop = starts[i + 1].start() if i + 1 < len(starts) else len(section)
+        raw = section[match.start():stop]
+        values = {
+            key.lower(): float(value)
+            for key, value in re.findall(
+                rf"([A-Za-z][A-Za-z0-9_]*)\s*:\s*({_NUMBER})", raw
+            )
+        }
+        if int(values.get("beama_i_flag", 0)) != 0 or "beamthick" not in values:
+            continue
+        thickness = values["beamthick"]
+        specs[match.group(1)] = LinerSpec(
+            name=match.group(1),
+            E=values["e"] * 1000.0,
+            nu=values.get("nu", 0.0),
+            A=thickness,
+            I=thickness**3 / 12.0,
+            As=0.0,  # RS2 eulerbeam -> Euler-Bernoulli beam (no shear deformation).
+        )
+    return specs
+
+
+def _beam_stage_records(stage_text: str, node_map: dict[int, int]):
+    section = _named_section(stage_text, "beams")
+    records = []
+    unsupported_types = set()
+    for line in section.splitlines():
+        match = re.search(
+            r"^\s*(\d+)\s+type:\s*(\w+)\s+nodes:\s*\[(\d+)\s*,\s*(\d+)\]"
+            r".*?material:\s*(\w+)",
+            line,
+        )
+        if not match:
+            continue
+        element_id, element_type, n1, n2, material = match.groups()
+        if element_type.lower() != "l_beam2c2":
+            unsupported_types.add(element_type)
+            continue
+        if int(n1) not in node_map or int(n2) not in node_map:
+            raise RS2ImportError(f"Beam {element_id} references an unknown node")
+        records.append((int(element_id), node_map[int(n1)], node_map[int(n2)], material))
+    return records, unsupported_types
+
+
+def _beam_material_changes(stage_text: str, current: dict[str, LinerSpec]):
+    changed = dict(current)
+    section = _named_section(stage_text, "change material")
+    for material, young, poisson, thickness in re.findall(
+        rf"(?m)^\s*material:\s*(\w+)\s+E:\s*({_NUMBER})\s+nu:\s*({_NUMBER})"
+        rf".*?beamthick:\s*({_NUMBER})",
+        section,
+    ):
+        if material not in changed:
+            continue
+        t = float(thickness)
+        changed[material] = LinerSpec(
+            name=material,
+            E=float(young) * 1000.0,
+            nu=float(poisson),
+            A=t,
+            I=t**3 / 12.0,
+            As=0.0,
+        )
+    return changed
+
+
 def _node_data(text: str) -> dict[int, tuple[float, float]]:
     section = _section(text, "nodes:  total:", "elements:  total:")
     rows = re.findall(
@@ -292,10 +368,43 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
     base_material = {eid: mat for eid, _, mat in elements}
     block = ElementBlock(ElemType.T3, conn, regions, "rs2_continuum")
     fixities, node_sets = _restraints(text, node_map)
-    mesh = Mesh(coords, (block,), node_sets=node_sets)
 
     stage_texts = _stage_sections(text, stage_count)
     names = _stage_names(text, stage_count)
+    beam_specs = _beam_specs(text)
+    beam_records: dict[int, tuple[int, int, str]] = {}
+    beam_blocks = []
+    active_beams: set[str] = set()
+    current_beam_specs = dict(beam_specs)
+    stage_beam_states: list[tuple[frozenset[str], dict[str, LinerSpec]]] = []
+    unsupported_beam_types: set[str] = set()
+    for stage_text in stage_texts:
+        current_beam_specs = _beam_material_changes(stage_text, current_beam_specs)
+        records, unknown_types = _beam_stage_records(stage_text, node_map)
+        unsupported_beam_types.update(unknown_types)
+        for element_id, n1, n2, material in records:
+            if material not in beam_specs:
+                raise RS2ImportError(f"Beam {element_id} references unknown beam material '{material}'")
+            beam_records[element_id] = (n1, n2, material)
+            active_beams.add(material)
+        stage_beam_states.append(
+            (frozenset(active_beams), {
+                tag: current_beam_specs[tag] for tag in active_beams
+            })
+        )
+    for tag in sorted({record[2] for record in beam_records.values()}):
+        selected = [
+            (eid, n1, n2) for eid, (n1, n2, material) in sorted(beam_records.items())
+            if material == tag
+        ]
+        beam_blocks.append(ElementBlock(
+            ElemType.BEAM2,
+            np.asarray([[n1, n2] for _, n1, n2 in selected], dtype=np.int64),
+            np.zeros(len(selected), dtype=np.int32),
+            tag,
+        ))
+    mesh = Mesh(coords, (block, *beam_blocks), node_sets=node_sets)
+
     deleted: set[int] = set()
     stages = []
     for index, stage_text in enumerate(stage_texts):
@@ -312,7 +421,14 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             if int(eid) in base_material and material in materials
         }
         active = frozenset(eid for eid in element_ids if eid not in deleted)
-        stages.append(Stage(name=names[index], active_regions=active, material_override=overrides))
+        active_structures, liner_override = stage_beam_states[index]
+        stages.append(Stage(
+            name=names[index],
+            active_regions=active,
+            active_structures=active_structures,
+            material_override=overrides,
+            liner_override=liner_override,
+        ))
 
     initial_field = _initial_stresses(stage_texts[0], element_ids)
     initial_complete = len(initial_field) == len(element_ids)
@@ -326,15 +442,14 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         materials=materials,
         region_material=base_material,
         fixities=fixities,
+        liners=beam_specs,
         initial=initial,
         stages=stages,
         settings=SolverSettings(method="initial", max_iter=500, tol_force=1e-3),
     )
     model.validate()
 
-    beam_ids = set(re.findall(
-        r"(?m)^\s*(\d+)\s+type:\s*l_beam\w*\s+nodes:", text
-    ))
+    beam_ids = set(beam_records)
     bolt_ids = set(re.findall(
         r"(?m)^\s*(\d+)\s+type:\s*(?:bonded_bolt|bolt_element|queens_bolt|shear_bolt)",
         text,
@@ -347,8 +462,10 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             f"({len(initial_field)}/{len(element_ids)} elements)"
         )
     unsupported.extend(_residual_property_differences(text))
-    if beam_count:
-        unsupported.append(f"{beam_count} RS2 beam/liner elements")
+    if unsupported_beam_types:
+        unsupported.append(
+            "unsupported RS2 beam element types: " + ", ".join(sorted(unsupported_beam_types))
+        )
     if bolt_groups:
         unsupported.append(f"{bolt_groups} RS2 bolt groups and bond-transfer laws")
     report = RS2ImportReport(
@@ -366,6 +483,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "Metric MPa values were converted to kPa and MN/m3 densities to kN/m3.",
             "Peak Mohr-Coulomb properties are imported; residual properties are not.",
             "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
+            "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
             "Only continuum stage deletion and material reassignment are transferred.",
             "RS2 result files are not imported as SlipSurface solver results.",
             "Do not treat this preview as analysis-equivalent while features remain unsupported.",
