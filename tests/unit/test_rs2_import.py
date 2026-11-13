@@ -5,8 +5,8 @@ import zipfile
 import numpy as np
 import pytest
 
-from slipsurface.fe2d.io.project_json import model_from_dict, model_to_dict
 from slipsurface.fe2d.fem.static import StaticSolver
+from slipsurface.fe2d.io.project_json import model_from_dict, model_to_dict
 from slipsurface.fe2d.io.rs2_import import RS2ImportError, import_rs2
 
 
