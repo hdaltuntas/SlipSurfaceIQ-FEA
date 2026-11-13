@@ -60,7 +60,6 @@ class InitialStress:
     k0: float | None = None
     surface_y: float | None = None  # k0_field: None -> max y of the mesh
     field: tuple[float, float, float, float] | None = None
-    element_field: dict[int, tuple[float, float, float, float]] | None = None
     gravity: bool = False  # "field" mode: also apply self-weight in the stages
     # elements present in the initial stage (None: all continuum regions / all interfaces,
     # no beams or bars); "wished-in-place" walls are activated in a later stage
