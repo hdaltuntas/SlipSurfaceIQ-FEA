@@ -219,7 +219,7 @@ def _beam_joint_limitations(text: str) -> tuple[str, ...]:
         }
         if values.get("sj", 0.0) != 0.0 or values.get("sjs", 0.0) != 0.0:
             limitations.append(
-                f"{match.group(1)} RS2 beam shear-joint parameters (sj/sjs)"
+                f"{match.group(1)} RS2 beam parameters sj/sjs (not mapped)"
             )
     return tuple(limitations)
 
