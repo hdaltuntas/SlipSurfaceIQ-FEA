@@ -7,6 +7,7 @@ import math
 from dataclasses import dataclass, field
 
 from .boundary import Displacement, EdgeLoad, PointLoad, WaterCondition
+from .materials import LinerSpec
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class Stage:
     active_regions: frozenset[int] | None = None  # None -> all continuum regions
     active_structures: frozenset[str] = frozenset()
     material_override: dict[int, str] = field(default_factory=dict)
+    liner_override: dict[str, LinerSpec] = field(default_factory=dict)
     loads: tuple[EdgeLoad | PointLoad, ...] = ()
     water: WaterCondition = field(default_factory=WaterCondition)
     load_split: float = 1.0
@@ -32,6 +34,7 @@ class Stage:
         if self.active_regions is not None:
             object.__setattr__(self, "active_regions", frozenset(self.active_regions))
         object.__setattr__(self, "active_structures", frozenset(self.active_structures))
+        object.__setattr__(self, "liner_override", dict(self.liner_override))
         if not all(math.isfinite(v) and abs(v) <= 1.0 for v in (self.seismic_kh, self.seismic_kv)):
             raise ValueError("Seismic coefficients kh and kv must be finite and within [-1, 1].")
         if not 0.0 < self.load_split <= 1.0:
