@@ -200,6 +200,30 @@ def _beam_specs(text: str) -> dict[str, LinerSpec]:
     return specs
 
 
+def _beam_joint_limitations(text: str) -> tuple[str, ...]:
+    section = _section(text, "material types:", "element types:")
+    starts = list(re.finditer(
+        r"(?m)^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*formulation:\s*([^\s]+)", section
+    ))
+    limitations = []
+    for i, match in enumerate(starts):
+        if match.group(2).lower() != "eulerbeam":
+            continue
+        stop = starts[i + 1].start() if i + 1 < len(starts) else len(section)
+        values = {
+            key.lower(): float(value)
+            for key, value in re.findall(
+                rf"([A-Za-z][A-Za-z0-9_]*)\s*:\s*({_NUMBER})",
+                section[match.start():stop],
+            )
+        }
+        if values.get("sj", 0.0) != 0.0 or values.get("sjs", 0.0) != 0.0:
+            limitations.append(
+                f"{match.group(1)} RS2 beam shear-joint parameters (sj/sjs)"
+            )
+    return tuple(limitations)
+
+
 def _beam_stage_records(stage_text: str, node_map: dict[int, int]):
     section = _named_section(stage_text, "beams")
     records = []
@@ -464,6 +488,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             f"({len(initial_field)}/{len(element_ids)} elements)"
         )
     unsupported.extend(_residual_property_differences(text))
+    unsupported.extend(_beam_joint_limitations(text))
     if unsupported_beam_types:
         unsupported.append(
             "unsupported RS2 beam element types: " + ", ".join(sorted(unsupported_beam_types))
