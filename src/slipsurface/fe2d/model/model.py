@@ -83,6 +83,19 @@ class Model:
                         f"stage '{st.name}': liner override key '{tag}' "
                         f"does not match '{spec.name}'"
                     )
+            unknown_body_force_regions = set(st.element_body_force) - all_regions
+            if unknown_body_force_regions:
+                raise ModelError(
+                    f"stage '{st.name}': body forces reference unknown regions "
+                    f"{sorted(unknown_body_force_regions)}"
+                )
+            if any(
+                len(values) != 2 or not np.isfinite(values).all()
+                for values in st.element_body_force.values()
+            ):
+                raise ModelError(
+                    f"stage '{st.name}': element body forces need finite (bx, by) pairs"
+                )
         props = {
             "beam": set(self.liners),
             "bar": set(self.bolts),
