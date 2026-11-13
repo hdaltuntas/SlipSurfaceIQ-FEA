@@ -66,12 +66,23 @@ material: beam1 E: 10000 nu: 0 beamA_I_Flag: 0 beamthick: 0.15
 beams:
 2 type: l_beam2c2 nodes: [4,5] orientation: 0 material: beam1
 
+body forces:
+e: 1 by: 0.02
+
 solve
 
 stage_names:
  number: 2
 Excavation
 Support
+
+bolts start:
+  num bolts: 1
+  bolt 1 start:
+    stage in: 2
+    stage out: 2
+  bolt 1 end:
+bolts end:
 """
 
 
@@ -111,6 +122,9 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     assert model.stages[1].liner_override["beam1"].A == pytest.approx(0.15)
     assert model.mesh.blocks[1].etype.name == "BEAM2"
     assert report.beam_elements == 1
+    assert report.bolt_groups == 1
+    assert any("element body-force assignments" in item for item in report.unsupported_features)
+    assert any("bolt groups" in item for item in report.unsupported_features)
     assert model.fixities
     assert any("rock residual parameters differ" in item for item in report.unsupported_features)
 
