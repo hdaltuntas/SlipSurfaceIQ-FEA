@@ -84,6 +84,13 @@ bolts start:
   bolt 1 start:
     stage in: 2
     stage out: 2
+    vertices start:
+      dpoint array start:
+        num points: 2
+        0: 0.0, 0.0
+        1: 1.0, 1.0
+      dpoint array end:
+    vertices end:
   bolt 1 end:
 bolts end:
 """
@@ -143,6 +150,8 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     assert model.mesh.blocks[1].etype.name == "BEAM2"
     assert report.beam_elements == 1
     assert report.bolt_groups == 1
+    assert any(e["name"] == "RS2Bolt001" for e in model.geometry["entities"])
+    assert any(e["name"] == "RS2Beam2" for e in model.geometry["entities"])
     assert not any("body-force" in item for item in report.unsupported_features)
     assert any("bolt groups" in item for item in report.unsupported_features)
     assert model.fixities
