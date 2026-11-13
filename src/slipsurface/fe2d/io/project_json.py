@@ -199,6 +199,10 @@ def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
             liner_override={
                 k: LinerSpec(**v) for k, v in s.get("liner_override", {}).items()
             },
+            element_body_force={
+                int(k): tuple(float(x) for x in v)
+                for k, v in s.get("element_body_force", {}).items()
+            },
             loads=tuple(_load(ld) for ld in s["loads"]),
             water=_water(s["water"]),
             load_split=s["load_split"],
