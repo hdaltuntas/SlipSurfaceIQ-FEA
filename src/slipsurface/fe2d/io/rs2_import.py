@@ -129,7 +129,7 @@ def _body_force_limitations(stage_texts: list[str]) -> tuple[str, ...]:
     for stage_text in stage_texts:
         section = _named_section(stage_text, "body forces")
         rows = re.findall(
-            rf"(?m)^\s*e:\s*\d+\s+(?:bx:\s*{_NUMBER}\s+)?by:\s*{_NUMBER}",
+            rf"(?m)^\s*e:\s*\d+\s+[^\n]*\b(?:bx|by):\s*{_NUMBER}",
             section,
         )
         assignments += len(rows)
