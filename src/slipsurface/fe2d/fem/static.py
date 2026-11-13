@@ -1040,7 +1040,7 @@ class StaticSolver:
     # --------------------------------------------------------------------- run
     def _with_gravity(self) -> bool:
         init = self.model.initial
-        return init.mode in ("gravity", "k0_field") or (init.mode == "field" and init.gravity)
+        return init.mode in ("gravity", "k0_field", "element_field") or (init.mode == "field" and init.gravity)
 
     def initial_state(self) -> tuple[SolverState, StageResult]:
         model = self.model
