@@ -123,6 +123,34 @@ def _material_specs(text: str) -> dict[str, MaterialSpec]:
     return specs
 
 
+def _residual_property_differences(text: str) -> tuple[str, ...]:
+    section = _section(text, "material types:", "element types:")
+    starts = list(re.finditer(
+        r"(?m)^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*formulation:\s*([^\s]+)", section
+    ))
+    changed = []
+    for i, match in enumerate(starts):
+        if match.group(2).lower() != "mohr_coulomb":
+            continue
+        stop = starts[i + 1].start() if i + 1 < len(starts) else len(section)
+        values = {
+            key.lower(): float(value)
+            for key, value in re.findall(
+                rf"([A-Za-z][A-Za-z0-9_]*)\s*:\s*({_NUMBER})",
+                section[match.start():stop],
+            )
+        }
+        pairs = (("e", "eres"), ("c", "cr"), ("phi", "phir"), ("t", "tr"))
+        different = [
+            residual for peak, residual in pairs
+            if peak in values and residual in values
+            and not np.isclose(values[peak], values[residual], rtol=1e-10, atol=1e-12)
+        ]
+        if different:
+            changed.append(f"{match.group(1)} residual parameters differ: {', '.join(different)}")
+    return tuple(changed)
+
+
 def _node_data(text: str) -> dict[int, tuple[float, float]]:
     section = _section(text, "nodes:  total:", "elements:  total:")
     rows = re.findall(
@@ -292,6 +320,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
     unsupported = []
     if re.search(r"(?m)^\s*e:\s*\d+\s+sxx:", text):
         unsupported.append("element-wise initial stress field")
+    unsupported.extend(_residual_property_differences(text))
     if beam_count:
         unsupported.append(f"{beam_count} RS2 beam/liner elements")
     if bolt_groups:
