@@ -272,13 +272,14 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
     )
     model.validate()
 
-    beam_count = len(re.findall(
-        r"(?m)^\s*\d+\s+type:\s*l_beam\w*\s+nodes:", text
+    beam_ids = set(re.findall(
+        r"(?m)^\s*(\d+)\s+type:\s*l_beam\w*\s+nodes:", text
     ))
-    bolt_groups = len(re.findall(
-        r"(?m)^\s*\d+\s+type:\s*(?:bonded_bolt|bolt_element|queens_bolt|shear_bolt)",
+    bolt_ids = set(re.findall(
+        r"(?m)^\s*(\d+)\s+type:\s*(?:bonded_bolt|bolt_element|queens_bolt|shear_bolt)",
         text,
     ))
+    beam_count, bolt_groups = len(beam_ids), len(bolt_ids)
     unsupported = []
     if re.search(r"(?m)^\s*e:\s*\d+\s+sxx:", text):
         unsupported.append("element-wise initial stress field")
