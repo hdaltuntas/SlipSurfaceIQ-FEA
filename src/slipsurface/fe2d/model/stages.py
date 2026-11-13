@@ -30,6 +30,7 @@ class Stage:
     seismic_kv: float = 0.0  # vertical pseudo-static acceleration / g (+y)
     liner_override: dict[str, LinerSpec] = field(default_factory=dict)
     element_body_force: dict[int, tuple[float, float]] = field(default_factory=dict)
+    # Per-region volume force density (bx, by), in kN/m³.
 
     def __post_init__(self) -> None:
         if self.active_regions is not None:
@@ -65,12 +66,13 @@ class InitialStress:
     k0: float | None = None
     surface_y: float | None = None  # k0_field: None -> max y of the mesh
     field: tuple[float, float, float, float] | None = None
-    gravity: bool = False  # "field" mode: also apply self-weight in the stages
+    gravity: bool = False  # field/element_field mode: also apply native self-weight
     # elements present in the initial stage (None: all continuum regions / all interfaces,
     # no beams or bars); "wished-in-place" walls are activated in a later stage
     active_regions: frozenset[int] | None = None
     active_structures: frozenset[str] | None = None
     water: WaterCondition = dataclasses.field(default_factory=WaterCondition)
+    # Per-region initial stress (sxx, syy, szz, txy), in kPa.
     element_field: dict[int, tuple[float, float, float, float]] | None = None
 
     def __post_init__(self) -> None:
