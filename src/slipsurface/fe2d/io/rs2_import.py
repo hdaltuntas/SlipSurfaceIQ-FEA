@@ -629,7 +629,8 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "RS2 element body forces are transferred cumulatively by stage and "
             "converted from MN/m3 to kN/m3.",
             "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
-            "Bolt and beam paths are shown in CAD preview; bolt constitutive transfer is not imported.",
+            "Bolt and beam paths are shown in CAD preview; "
+            "bolt constitutive transfer is not imported.",
             "Continuum deletion/material reassignment and supported beam section "
             "changes are transferred.",
             "RS2 result files are not imported as SlipSurface solver results.",
