@@ -32,7 +32,6 @@ from ..fem.srf import SRFResult, strength_reduction
 from ..fem.static import SolveResult, StageResult, solve
 from ..io.project import Project, load_project, save_project
 from ..io.project_json import load_model, save_model
-from ..io.rs2_import import RS2ImportError, RS2ImportReport, RS2ImportResult, import_rs2
 from ..io.results_h5 import (
     ResultsFile,
     ResultsReader,
@@ -41,6 +40,7 @@ from ..io.results_h5 import (
     save_results,
     write_results,
 )
+from ..io.rs2_import import RS2ImportError, RS2ImportReport, RS2ImportResult, import_rs2
 from ..io.ssproj import open_project_results
 from ..io.vtk_export import write_vtu
 from ..model import (
