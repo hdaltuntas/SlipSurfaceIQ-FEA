@@ -137,6 +137,11 @@ def _initial(d: dict) -> InitialStress:
     for k in ("active_regions", "active_structures"):
         if d.get(k) is not None:
             d[k] = frozenset(d[k])
+    if d.get("element_field") is not None:
+        d["element_field"] = {
+            int(k): tuple(float(x) for x in values)
+            for k, values in d["element_field"].items()
+        }
     return InitialStress(**d)
 
 
