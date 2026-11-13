@@ -12,7 +12,8 @@ model inspectable without claiming solver equivalence.
   integration points.
 - Stage names, continuum element deletion, continuum material reassignment, and nodal fixities.
 - RS2 Euler-Bernoulli beam segments, activation stages, and stage-specific section changes.
-- Bolt and beam paths as CAD preview lines; this is visual geometry only.
+- Matching same-basename DXF sidecar geometry (external boundary, excavation/material
+  outlines, stage lines and bolts) plus imported beam paths, all as CAD preview only.
 
 ## Explicit limitations
 
@@ -20,7 +21,8 @@ The importer report lists unsupported content. In particular, bonded-bolt grout 
 RS2 beam joint parameters, residual-property differences, and non-uniform beam activation
 histories within one material group are not silently approximated. RS2 body-force fields
 are transferred cumulatively by stage. Bolt constitutive response and grout/bond transfer
-remain unsupported; CAD lines do not imply solver bolt elements.
+remain unsupported; CAD lines do not imply solver bolt elements. If a matching DXF
+sidecar is absent, bolt lines are recovered from the FEA file where available.
 An imported model with any unsupported feature is a preview-only model: the desktop app blocks
 solving and saving it as a native `.ssproj` until those mappings are implemented. RS2
 `.r##` result files are not loaded as SlipSurface solver results.
