@@ -1,8 +1,8 @@
 """Conservative reader for RS2 .fea and .fez files.
 
-This first pass imports continuum triangles, peak Mohr-Coulomb properties, stage
-activation/material reassignment and nodal restraints. Unsupported initial stress,
-beam and bolt semantics are reported rather than silently approximated.
+Imports supported continuum triangles, peak Mohr-Coulomb properties, element-wise
+initial stresses, staged Euler-Bernoulli beams and nodal restraints. Unsupported
+body forces, residual properties, beam joint parameters and bolt transfer are reported.
 """
 from __future__ import annotations
 
