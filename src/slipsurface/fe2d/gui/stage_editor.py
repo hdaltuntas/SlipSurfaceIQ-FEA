@@ -134,6 +134,9 @@ class InitialDialog(EditorDialog):
             ("Uniform stress field", "field"),
         ]:
             self.mode.addItem(label, mode)
+        if init.mode == "element_field":
+            self.mode.addItem("Imported per-element stress field (read-only)", "element_field")
+            self.mode.setEnabled(False)
         self.mode.setCurrentIndex(self.mode.findData(init.mode))
         form.addRow("Method", self.mode)
         self.k0 = QLineEdit("" if init.k0 is None else str(init.k0))
@@ -230,6 +233,9 @@ class StageDialog(EditorDialog):
             ("Uniform stress field", "field"),
         ]:
             self.initial_mode.addItem(label, mode)
+        if model.initial.mode == "element_field":
+            self.initial_mode.addItem("Imported per-element stress field (read-only)", "element_field")
+            self.initial_mode.setEnabled(False)
         self.initial_mode.setCurrentIndex(self.initial_mode.findData(model.initial.mode))
         self.initial_mode.currentIndexChanged.connect(self._on_initial_mode_changed)
         init_bar.addWidget(self.initial_mode)
