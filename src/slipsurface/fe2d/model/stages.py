@@ -29,12 +29,17 @@ class Stage:
     seismic_kh: float = 0.0  # horizontal pseudo-static acceleration / g (+x)
     seismic_kv: float = 0.0  # vertical pseudo-static acceleration / g (+y)
     liner_override: dict[str, LinerSpec] = field(default_factory=dict)
+    element_body_force: dict[int, tuple[float, float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.active_regions is not None:
             object.__setattr__(self, "active_regions", frozenset(self.active_regions))
         object.__setattr__(self, "active_structures", frozenset(self.active_structures))
         object.__setattr__(self, "liner_override", dict(self.liner_override))
+        object.__setattr__(
+            self, "element_body_force",
+            {int(k): tuple(float(x) for x in v) for k, v in self.element_body_force.items()},
+        )
         if not all(math.isfinite(v) and abs(v) <= 1.0 for v in (self.seismic_kh, self.seismic_kv)):
             raise ValueError("Seismic coefficients kh and kv must be finite and within [-1, 1].")
         if not 0.0 < self.load_split <= 1.0:
