@@ -343,7 +343,8 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
     unsupported = []
     if not initial_complete:
         unsupported.append(
-            f"incomplete element-wise initial stress field ({len(initial_field)}/{len(element_ids)} elements)"
+            "incomplete element-wise initial stress field "
+            f"({len(initial_field)}/{len(element_ids)} elements)"
         )
     unsupported.extend(_residual_property_differences(text))
     if beam_count:
