@@ -7,6 +7,7 @@ import math
 from dataclasses import dataclass, field
 
 from .boundary import Displacement, EdgeLoad, PointLoad, WaterCondition
+from .materials import LinerSpec
 
 
 @dataclass(frozen=True)
@@ -27,11 +28,19 @@ class Stage:
     drained: bool = False
     seismic_kh: float = 0.0  # horizontal pseudo-static acceleration / g (+x)
     seismic_kv: float = 0.0  # vertical pseudo-static acceleration / g (+y)
+    liner_override: dict[str, LinerSpec] = field(default_factory=dict)
+    element_body_force: dict[int, tuple[float, float]] = field(default_factory=dict)
+    # Per-region volume force density (bx, by), in kN/m³.
 
     def __post_init__(self) -> None:
         if self.active_regions is not None:
             object.__setattr__(self, "active_regions", frozenset(self.active_regions))
         object.__setattr__(self, "active_structures", frozenset(self.active_structures))
+        object.__setattr__(self, "liner_override", dict(self.liner_override))
+        object.__setattr__(
+            self, "element_body_force",
+            {int(k): tuple(float(x) for x in v) for k, v in self.element_body_force.items()},
+        )
         if not all(math.isfinite(v) and abs(v) <= 1.0 for v in (self.seismic_kh, self.seismic_kv)):
             raise ValueError("Seismic coefficients kh and kv must be finite and within [-1, 1].")
         if not 0.0 < self.load_split <= 1.0:
@@ -46,8 +55,8 @@ class InitialStress:
     * ``"k0_field"``: sv = -sum(gamma*h) below ``surface_y`` (horizontal layering),
       sh = K0*sv, szz = K0*sv. ``k0=None`` uses 1 - sin(phi), or nu/(1-nu) for elastic
       materials.
-    * ``"field"``: constant stress ``field = (sxx, syy, szz, txy)`` everywhere (deep
-      tunnels, laboratory element tests), no self-weight unless ``gravity=True``.
+    * ``"field"``: constant stress ``field = (sxx, syy, szz, txy)`` everywhere.
+    * ``"element_field"``: constant stress per continuum region/element, keyed by region id.
     * ``"none"``: stress-free start, no self-weight.
 
     The gravity analysis uses the real (possibly plastic) materials.
@@ -57,12 +66,14 @@ class InitialStress:
     k0: float | None = None
     surface_y: float | None = None  # k0_field: None -> max y of the mesh
     field: tuple[float, float, float, float] | None = None
-    gravity: bool = False  # "field" mode: also apply self-weight in the stages
+    gravity: bool = False  # field/element_field mode: also apply native self-weight
     # elements present in the initial stage (None: all continuum regions / all interfaces,
     # no beams or bars); "wished-in-place" walls are activated in a later stage
     active_regions: frozenset[int] | None = None
     active_structures: frozenset[str] | None = None
     water: WaterCondition = dataclasses.field(default_factory=WaterCondition)
+    # Per-region initial stress (sxx, syy, szz, txy), in kPa.
+    element_field: dict[int, tuple[float, float, float, float]] | None = None
 
     def __post_init__(self) -> None:
         if self.active_regions is not None:
@@ -71,6 +82,11 @@ class InitialStress:
             object.__setattr__(self, "active_structures", frozenset(self.active_structures))
         if self.field is not None:
             object.__setattr__(self, "field", tuple(float(v) for v in self.field))
+        if self.element_field is not None:
+            object.__setattr__(
+                self, "element_field",
+                {int(k): tuple(float(x) for x in v) for k, v in self.element_field.items()},
+            )
 
 
 @dataclass(frozen=True)

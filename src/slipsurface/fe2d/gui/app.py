@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
         self.setIconSize(QSize(24, 24))
         self.model = self.result = None
         self.path = None
+        self.rs2_import_report = None
         self.worker = None
         self.dirty = False
         self._closing = False
@@ -895,6 +896,7 @@ class MainWindow(QMainWindow):
         return self.worker is not None or (hasattr(self, "cad") and self.cad.worker is not None)
 
     def set_model(self, model, result=None, path=None, dirty=False):
+        self.rs2_import_report = None
         if model is None:
             self._set_empty_state(path, dirty)
             return
@@ -1198,7 +1200,8 @@ class MainWindow(QMainWindow):
         if self.busy or not self.discard_changes():
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open project", "", "SlipSurface (*.ssproj *.json)"
+            self, "Open project", "",
+            "Supported files (*.ssproj *.json *.fea *.fez);;RS2 models (*.fea *.fez)"
         )
         if path:
             try:
@@ -1218,6 +1221,22 @@ class MainWindow(QMainWindow):
                 self.cad.commit(drawing)
                 self.cad.saved_drawing = drawing
                 self.cad.canvas.fit_drawing()
+            elif Path(path).suffix.lower() in (".fea", ".fez"):
+                imported = api.import_rs2(path)
+                self.set_model(imported.model, path=path, dirty=True)
+                self.rs2_import_report = imported.report
+                report = imported.report
+                details = [
+                    f"RS2 import preview: {report.nodes} nodes, "
+                    f"{report.continuum_elements} continuum elements, "
+                    f"{report.materials} materials, {report.stages} stages.",
+                    "Detected but not imported: "
+                    + ("; ".join(report.unsupported_features) or "none") + ".",
+                    *report.warnings,
+                ]
+                QMessageBox.warning(
+                    self, "RS2 model imported as preview", "\n\n".join(details)
+                )
             elif Path(path).suffix.lower() == ".ssproj":
                 project = api.load_project(path)
                 self.set_model(project.model, project.results, path)
@@ -1227,6 +1246,12 @@ class MainWindow(QMainWindow):
             raise ModelFileError(Path(path).name, exc) from exc
 
     def save_path(self, path):
+        if self.rs2_import_report and not self.rs2_import_report.analysis_ready:
+            raise ValueError(
+                "This RS2 import is an incomplete preview. Resolve these limitations "
+                "before saving it as a native project: "
+                + "; ".join(self.rs2_import_report.unsupported_features)
+            )
         if self.busy:
             raise RuntimeError("Cannot save while a solve is running.")
         if self.cad.mesh_outdated:
@@ -1598,6 +1623,15 @@ class MainWindow(QMainWindow):
 
     def start_solve(self):
         if self.busy or not self._require_model():
+            return
+        if self.rs2_import_report and not self.rs2_import_report.analysis_ready:
+            QMessageBox.warning(
+                self,
+                "RS2 preview cannot be solved",
+                "Unmapped RS2 features remain: "
+                + "; ".join(self.rs2_import_report.unsupported_features)
+                + ". Solving this preview would not reproduce the RS2 model.",
+            )
             return
         from .mesh_quality import mesh_quality_report
 

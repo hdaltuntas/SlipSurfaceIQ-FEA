@@ -39,7 +39,7 @@ from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
 from ..core.errors import MaterialIntegrationError, ModelError, SolverError
 from ..core.log import get_logger
 from ..model.boundary import Displacement, WaterCondition
-from ..model.materials import MaterialSpec
+from ..model.materials import LinerSpec, MaterialSpec
 from ..model.model import Model
 from ..model.stages import SolverSettings, Stage
 from . import activity, pore
@@ -659,6 +659,25 @@ class StaticSolver:
                 f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
             for s in sysm.struct:
                 f += np.bincount(s.edofs.ravel(), s.group.body_force(s.ids).ravel(), minlength=nd)
+        # RS2 element body forces are explicit volume-force densities in model units.
+        if ctx.stage.element_body_force:
+            for c, block in zip(sysm.cont, self.blocks):
+                if c.ids.size == 0:
+                    continue
+                body = np.asarray(
+                    [
+                        ctx.stage.element_body_force.get(int(region), (0.0, 0.0))
+                        for region in block.region[c.ids]
+                    ],
+                    dtype=float,
+                )
+                if not np.any(body):
+                    continue
+                integral = np.einsum("eg,gn->en", c.geom.wdet, c.geom.N)
+                fe = np.zeros((c.ids.size, c.edofs.shape[1]))
+                fe[:, 0::2] = body[:, 0, None] * integral
+                fe[:, 1::2] = body[:, 1, None] * integral
+                f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
         # Pseudo-static inertia uses the same effective unit-weight distribution
         # as gravity, but acts independently of the initial-stress mode.
         kh, kv = ctx.stage.seismic_kh, ctx.stage.seismic_kv
@@ -1040,7 +1059,10 @@ class StaticSolver:
     # --------------------------------------------------------------------- run
     def _with_gravity(self) -> bool:
         init = self.model.initial
-        return init.mode in ("gravity", "k0_field") or (init.mode == "field" and init.gravity)
+        return (
+            init.mode in ("gravity", "k0_field")
+            or (init.mode in ("field", "element_field") and init.gravity)
+        )
 
     def initial_state(self) -> tuple[SolverState, StageResult]:
         model = self.model
@@ -1051,12 +1073,16 @@ class StaticSolver:
         sysm = self.build_system(lay, active, init.water, model.displacements)
         self.apply_activation(state, active, sysm.dm)
         ctx = _StageCtx(Stage("initial", drained=True), {}, active, init.water, model.displacements,
-                        init.mode in ("gravity", "k0_field"))  # fmt: skip
+                        init.mode in ("gravity", "k0_field")
+                        or (init.mode in ("field", "element_field") and init.gravity))  # fmt: skip
         timings: dict[str, float] = {"setup": self.t_setup}
         hist = None
         f_ext = (
             self.external_force(sysm, ctx)
-            if init.mode in ("gravity", "k0_field")
+            if (
+                init.mode in ("gravity", "k0_field")
+                or (init.mode in ("field", "element_field") and init.gravity)
+            )
             else np.zeros(sysm.dm.ndof)
         )
         t1 = time.perf_counter()
@@ -1066,7 +1092,7 @@ class StaticSolver:
             )
             state.u[:] = 0.0  # displacements of the gravity stage are discarded
             state.u_ref = np.zeros_like(state.u)
-        elif init.mode in ("k0_field", "field"):
+        elif init.mode in ("k0_field", "field", "element_field"):
             self._assign_initial_stress(state, sysm, lay, ctx)
             self.project(state, sysm, lay)
             if init.mode == "k0_field":
@@ -1094,6 +1120,14 @@ class StaticSolver:
             s0 = np.asarray(init.field, dtype=float)
             for c in sysm.cont:
                 state.sig[c.tag][c.ids] = s0
+        elif init.mode == "element_field":
+            assert init.element_field is not None
+            for c, block in zip(sysm.cont, self.blocks):
+                region_ids = block.region[c.ids]
+                values = np.asarray(
+                    [init.element_field[int(region)] for region in region_ids], dtype=float
+                )
+                state.sig[c.tag][c.ids] = values[:, None, :]
         else:
             surf = init.surface_y
             if surf is None:
@@ -1174,6 +1208,29 @@ class StaticSolver:
             self._elastic_fact.clear()
             self._D_committed = None
 
+    def _set_stage_liner_overrides(self, overrides: dict[str, LinerSpec]) -> None:
+        """Apply RS2-style stage-specific beam section properties.
+
+        Overrides are complete effective specifications. A previously overridden tag
+        returns to its base LinerSpec when it is absent from the next stage.
+        """
+        previous = getattr(self, "_active_liner_overrides", {})
+        changed = False
+        groups = {group.tag: group for group in self.groups if isinstance(group, BeamGroup)}
+        for tag in set(previous) | set(overrides):
+            group = groups.get(tag)
+            if group is None:
+                continue
+            target = overrides.get(tag, self.model.liners[tag])
+            if group.spec != target:
+                group.__init__(group.block, self.mesh.coords, target, self.model.analysis)
+                changed = True
+        self._active_liner_overrides = dict(overrides)
+        if changed:
+            self._sys_cache.clear()
+            self._elastic_fact.clear()
+            self._D_committed = None
+
     def run(self, stop_after: int | None = None) -> SolveResult:
         """Initial state + stages ``0..stop_after`` (all stages by default)."""
         model = self.model
@@ -1201,6 +1258,7 @@ class StaticSolver:
                 proj_sys = self.build_system(lay, state.active, prev.water, prev.displacements)
                 self.project(state, proj_sys, lay)
             self._set_stage_shotcrete_sections(index)
+            self._set_stage_liner_overrides(st.liner_override)
             ctx = self.stage_context(st, override)
             state, sysm, f_ext, hist = self.solve_stage_ctx(state, ctx, lay)
             timings = {"solve": time.perf_counter() - t1}

@@ -40,6 +40,7 @@ from ..io.results_h5 import (
     save_results,
     write_results,
 )
+from ..io.rs2_import import RS2ImportError, RS2ImportReport, RS2ImportResult, import_rs2
 from ..io.ssproj import open_project_results
 from ..io.vtk_export import write_vtu
 from ..model import (
@@ -129,6 +130,10 @@ def export_vtu(
 
 __all__ = [
     "ResultsFile",
+    "RS2ImportError",
+    "RS2ImportReport",
+    "RS2ImportResult",
+    "import_rs2",
     "write_results",
     "Analysis",
     "Displacement",

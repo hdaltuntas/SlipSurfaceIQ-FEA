@@ -55,6 +55,7 @@ class Model:
         for disp in self.displacements:
             if disp.node_set not in self.mesh.node_sets:
                 raise ModelError(f"boundary condition refers to unknown node set '{disp.node_set}'")
+        all_regions = self.mesh.regions()
         for st in self.stages:
             for ld in st.loads:
                 if isinstance(ld, EdgeLoad) and ld.edge_set not in self.mesh.edge_sets:
@@ -72,6 +73,30 @@ class Model:
                     raise ModelError(f"stage '{st.name}': override for unknown region {r}")
                 if m not in self.materials:
                     raise ModelError(f"stage '{st.name}': override region {r} -> unknown '{m}'")
+            unknown_liners = set(st.liner_override) - set(self.liners)
+            if unknown_liners:
+                raise ModelError(
+                    f"stage '{st.name}': overrides for unknown liners {sorted(unknown_liners)}"
+                )
+            for tag, spec in st.liner_override.items():
+                if spec.name != tag:
+                    raise ModelError(
+                        f"stage '{st.name}': liner override key '{tag}' "
+                        f"does not match '{spec.name}'"
+                    )
+            unknown_body_force_regions = set(st.element_body_force) - all_regions
+            if unknown_body_force_regions:
+                raise ModelError(
+                    f"stage '{st.name}': body forces reference unknown regions "
+                    f"{sorted(unknown_body_force_regions)}"
+                )
+            if any(
+                len(values) != 2 or not np.isfinite(values).all()
+                for values in st.element_body_force.values()
+            ):
+                raise ModelError(
+                    f"stage '{st.name}': element body forces need finite (bx, by) pairs"
+                )
         props = {
             "beam": set(self.liners),
             "bar": set(self.bolts),
@@ -140,13 +165,35 @@ class Model:
             for name in w.seepage_faces:
                 if name not in self.mesh.node_sets and name not in self.mesh.edge_sets:
                     raise ModelError(f"initial stage: unknown seepage face '{name}'")
-        if self.initial.mode not in ("gravity", "k0_field", "field", "none"):
+        if self.initial.mode not in ("gravity", "k0_field", "field", "element_field", "none"):
             raise ModelError(f"unknown initial stress mode '{self.initial.mode}'")
         if self.initial.mode == "field" and self.initial.field is None:
             raise ModelError("initial stress mode 'field' needs InitialStress.field")
+        if self.initial.mode == "element_field" and not self.initial.element_field:
+            raise ModelError("initial stress mode 'element_field' needs element_field values")
         if self.initial.field is not None:
             if len(self.initial.field) != 4 or not np.isfinite(self.initial.field).all():
                 raise ModelError("initial stress field needs four finite components")
+        if self.initial.element_field is not None:
+            unknown_field_regions = set(self.initial.element_field) - all_regions
+            if unknown_field_regions:
+                raise ModelError(
+                    "initial stress field refers to unknown regions "
+                    f"{sorted(unknown_field_regions)}"
+                )
+            active_field_regions = (
+                all_regions if self.initial.active_regions is None else self.initial.active_regions
+            )
+            missing_field_regions = active_field_regions - set(self.initial.element_field)
+            if missing_field_regions:
+                raise ModelError(
+                    f"initial stress field is missing regions {sorted(missing_field_regions)}"
+                )
+            if any(
+                len(values) != 4 or not np.isfinite(values).all()
+                for values in self.initial.element_field.values()
+            ):
+                raise ModelError("element-wise initial stress values need four finite components")
         for value in (self.initial.k0, self.initial.surface_y):
             if value is not None and not np.isfinite(value):
                 raise ModelError("initial stress parameters must be finite")

@@ -137,6 +137,11 @@ def _initial(d: dict) -> InitialStress:
     for k in ("active_regions", "active_structures"):
         if d.get(k) is not None:
             d[k] = frozenset(d[k])
+    if d.get("element_field") is not None:
+        d["element_field"] = {
+            int(k): tuple(float(x) for x in values)
+            for k, values in d["element_field"].items()
+        }
     return InitialStress(**d)
 
 
@@ -191,6 +196,13 @@ def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
             active_regions=None if s["active_regions"] is None else frozenset(s["active_regions"]),
             active_structures=frozenset(s["active_structures"]),
             material_override={int(k): v for k, v in s["material_override"].items()},
+            liner_override={
+                k: LinerSpec(**v) for k, v in s.get("liner_override", {}).items()
+            },
+            element_body_force={
+                int(k): tuple(float(x) for x in v)
+                for k, v in s.get("element_body_force", {}).items()
+            },
             loads=tuple(_load(ld) for ld in s["loads"]),
             water=_water(s["water"]),
             load_split=s["load_split"],
