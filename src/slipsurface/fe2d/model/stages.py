@@ -16,7 +16,6 @@ class Stage:
     active_regions: frozenset[int] | None = None  # None -> all continuum regions
     active_structures: frozenset[str] = frozenset()
     material_override: dict[int, str] = field(default_factory=dict)
-    liner_override: dict[str, LinerSpec] = field(default_factory=dict)
     loads: tuple[EdgeLoad | PointLoad, ...] = ()
     water: WaterCondition = field(default_factory=WaterCondition)
     load_split: float = 1.0
@@ -29,6 +28,7 @@ class Stage:
     drained: bool = False
     seismic_kh: float = 0.0  # horizontal pseudo-static acceleration / g (+x)
     seismic_kv: float = 0.0  # vertical pseudo-static acceleration / g (+y)
+    liner_override: dict[str, LinerSpec] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.active_regions is not None:
