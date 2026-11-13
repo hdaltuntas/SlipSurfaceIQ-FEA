@@ -32,6 +32,7 @@ from ..fem.srf import SRFResult, strength_reduction
 from ..fem.static import SolveResult, StageResult, solve
 from ..io.project import Project, load_project, save_project
 from ..io.project_json import load_model, save_model
+from ..io.rs2_import import RS2ImportError, RS2ImportReport, RS2ImportResult, import_rs2
 from ..io.results_h5 import (
     ResultsFile,
     ResultsReader,
@@ -129,6 +130,10 @@ def export_vtu(
 
 __all__ = [
     "ResultsFile",
+    "RS2ImportError",
+    "RS2ImportReport",
+    "RS2ImportResult",
+    "import_rs2",
     "write_results",
     "Analysis",
     "Displacement",
