@@ -71,6 +71,7 @@ class InitialStress:
     active_regions: frozenset[int] | None = None
     active_structures: frozenset[str] | None = None
     water: WaterCondition = dataclasses.field(default_factory=WaterCondition)
+    element_field: dict[int, tuple[float, float, float, float]] | None = None
 
     def __post_init__(self) -> None:
         if self.active_regions is not None:
