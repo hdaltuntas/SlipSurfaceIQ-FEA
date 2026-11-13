@@ -174,3 +174,26 @@ def test_import_rejects_unsupported_units(tmp_path):
     source.write_text(_fea().replace("Metric MPa", "Imperial"), encoding="latin1")
     with pytest.raises(RS2ImportError, match="unit system"):
         import_rs2(source)
+
+
+
+def test_import_fea_uses_matching_dxf_for_cad_preview(tmp_path):
+    ezdxf = pytest.importorskip("ezdxf")
+    source = tmp_path / "tiny.fea"
+    source.write_text(_fea(), encoding="latin1")
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    modelspace.add_lwpolyline(
+        [(0, 0), (1, 0), (1, 1), (0, 1)],
+        close=True,
+        dxfattribs={"layer": "EXTERNALS"},
+    )
+    modelspace.add_line((0, 0), (1, 1), dxfattribs={"layer": "BOLTS"})
+    document.saveas(tmp_path / "tiny.dxf")
+
+    imported = import_rs2(source)
+    entities = imported.model.geometry["entities"]
+
+    assert any(e["kind"] == "region" for e in entities)
+    assert any("_BOLTS" in e["name"] for e in entities)
+    assert any("matching DXF sidecar" in warning for warning in imported.report.warnings)
