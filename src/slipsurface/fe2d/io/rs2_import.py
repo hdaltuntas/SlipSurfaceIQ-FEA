@@ -547,7 +547,8 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "Peak Mohr-Coulomb properties are imported; residual properties are not.",
             "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
             "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
-            "Continuum deletion/material reassignment and supported beam section changes are transferred.",
+            "Continuum deletion/material reassignment and supported beam section "
+            "changes are transferred.",
             "RS2 result files are not imported as SlipSurface solver results.",
             "Do not treat this preview as analysis-equivalent while features remain unsupported.",
         ),
