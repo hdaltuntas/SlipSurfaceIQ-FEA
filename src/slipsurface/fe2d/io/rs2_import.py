@@ -190,7 +190,15 @@ def _dxf_preview_entities(path: Path):
             points = tuple(
                 (float(point[0]), float(point[1])) for point in item.get_points("xy")
             )
-            entity_kind = "region" if item.closed else "line"
+            is_closed = item.closed or (
+                len(points) >= 4 and points[0] == points[-1]
+            )
+            layer_name = str(item.dxf.layer or "").upper()
+            entity_kind = (
+                "hole" if is_closed and layer_name == "EXCAVATIONS"
+                else "region" if is_closed
+                else "line"
+            )
         else:
             continue
         compact = tuple(
