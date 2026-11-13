@@ -10,11 +10,12 @@ model inspectable without claiming solver equivalence.
 - Metric MPa Mohr-Coulomb peak properties, converted to the SlipSurface kPa / kN/m3 unit system.
 - Element-wise initial stresses, stored as constant stress at each continuum element's integration points.
 - Stage names, continuum element deletion, continuum material reassignment, and nodal fixities.
+- RS2 Euler-Bernoulli beam segments, activation stages, and stage-specific section changes.
 
 ## Explicit limitations
 
-The importer report lists unsupported content. In particular, RS2 beam/liner elements,
-bonded-bolt grout transfer and residual-property differences are not silently approximated.
+The importer report lists unsupported content. In particular, bonded-bolt grout transfer
+and residual-property differences are not silently approximated.
 An imported model with any unsupported feature is a preview-only model: the desktop app blocks
 solving and saving it as a native `.ssproj` until those mappings are implemented. RS2
 `.r##` result files are not loaded as SlipSurface solver results.
