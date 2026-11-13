@@ -124,6 +124,34 @@ def _material_specs(text: str) -> dict[str, MaterialSpec]:
     return specs
 
 
+def _body_force_limitations(stage_texts: list[str]) -> tuple[str, ...]:
+    assignments = 0
+    for stage_text in stage_texts:
+        section = _named_section(stage_text, "body forces")
+        rows = re.findall(
+            rf"(?m)^\s*e:\s*\d+\s+(?:bx:\s*{_NUMBER}\s+)?by:\s*{_NUMBER}",
+            section,
+        )
+        assignments += len(rows)
+    if assignments:
+        return (f"{assignments} stage-specific RS2 element body-force assignments (not mapped)",)
+    return ()
+
+
+def _bolt_group_count(text: str) -> int:
+    section_start = text.rfind("bolts start:")
+    if section_start < 0:
+        return 0
+    section_end = text.find("bolts end:", section_start)
+    if section_end < 0:
+        return 0
+    section = text[section_start:section_end]
+    count = re.search(r"(?mi)^\s*num bolts:\s*(\d+)", section)
+    if count:
+        return int(count.group(1))
+    return len(re.findall(r"(?mi)^\s*bolt\s+\d+\s+start:\s*$", section))
+
+
 def _initial_stresses(
     stage_one: str, element_ids: list[int]
 ) -> dict[int, tuple[float, float, float, float]]:
@@ -361,9 +389,10 @@ def _restraints(text: str, node_map: dict[int, int]):
 def import_rs2(path: str | Path) -> RS2ImportResult:
     """Import the supported continuum portion of an RS2 .fea or .fez file.
 
-    The returned model is a preview unless report.analysis_ready is true. This
-    importer does not approximate element-wise initial stress, beam liners or
-    bonded-bolt grout transfer.
+    The returned model is a preview unless report.analysis_ready is true. It
+    imports supported element-wise initial stresses and Euler-Bernoulli beams,
+    but does not approximate residual properties, RS2 beam joint parameters,
+    stage-specific element body forces, or bonded-bolt grout transfer.
     """
     source_path = Path(path)
     text, member = _read_fea(source_path)
@@ -485,11 +514,8 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
     model.validate()
 
     beam_ids = set(beam_records)
-    bolt_ids = set(re.findall(
-        r"(?m)^\s*(\d+)\s+type:\s*(?:bonded_bolt|bolt_element|queens_bolt|shear_bolt)",
-        text,
-    ))
-    beam_count, bolt_groups = len(beam_ids), len(bolt_ids)
+    beam_count = len(beam_ids)
+    bolt_groups = _bolt_group_count(text)
     unsupported = []
     if not initial_complete:
         unsupported.append(
@@ -498,6 +524,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         )
     unsupported.extend(_residual_property_differences(text))
     unsupported.extend(_beam_joint_limitations(text))
+    unsupported.extend(_body_force_limitations(stage_texts))
     if unsupported_beam_types:
         unsupported.append(
             "unsupported RS2 beam element types: " + ", ".join(sorted(unsupported_beam_types))
@@ -520,7 +547,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "Peak Mohr-Coulomb properties are imported; residual properties are not.",
             "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
             "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
-            "Only continuum stage deletion and material reassignment are transferred.",
+            "Continuum deletion/material reassignment and supported beam section changes are transferred.",
             "RS2 result files are not imported as SlipSurface solver results.",
             "Do not treat this preview as analysis-equivalent while features remain unsupported.",
         ),
