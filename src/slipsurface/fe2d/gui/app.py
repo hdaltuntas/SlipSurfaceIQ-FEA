@@ -1248,8 +1248,9 @@ class MainWindow(QMainWindow):
     def save_path(self, path):
         if self.rs2_import_report and not self.rs2_import_report.analysis_ready:
             raise ValueError(
-                "This RS2 import is an incomplete preview. Complete the unsupported "
-                "initial-stress and structural mappings before saving it as a native project."
+                "This RS2 import is an incomplete preview. Resolve the reported "
+                "material, beam-joint and bolt-transfer limitations before saving it "
+                "as a native project."
             )
         if self.busy:
             raise RuntimeError("Cannot save while a solve is running.")
@@ -1627,8 +1628,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "RS2 preview cannot be solved",
-                "This import omits RS2 initial stresses and/or structural elements. "
-                "Solving it now would not reproduce the RS2 model. Complete the mappings first.",
+                "Unmapped RS2 features remain: "
+                + "; ".join(self.rs2_import_report.unsupported_features)
+                + ". Solving this preview would not reproduce the RS2 model.",
             )
             return
         from .mesh_quality import mesh_quality_report
