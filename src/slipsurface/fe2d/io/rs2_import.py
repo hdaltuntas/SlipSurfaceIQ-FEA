@@ -123,6 +123,23 @@ def _material_specs(text: str) -> dict[str, MaterialSpec]:
     return specs
 
 
+def _initial_stresses(
+    stage_one: str, element_ids: list[int]
+) -> dict[int, tuple[float, float, float, float]]:
+    section = _named_section(stage_one, "stresses")
+    rows = re.findall(
+        rf"(?m)^\s*e:\s*(\d+)\s+sxx:\s*({_NUMBER})\s+syy:\s*({_NUMBER})"
+        rf"\s+sxy:\s*({_NUMBER})\s+szz:\s*({_NUMBER})",
+        section,
+    )
+    values = {
+        int(eid): (float(sxx) * 1000.0, float(syy) * 1000.0,
+                   float(szz) * 1000.0, float(sxy) * 1000.0)
+        for eid, sxx, syy, sxy, szz in rows
+    }
+    return {eid: values[eid] for eid in element_ids if eid in values}
+
+
 def _residual_property_differences(text: str) -> tuple[str, ...]:
     section = _section(text, "material types:", "element types:")
     starts = list(re.finditer(
@@ -297,13 +314,19 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         active = frozenset(eid for eid in element_ids if eid not in deleted)
         stages.append(Stage(name=names[index], active_regions=active, material_override=overrides))
 
+    initial_field = _initial_stresses(stage_texts[0], element_ids)
+    initial_complete = len(initial_field) == len(element_ids)
+    initial = (
+        InitialStress(mode="element_field", element_field=initial_field, gravity=True)
+        if initial_complete else InitialStress(mode="gravity")
+    )
     model = Model(
         analysis=Analysis.PLANE_STRAIN,
         mesh=mesh,
         materials=materials,
         region_material=base_material,
         fixities=fixities,
-        initial=InitialStress(mode="gravity"),
+        initial=initial,
         stages=stages,
         settings=SolverSettings(method="initial", max_iter=500, tol_force=1e-3),
     )
@@ -318,8 +341,10 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
     ))
     beam_count, bolt_groups = len(beam_ids), len(bolt_ids)
     unsupported = []
-    if re.search(r"(?m)^\s*e:\s*\d+\s+sxx:", text):
-        unsupported.append("element-wise initial stress field")
+    if not initial_complete:
+        unsupported.append(
+            f"incomplete element-wise initial stress field ({len(initial_field)}/{len(element_ids)} elements)"
+        )
     unsupported.extend(_residual_property_differences(text))
     if beam_count:
         unsupported.append(f"{beam_count} RS2 beam/liner elements")
@@ -339,6 +364,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         warnings=(
             "Metric MPa values were converted to kPa and MN/m3 densities to kN/m3.",
             "Peak Mohr-Coulomb properties are imported; residual properties are not.",
+            "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
             "Only continuum stage deletion and material reassignment are transferred.",
             "RS2 result files are not imported as SlipSurface solver results.",
             "Do not treat this preview as analysis-equivalent while features remain unsupported.",
