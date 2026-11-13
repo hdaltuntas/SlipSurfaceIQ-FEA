@@ -196,6 +196,9 @@ def model_from_dict(doc: dict, mesh: Mesh | None = None) -> Model:
             active_regions=None if s["active_regions"] is None else frozenset(s["active_regions"]),
             active_structures=frozenset(s["active_structures"]),
             material_override={int(k): v for k, v in s["material_override"].items()},
+            liner_override={
+                k: LinerSpec(**v) for k, v in s.get("liner_override", {}).items()
+            },
             loads=tuple(_load(ld) for ld in s["loads"]),
             water=_water(s["water"]),
             load_split=s["load_split"],
