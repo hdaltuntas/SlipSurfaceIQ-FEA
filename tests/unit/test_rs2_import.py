@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import zipfile
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -49,6 +50,8 @@ n: 5 ty: 0
 
 load curve:
 scale: 1.0 steps: 0
+body forces:
+e: 1 bx: 0.002 by: -0.003
 solve
 
 #stage 2 data
@@ -102,8 +105,23 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     assert model.materials["rock"].params["c"] == pytest.approx(120.0)
     assert model.materials["rock"].gamma_unsat == pytest.approx(20.0)
     assert model.initial.mode == "element_field"
+    assert model.initial.gravity is False
     assert model.initial.element_field[1] == pytest.approx((-10.0, -20.0, -15.0, 3.0))
-    solver = StaticSolver(model)
+    assert model.stages[0].element_body_force[1] == pytest.approx((2.0, -3.0))
+    assert model.stages[1].element_body_force[1] == pytest.approx((2.0, 20.0))
+    force_model = replace(model, fixities=())
+    solver = StaticSolver(force_model)
+    ctx = solver.stage_context(force_model.stages[0], {})
+    system = solver.build_system(
+        solver.layout({}), ctx.active, ctx.water, ctx.displacements
+    )
+    body_force = solver.external_force(system, ctx)
+    np.testing.assert_allclose(
+        body_force[system.dm.node_dofs[:, 0]].sum(), 1.0, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        body_force[system.dm.node_dofs[:, 1]].sum(), -1.5, atol=1e-12
+    )
     _, initial_result = solver.initial_state()
     np.testing.assert_allclose(
         initial_result.sig["rs2_continuum"][0],
@@ -123,7 +141,7 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     assert model.mesh.blocks[1].etype.name == "BEAM2"
     assert report.beam_elements == 1
     assert report.bolt_groups == 1
-    assert any("element body-force assignments" in item for item in report.unsupported_features)
+    assert not any("body-force" in item for item in report.unsupported_features)
     assert any("bolt groups" in item for item in report.unsupported_features)
     assert model.fixities
     assert any("rock residual parameters differ" in item for item in report.unsupported_features)
