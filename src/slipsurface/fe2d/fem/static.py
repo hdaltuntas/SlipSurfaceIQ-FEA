@@ -1185,6 +1185,29 @@ class StaticSolver:
             self._elastic_fact.clear()
             self._D_committed = None
 
+    def _set_stage_liner_overrides(self, overrides: dict[str, LinerSpec]) -> None:
+        """Apply RS2-style stage-specific beam section properties.
+
+        Overrides are complete effective specifications. A previously overridden tag
+        returns to its base LinerSpec when it is absent from the next stage.
+        """
+        previous = getattr(self, "_active_liner_overrides", {})
+        changed = False
+        groups = {group.tag: group for group in self.groups if isinstance(group, BeamGroup)}
+        for tag in set(previous) | set(overrides):
+            group = groups.get(tag)
+            if group is None:
+                continue
+            target = overrides.get(tag, self.model.liners[tag])
+            if group.spec != target:
+                group.__init__(group.block, self.mesh.coords, target, self.model.analysis)
+                changed = True
+        self._active_liner_overrides = dict(overrides)
+        if changed:
+            self._sys_cache.clear()
+            self._elastic_fact.clear()
+            self._D_committed = None
+
     def run(self, stop_after: int | None = None) -> SolveResult:
         """Initial state + stages ``0..stop_after`` (all stages by default)."""
         model = self.model
@@ -1212,6 +1235,7 @@ class StaticSolver:
                 proj_sys = self.build_system(lay, state.active, prev.water, prev.displacements)
                 self.project(state, proj_sys, lay)
             self._set_stage_shotcrete_sections(index)
+            self._set_stage_liner_overrides(st.liner_override)
             ctx = self.stage_context(st, override)
             state, sysm, f_ext, hist = self.solve_stage_ctx(state, ctx, lay)
             timings = {"solve": time.perf_counter() - t1}
