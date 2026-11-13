@@ -140,13 +140,34 @@ class Model:
             for name in w.seepage_faces:
                 if name not in self.mesh.node_sets and name not in self.mesh.edge_sets:
                     raise ModelError(f"initial stage: unknown seepage face '{name}'")
-        if self.initial.mode not in ("gravity", "k0_field", "field", "none"):
+        if self.initial.mode not in ("gravity", "k0_field", "field", "element_field", "none"):
             raise ModelError(f"unknown initial stress mode '{self.initial.mode}'")
         if self.initial.mode == "field" and self.initial.field is None:
             raise ModelError("initial stress mode 'field' needs InitialStress.field")
+        if self.initial.mode == "element_field" and not self.initial.element_field:
+            raise ModelError("initial stress mode 'element_field' needs element_field values")
         if self.initial.field is not None:
             if len(self.initial.field) != 4 or not np.isfinite(self.initial.field).all():
                 raise ModelError("initial stress field needs four finite components")
+        if self.initial.element_field is not None:
+            unknown_field_regions = set(self.initial.element_field) - all_regions
+            if unknown_field_regions:
+                raise ModelError(
+                    f"initial stress field refers to unknown regions {sorted(unknown_field_regions)}"
+                )
+            active_field_regions = (
+                all_regions if self.initial.active_regions is None else self.initial.active_regions
+            )
+            missing_field_regions = active_field_regions - set(self.initial.element_field)
+            if missing_field_regions:
+                raise ModelError(
+                    f"initial stress field is missing regions {sorted(missing_field_regions)}"
+                )
+            if any(
+                len(values) != 4 or not np.isfinite(values).all()
+                for values in self.initial.element_field.values()
+            ):
+                raise ModelError("element-wise initial stress values need four finite components")
         for value in (self.initial.k0, self.initial.surface_y):
             if value is not None and not np.isfinite(value):
                 raise ModelError("initial stress parameters must be finite")
