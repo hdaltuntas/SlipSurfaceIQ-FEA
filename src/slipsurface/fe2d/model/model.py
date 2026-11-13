@@ -55,6 +55,7 @@ class Model:
         for disp in self.displacements:
             if disp.node_set not in self.mesh.node_sets:
                 raise ModelError(f"boundary condition refers to unknown node set '{disp.node_set}'")
+        all_regions = self.mesh.regions()
         for st in self.stages:
             for ld in st.loads:
                 if isinstance(ld, EdgeLoad) and ld.edge_set not in self.mesh.edge_sets:
