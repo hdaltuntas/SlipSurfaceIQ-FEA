@@ -39,7 +39,7 @@ from ..core.enums import Analysis, Drainage, ElemType, PlasticFlag
 from ..core.errors import MaterialIntegrationError, ModelError, SolverError
 from ..core.log import get_logger
 from ..model.boundary import Displacement, WaterCondition
-from ..model.materials import MaterialSpec
+from ..model.materials import LinerSpec, MaterialSpec
 from ..model.model import Model
 from ..model.stages import SolverSettings, Stage
 from . import activity, pore
