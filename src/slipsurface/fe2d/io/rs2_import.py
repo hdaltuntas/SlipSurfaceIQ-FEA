@@ -654,6 +654,27 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         )
     if bolt_groups:
         unsupported.append(f"{bolt_groups} RS2 bolt groups and bond-transfer laws")
+    report_warnings = [
+        "Metric MPa values were converted to kPa and MN/m3 densities to kN/m3.",
+        "Peak Mohr-Coulomb properties are imported; residual properties are not.",
+        "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
+        "RS2 element body forces are transferred cumulatively by stage and "
+        "converted from MN/m3 to kN/m3.",
+        "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
+        "Bolt and beam paths are shown in CAD preview; "
+        "bolt constitutive transfer is not imported.",
+        "Continuum deletion/material reassignment and supported beam section "
+        "changes are transferred.",
+        "RS2 result files are not imported as SlipSurface solver results.",
+        "Do not treat this preview as analysis-equivalent while features remain unsupported.",
+    ]
+    if dxf_entities:
+        report_warnings.append(
+            "CAD preview geometry loaded from matching DXF sidecar "
+            f"'{source_path.with_suffix('.dxf').name}'."
+        )
+    if dxf_warning:
+        report_warnings.append(dxf_warning)
     report = RS2ImportReport(
         source=f"{source_path.name}:{member}" if source_path.suffix.lower() == ".fez"
         else source_path.name,
@@ -665,24 +686,6 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         beam_elements=beam_count,
         bolt_groups=bolt_groups,
         unsupported_features=tuple(unsupported),
-        warnings=tuple([
-            "Metric MPa values were converted to kPa and MN/m3 densities to kN/m3.",
-            "Peak Mohr-Coulomb properties are imported; residual properties are not.",
-            "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
-            "RS2 element body forces are transferred cumulatively by stage and "
-            "converted from MN/m3 to kN/m3.",
-            "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
-            "Bolt and beam paths are shown in CAD preview; "
-            "bolt constitutive transfer is not imported.",
-            "Continuum deletion/material reassignment and supported beam section "
-            "changes are transferred.",
-            "RS2 result files are not imported as SlipSurface solver results.",
-            "Do not treat this preview as analysis-equivalent while features remain unsupported.",
-            *(
-                [f"CAD preview geometry loaded from matching DXF sidecar '{source_path.with_suffix('.dxf').name}'."]
-                if dxf_entities else []
-            ),
-            *([dxf_warning] if dxf_warning else []),
-        ]),
+        warnings=tuple(report_warnings),
     )
     return RS2ImportResult(model, report)
