@@ -15,7 +15,7 @@ stages: 2
 
 material types:
 rock = formulation: mohr_coulomb E: 500 nu: 0.25
- C: 0.12 phi: 30 T: 0.01 Tr: 0.01
+ C: 0.12 phi: 30 T: 0.01 Tr: 0
  dil: 5 rho: 0.02
 rock2 = formulation: mohr_coulomb E: 1000 nu: 0.3
  C: 0.2 phi: 20 T: 0.01 Tr: 0.01
@@ -46,9 +46,10 @@ solve
 #stage 2 data
 
 set:
-element: 1 material: rock
+element: 1 material: rock2
 
 delete:
+element: 1
 elements:
 
 solve
