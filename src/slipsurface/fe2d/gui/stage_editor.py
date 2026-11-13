@@ -234,7 +234,9 @@ class StageDialog(EditorDialog):
         ]:
             self.initial_mode.addItem(label, mode)
         if model.initial.mode == "element_field":
-            self.initial_mode.addItem("Imported per-element stress field (read-only)", "element_field")
+            self.initial_mode.addItem(
+                "Imported per-element stress field (read-only)", "element_field"
+            )
             self.initial_mode.setEnabled(False)
         self.initial_mode.setCurrentIndex(self.initial_mode.findData(model.initial.mode))
         self.initial_mode.currentIndexChanged.connect(self._on_initial_mode_changed)
