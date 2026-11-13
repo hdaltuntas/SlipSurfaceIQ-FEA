@@ -4,6 +4,7 @@ import zipfile
 
 import pytest
 
+from slipsurface.fe2d.io.project_json import model_from_dict, model_to_dict
 from slipsurface.fe2d.io.rs2_import import RS2ImportError, import_rs2
 
 
@@ -32,6 +33,9 @@ elements:  total: 1
 1 type: cst_element nodes: [4,5,6] material: rock
 
 springs:
+
+stresses:
+e: 1 sxx: -0.01 syy: -0.02 sxy: 0.003 szz: -0.015 Kx: 1 Kz: 1 Lx: 0 Lz: 0
 
 body forces:
 
@@ -76,6 +80,10 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     assert model.materials["rock"].params["E"] == pytest.approx(500_000.0)
     assert model.materials["rock"].params["c"] == pytest.approx(120.0)
     assert model.materials["rock"].gamma_unsat == pytest.approx(20.0)
+    assert model.initial.mode == "element_field"
+    assert model.initial.element_field[1] == pytest.approx((-10.0, -20.0, -15.0, 3.0))
+    restored = model_from_dict(model_to_dict(model))
+    assert restored.initial.element_field == model.initial.element_field
     assert [stage.name for stage in model.stages] == ["Excavation", "Support"]
     assert model.stages[0].active_regions == frozenset({1})
     assert model.stages[1].active_regions == frozenset()
