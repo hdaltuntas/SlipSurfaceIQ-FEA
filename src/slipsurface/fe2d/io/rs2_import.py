@@ -1,8 +1,9 @@
 """Conservative reader for RS2 .fea and .fez files.
 
 Imports supported continuum triangles, peak Mohr-Coulomb properties, element-wise
-initial stresses, staged Euler-Bernoulli beams and nodal restraints. Unsupported
-body forces, residual properties, beam joint parameters and bolt transfer are reported.
+initial stresses, staged element body forces, Euler-Bernoulli beams and nodal
+restraints. Unsupported residual properties, beam joint parameters and bolt transfer
+are reported.
 """
 from __future__ import annotations
 
@@ -132,7 +133,11 @@ def _stage_body_forces(
     allowed = set(element_ids)
     snapshots = []
     for stage_index, stage_text in enumerate(stage_texts, start=1):
-        section = _named_section(stage_text, "body forces")
+        matches = list(re.finditer(
+            r"(?ms)^body forces\s*:\s*(.*?)(?=^\S[^\n]*:\s*$|^#stage|\Z)",
+            stage_text,
+        ))
+        section = matches[-1].group(1) if matches else ""
         for line in section.splitlines():
             match = re.match(r"^\s*e:\s*(\d+)\s+(.*)$", line)
             if not match:
