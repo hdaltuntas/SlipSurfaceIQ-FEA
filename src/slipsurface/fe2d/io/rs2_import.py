@@ -124,18 +124,40 @@ def _material_specs(text: str) -> dict[str, MaterialSpec]:
     return specs
 
 
-def _body_force_limitations(stage_texts: list[str]) -> tuple[str, ...]:
-    assignments = 0
-    for stage_text in stage_texts:
+def _stage_body_forces(
+    stage_texts: list[str], element_ids: list[int]
+) -> list[dict[int, tuple[float, float]]]:
+    """Read RS2 body-force edits as cumulative (bx, by) volume-force fields."""
+    current: dict[int, tuple[float, float]] = {}
+    allowed = set(element_ids)
+    snapshots = []
+    for stage_index, stage_text in enumerate(stage_texts, start=1):
         section = _named_section(stage_text, "body forces")
-        rows = re.findall(
-            rf"(?m)^\s*e:\s*\d+\s+[^\n]*\b(?:bx|by):\s*{_NUMBER}",
-            section,
-        )
-        assignments += len(rows)
-    if assignments:
-        return (f"{assignments} stage-specific RS2 element body-force assignments (not mapped)",)
-    return ()
+        for line in section.splitlines():
+            match = re.match(r"^\s*e:\s*(\d+)\s+(.*)$", line)
+            if not match:
+                continue
+            element_id = int(match.group(1))
+            values = {
+                key: float(value)
+                for key, value in re.findall(
+                    rf"\b(bx|by):\s*({_NUMBER})", match.group(2)
+                )
+            }
+            if not values:
+                continue
+            if element_id not in allowed:
+                raise RS2ImportError(
+                    f"Stage {stage_index} body force references unknown continuum "
+                    f"element {element_id}"
+                )
+            bx, by = current.get(element_id, (0.0, 0.0))
+            current[element_id] = (
+                values.get("bx", bx) * (1000.0 if "bx" in values else 1.0),
+                values.get("by", by) * (1000.0 if "by" in values else 1.0),
+            )
+        snapshots.append(dict(current))
+    return snapshots
 
 
 def _bolt_group_count(text: str) -> int:
@@ -424,6 +446,8 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
 
     stage_texts = _stage_sections(text, stage_count)
     names = _stage_names(text, stage_count)
+    stage_body_forces = _stage_body_forces(stage_texts, element_ids)
+    initial_body_force_complete = set(stage_body_forces[0]) == set(element_ids)
     beam_specs = _beam_specs(text)
     beam_records: dict[int, tuple[int, int, str]] = {}
     beam_blocks = []
@@ -492,12 +516,17 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             active_structures=active_structures,
             material_override=overrides,
             liner_override=liner_override,
+            element_body_force=stage_body_forces[index],
         ))
 
     initial_field = _initial_stresses(stage_texts[0], element_ids)
     initial_complete = len(initial_field) == len(element_ids)
     initial = (
-        InitialStress(mode="element_field", element_field=initial_field, gravity=True)
+        InitialStress(
+            mode="element_field",
+            element_field=initial_field,
+            gravity=not initial_body_force_complete,
+        )
         if initial_complete else InitialStress(mode="gravity")
     )
     model = Model(
@@ -524,7 +553,11 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         )
     unsupported.extend(_residual_property_differences(text))
     unsupported.extend(_beam_joint_limitations(text))
-    unsupported.extend(_body_force_limitations(stage_texts))
+    if stage_body_forces[0] and not initial_body_force_complete:
+        unsupported.append(
+            "incomplete stage-one element body-force field; gravity fallback is not "
+            "guaranteed to match RS2"
+        )
     if unsupported_beam_types:
         unsupported.append(
             "unsupported RS2 beam element types: " + ", ".join(sorted(unsupported_beam_types))
@@ -546,6 +579,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "Metric MPa values were converted to kPa and MN/m3 densities to kN/m3.",
             "Peak Mohr-Coulomb properties are imported; residual properties are not.",
             "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
+            "RS2 element body forces are transferred cumulatively by stage and converted from MN/m3 to kN/m3.",
             "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
             "Continuum deletion/material reassignment and supported beam section "
             "changes are transferred.",
