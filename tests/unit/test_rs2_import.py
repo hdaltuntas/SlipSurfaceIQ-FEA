@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import zipfile
 
+import numpy as np
 import pytest
 
 from slipsurface.fe2d.io.project_json import model_from_dict, model_to_dict
+from slipsurface.fe2d.fem.static import StaticSolver
 from slipsurface.fe2d.io.rs2_import import RS2ImportError, import_rs2
 
 
@@ -82,6 +84,13 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     assert model.materials["rock"].gamma_unsat == pytest.approx(20.0)
     assert model.initial.mode == "element_field"
     assert model.initial.element_field[1] == pytest.approx((-10.0, -20.0, -15.0, 3.0))
+    solver = StaticSolver(model)
+    _, initial_result = solver.initial_state()
+    np.testing.assert_allclose(
+        initial_result.sig["rs2_continuum"][0],
+        np.tile([-10.0, -20.0, -15.0, 3.0],
+                (initial_result.sig["rs2_continuum"].shape[1], 1)),
+    )
     restored = model_from_dict(model_to_dict(model))
     assert restored.initial.element_field == model.initial.element_field
     assert [stage.name for stage in model.stages] == ["Excavation", "Support"]
