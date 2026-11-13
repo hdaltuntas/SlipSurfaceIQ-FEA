@@ -23,6 +23,8 @@ rock = formulation: mohr_coulomb E: 500 nu: 0.25
 rock2 = formulation: mohr_coulomb E: 1000 nu: 0.3
  C: 0.2 phi: 20 T: 0.01 Tr: 0.01
  Cr: 0.2 phir: 20 Eres: 1000 dil: 2 rho: 0.024
+beam1 = formulation: eulerbeam beamlinear: 0 E: 30000 nu: 0
+ sj: 0 sjs: 5 beamA_I_Flag: 0 beamthick: 0.2
 
 element types:
 cst_element = type: solid order: linear shape: tri
@@ -57,6 +59,12 @@ element: 1 material: rock2
 delete:
 element: 1
 elements:
+
+change material:
+material: beam1 E: 10000 nu: 0 beamA_I_Flag: 0 beamthick: 0.15
+
+beams:
+2 type: l_beam2c2 nodes: [4,5] orientation: 0 material: beam1
 
 solve
 
@@ -97,6 +105,11 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     assert model.stages[0].active_regions == frozenset({1})
     assert model.stages[1].active_regions == frozenset()
     assert model.stages[1].material_override == {1: "rock2"}
+    assert model.stages[1].active_structures == frozenset({"beam1"})
+    assert model.stages[1].liner_override["beam1"].E == pytest.approx(10_000_000.0)
+    assert model.stages[1].liner_override["beam1"].A == pytest.approx(0.15)
+    assert model.mesh.blocks[1].etype.name == "BEAM2"
+    assert report.beam_elements == 1
     assert model.fixities
     assert any("rock residual parameters differ" in item for item in report.unsupported_features)
 
