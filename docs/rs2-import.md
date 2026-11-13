@@ -11,13 +11,14 @@ model inspectable without claiming solver equivalence.
 - Element-wise initial stresses, stored as constant stress at each continuum element's integration points.
 - Stage names, continuum element deletion, continuum material reassignment, and nodal fixities.
 - RS2 Euler-Bernoulli beam segments, activation stages, and stage-specific section changes.
+- Bolt and beam paths as CAD preview lines; this is visual geometry only.
 
 ## Explicit limitations
 
 The importer report lists unsupported content. In particular, bonded-bolt grout transfer,
 RS2 beam joint parameters, residual-property differences, and non-uniform beam activation
-histories within one material group are not silently approximated. RS2 body-force fields
-are transferred cumulatively by stage.
+histories within one material group are not silently approximated. RS2 body-force fields are transferred cumulatively by stage. Bolt constitutive response
+and grout/bond transfer remain unsupported; CAD lines do not imply solver bolt elements.
 An imported model with any unsupported feature is a preview-only model: the desktop app blocks
 solving and saving it as a native `.ssproj` until those mappings are implemented. RS2
 `.r##` result files are not loaded as SlipSurface solver results.
