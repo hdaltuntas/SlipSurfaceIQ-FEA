@@ -15,8 +15,11 @@ stages: 2
 
 material types:
 rock = formulation: mohr_coulomb E: 500 nu: 0.25
- C: 0.12 phi: 30 T: 0.01 Tr: 0
+ C: 0.12 phi: 30 T: 0.01 Tr: 0.01
  dil: 5 rho: 0.02
+rock2 = formulation: mohr_coulomb E: 1000 nu: 0.3
+ C: 0.2 phi: 20 T: 0.01 Tr: 0.01
+ Cr: 0.2 phir: 20 Eres: 1000 dil: 2 rho: 0.024
 
 element types:
 cst_element = type: solid order: linear shape: tri
@@ -74,8 +77,10 @@ def test_import_fea_sparse_node_ids_and_metric_unit_conversion(tmp_path):
     assert model.materials["rock"].gamma_unsat == pytest.approx(20.0)
     assert [stage.name for stage in model.stages] == ["Excavation", "Support"]
     assert model.stages[0].active_regions == frozenset({1})
-    assert model.stages[1].active_regions == frozenset({1})
+    assert model.stages[1].active_regions == frozenset()
+    assert model.stages[1].material_override == {1: "rock2"}
     assert model.fixities
+    assert any("rock residual parameters differ" in item for item in report.unsupported_features)
 
 
 def test_import_fez_reads_embedded_fea(tmp_path):
