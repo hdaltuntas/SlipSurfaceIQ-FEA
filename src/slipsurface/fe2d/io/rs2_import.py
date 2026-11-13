@@ -165,6 +165,46 @@ def _stage_body_forces(
     return snapshots
 
 
+def _dxf_preview_entities(path: Path):
+    """Read a matching DXF sidecar as CAD-only geometry, never as FEM data."""
+    if not path.is_file():
+        return [], None
+    try:
+        import ezdxf
+
+        document = ezdxf.readfile(path)
+    except Exception as exc:  # DXF is an optional preview sidecar.
+        return [], f"DXF sidecar '{path.name}' could not be read: {exc}"
+    from ..cad.geometry import Entity
+
+    entities = []
+    for index, item in enumerate(document.modelspace()):
+        kind = item.dxftype()
+        if kind == "LINE":
+            points = (
+                (float(item.dxf.start.x), float(item.dxf.start.y)),
+                (float(item.dxf.end.x), float(item.dxf.end.y)),
+            )
+            entity_kind = "line"
+        elif kind == "LWPOLYLINE":
+            points = tuple(
+                (float(point[0]), float(point[1])) for point in item.get_points("xy")
+            )
+            entity_kind = "region" if item.closed else "line"
+        else:
+            continue
+        compact = tuple(
+            point for i, point in enumerate(points)
+            if i == 0 or point != points[i - 1]
+        )
+        minimum = 3 if entity_kind == "region" else 2
+        if len(compact) < minimum:
+            continue
+        layer = re.sub(r"[^A-Za-z0-9_]", "_", str(item.dxf.layer or "default"))
+        entities.append(Entity(f"RS2DXF{index:03d}_{layer}", entity_kind, compact))
+    return entities, None
+
+
 def _bolt_paths(text: str) -> list[tuple[str, tuple[tuple[float, float], ...]]]:
     """Extract RS2 bolt polylines for CAD preview only, not for solver transfer."""
     section_start = text.rfind("bolts start:")
@@ -562,9 +602,12 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
     )
     from ..cad.geometry import Drawing, Entity
 
-    preview_entities = [
-        Entity(name, "line", points) for name, points in _bolt_paths(text)
-    ]
+    dxf_entities, dxf_warning = _dxf_preview_entities(source_path.with_suffix(".dxf"))
+    preview_entities = list(dxf_entities)
+    if not any("_BOLTS" in entity.name.upper() for entity in dxf_entities):
+        preview_entities.extend(
+            Entity(name, "line", points) for name, points in _bolt_paths(text)
+        )
     for element_id, (n1, n2, _) in sorted(beam_records.items()):
         preview_entities.append(
             Entity(
@@ -622,7 +665,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         beam_elements=beam_count,
         bolt_groups=bolt_groups,
         unsupported_features=tuple(unsupported),
-        warnings=(
+        warnings=tuple([
             "Metric MPa values were converted to kPa and MN/m3 densities to kN/m3.",
             "Peak Mohr-Coulomb properties are imported; residual properties are not.",
             "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
@@ -635,6 +678,11 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "changes are transferred.",
             "RS2 result files are not imported as SlipSurface solver results.",
             "Do not treat this preview as analysis-equivalent while features remain unsupported.",
-        ),
+            *(
+                [f"CAD preview geometry loaded from matching DXF sidecar '{source_path.with_suffix('.dxf').name}'."]
+                if dxf_entities else []
+            ),
+            *([dxf_warning] if dxf_warning else []),
+        ]),
     )
     return RS2ImportResult(model, report)
