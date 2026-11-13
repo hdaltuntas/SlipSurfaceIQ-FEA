@@ -1248,9 +1248,9 @@ class MainWindow(QMainWindow):
     def save_path(self, path):
         if self.rs2_import_report and not self.rs2_import_report.analysis_ready:
             raise ValueError(
-                "This RS2 import is an incomplete preview. Resolve the reported "
-                "material, beam-joint and bolt-transfer limitations before saving it "
-                "as a native project."
+                "This RS2 import is an incomplete preview. Resolve these limitations "
+                "before saving it as a native project: "
+                + "; ".join(self.rs2_import_report.unsupported_features)
             )
         if self.busy:
             raise RuntimeError("Cannot save while a solve is running.")
