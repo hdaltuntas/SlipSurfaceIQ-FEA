@@ -153,7 +153,8 @@ class Model:
             unknown_field_regions = set(self.initial.element_field) - all_regions
             if unknown_field_regions:
                 raise ModelError(
-                    f"initial stress field refers to unknown regions {sorted(unknown_field_regions)}"
+                    "initial stress field refers to unknown regions "
+                    f"{sorted(unknown_field_regions)}
                 )
             active_field_regions = (
                 all_regions if self.initial.active_regions is None else self.initial.active_regions
