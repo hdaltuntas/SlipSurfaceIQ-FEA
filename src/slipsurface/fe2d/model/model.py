@@ -72,6 +72,16 @@ class Model:
                     raise ModelError(f"stage '{st.name}': override for unknown region {r}")
                 if m not in self.materials:
                     raise ModelError(f"stage '{st.name}': override region {r} -> unknown '{m}'")
+            unknown_liners = set(st.liner_override) - set(self.liners)
+            if unknown_liners:
+                raise ModelError(
+                    f"stage '{st.name}': overrides for unknown liners {sorted(unknown_liners)}"
+                )
+            for tag, spec in st.liner_override.items():
+                if spec.name != tag:
+                    raise ModelError(
+                        f"stage '{st.name}': liner override key '{tag}' does not match '{spec.name}'"
+                    )
         props = {
             "beam": set(self.liners),
             "bar": set(self.bolts),
