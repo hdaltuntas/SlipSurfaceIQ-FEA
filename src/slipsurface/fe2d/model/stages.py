@@ -46,8 +46,8 @@ class InitialStress:
     * ``"k0_field"``: sv = -sum(gamma*h) below ``surface_y`` (horizontal layering),
       sh = K0*sv, szz = K0*sv. ``k0=None`` uses 1 - sin(phi), or nu/(1-nu) for elastic
       materials.
-    * ``"field"``: constant stress ``field = (sxx, syy, szz, txy)`` everywhere (deep
-      tunnels, laboratory element tests), no self-weight unless ``gravity=True``.
+    * ``"field"``: constant stress ``field = (sxx, syy, szz, txy)`` everywhere.
+    * ``"element_field"``: constant stress per continuum region/element, keyed by region id.
     * ``"none"``: stress-free start, no self-weight.
 
     The gravity analysis uses the real (possibly plastic) materials.
@@ -57,6 +57,7 @@ class InitialStress:
     k0: float | None = None
     surface_y: float | None = None  # k0_field: None -> max y of the mesh
     field: tuple[float, float, float, float] | None = None
+    element_field: dict[int, tuple[float, float, float, float]] | None = None
     gravity: bool = False  # "field" mode: also apply self-weight in the stages
     # elements present in the initial stage (None: all continuum regions / all interfaces,
     # no beams or bars); "wished-in-place" walls are activated in a later stage
@@ -71,6 +72,11 @@ class InitialStress:
             object.__setattr__(self, "active_structures", frozenset(self.active_structures))
         if self.field is not None:
             object.__setattr__(self, "field", tuple(float(v) for v in self.field))
+        if self.element_field is not None:
+            object.__setattr__(
+                self, "element_field",
+                {int(k): tuple(float(x) for x in v) for k, v in self.element_field.items()},
+            )
 
 
 @dataclass(frozen=True)
