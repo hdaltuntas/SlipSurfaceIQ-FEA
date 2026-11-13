@@ -15,7 +15,7 @@ model inspectable without claiming solver equivalence.
 
 The importer report lists unsupported content. In particular, RS2 beam/liner elements,
 bonded-bolt grout transfer and residual-property differences are not silently approximated.
-An imported model with any unsupported feature is a read-only preview: the desktop app blocks
+An imported model with any unsupported feature is a preview-only model: the desktop app blocks
 solving and saving it as a native `.ssproj` until those mappings are implemented. RS2
 `.r##` result files are not loaded as SlipSurface solver results.
 
