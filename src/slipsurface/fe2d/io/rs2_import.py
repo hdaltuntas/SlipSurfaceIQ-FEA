@@ -435,7 +435,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         beam_blocks.append(ElementBlock(
             ElemType.BEAM2,
             np.asarray([[n1, n2] for _, n1, n2 in selected], dtype=np.int64),
-            np.zeros(len(selected), dtype=np.int32),
+            np.full(len(selected), element_ids[0], dtype=np.int32),
             tag,
         ))
     mesh = Mesh(coords, (block, *beam_blocks), node_sets=node_sets)
