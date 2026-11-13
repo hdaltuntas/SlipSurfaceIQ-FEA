@@ -579,7 +579,8 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "Metric MPa values were converted to kPa and MN/m3 densities to kN/m3.",
             "Peak Mohr-Coulomb properties are imported; residual properties are not.",
             "Element-wise RS2 stresses are transferred as constant per-element initial stresses.",
-            "RS2 element body forces are transferred cumulatively by stage and converted from MN/m3 to kN/m3.",
+            "RS2 element body forces are transferred cumulatively by stage and "
+            "converted from MN/m3 to kN/m3.",
             "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
             "Continuum deletion/material reassignment and supported beam section "
             "changes are transferred.",
