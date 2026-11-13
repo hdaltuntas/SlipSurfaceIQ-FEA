@@ -1051,12 +1051,12 @@ class StaticSolver:
         sysm = self.build_system(lay, active, init.water, model.displacements)
         self.apply_activation(state, active, sysm.dm)
         ctx = _StageCtx(Stage("initial", drained=True), {}, active, init.water, model.displacements,
-                        init.mode in ("gravity", "k0_field"))  # fmt: skip
+                        init.mode in ("gravity", "k0_field", "element_field"))  # fmt: skip
         timings: dict[str, float] = {"setup": self.t_setup}
         hist = None
         f_ext = (
             self.external_force(sysm, ctx)
-            if init.mode in ("gravity", "k0_field")
+            if init.mode in ("gravity", "k0_field", "element_field")
             else np.zeros(sysm.dm.ndof)
         )
         t1 = time.perf_counter()
@@ -1066,7 +1066,7 @@ class StaticSolver:
             )
             state.u[:] = 0.0  # displacements of the gravity stage are discarded
             state.u_ref = np.zeros_like(state.u)
-        elif init.mode in ("k0_field", "field"):
+        elif init.mode in ("k0_field", "field", "element_field"):
             self._assign_initial_stress(state, sysm, lay, ctx)
             self.project(state, sysm, lay)
             if init.mode == "k0_field":
@@ -1094,6 +1094,14 @@ class StaticSolver:
             s0 = np.asarray(init.field, dtype=float)
             for c in sysm.cont:
                 state.sig[c.tag][c.ids] = s0
+        elif init.mode == "element_field":
+            assert init.element_field is not None
+            for c, block in zip(sysm.cont, self.blocks):
+                region_ids = block.region[c.ids]
+                values = np.asarray(
+                    [init.element_field[int(region)] for region in region_ids], dtype=float
+                )
+                state.sig[c.tag][c.ids] = values[:, None, :]
         else:
             surf = init.surface_y
             if surf is None:
