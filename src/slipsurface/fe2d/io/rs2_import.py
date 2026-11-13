@@ -384,7 +384,9 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         unsupported_beam_types.update(unknown_types)
         for element_id, n1, n2, material in records:
             if material not in beam_specs:
-                raise RS2ImportError(f"Beam {element_id} references unknown beam material '{material}'")
+                raise RS2ImportError(
+                    f"Beam {element_id} references unknown beam material '{material}'"
+                )
             beam_records[element_id] = (n1, n2, material)
             active_beams.add(material)
         stage_beam_states.append(
