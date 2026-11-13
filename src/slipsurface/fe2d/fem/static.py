@@ -659,6 +659,25 @@ class StaticSolver:
                 f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
             for s in sysm.struct:
                 f += np.bincount(s.edofs.ravel(), s.group.body_force(s.ids).ravel(), minlength=nd)
+        # RS2 element body forces are explicit volume-force densities in model units.
+        if ctx.stage.element_body_force:
+            for c, block in zip(sysm.cont, self.blocks):
+                if c.ids.size == 0:
+                    continue
+                body = np.asarray(
+                    [
+                        ctx.stage.element_body_force.get(int(region), (0.0, 0.0))
+                        for region in block.region[c.ids]
+                    ],
+                    dtype=float,
+                )
+                if not np.any(body):
+                    continue
+                integral = np.einsum("eg,gn->en", c.geom.wdet, c.geom.N)
+                fe = np.zeros((c.ids.size, c.edofs.shape[1]))
+                fe[:, 0::2] = body[:, 0, None] * integral
+                fe[:, 1::2] = body[:, 1, None] * integral
+                f += np.bincount(c.edofs.ravel(), fe.ravel(), minlength=nd)
         # Pseudo-static inertia uses the same effective unit-weight distribution
         # as gravity, but acts independently of the initial-stress mode.
         kh, kv = ctx.stage.seismic_kh, ctx.stage.seismic_kv
@@ -1041,8 +1060,8 @@ class StaticSolver:
     def _with_gravity(self) -> bool:
         init = self.model.initial
         return (
-            init.mode in ("gravity", "k0_field", "element_field")
-            or (init.mode == "field" and init.gravity)
+            init.mode in ("gravity", "k0_field")
+            or (init.mode in ("field", "element_field") and init.gravity)
         )
 
     def initial_state(self) -> tuple[SolverState, StageResult]:
@@ -1054,12 +1073,16 @@ class StaticSolver:
         sysm = self.build_system(lay, active, init.water, model.displacements)
         self.apply_activation(state, active, sysm.dm)
         ctx = _StageCtx(Stage("initial", drained=True), {}, active, init.water, model.displacements,
-                        init.mode in ("gravity", "k0_field", "element_field"))  # fmt: skip
+                        init.mode in ("gravity", "k0_field")
+                        or (init.mode in ("field", "element_field") and init.gravity))  # fmt: skip
         timings: dict[str, float] = {"setup": self.t_setup}
         hist = None
         f_ext = (
             self.external_force(sysm, ctx)
-            if init.mode in ("gravity", "k0_field", "element_field")
+            if (
+                init.mode in ("gravity", "k0_field")
+                or (init.mode in ("field", "element_field") and init.gravity)
+            )
             else np.zeros(sysm.dm.ndof)
         )
         t1 = time.perf_counter()
