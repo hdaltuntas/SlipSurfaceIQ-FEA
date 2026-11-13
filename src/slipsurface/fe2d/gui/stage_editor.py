@@ -571,7 +571,9 @@ class StageDialog(EditorDialog):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.model = replace(self.model, initial=dialog.updated)
                 self.initial_mode.blockSignals(True)
-                self.initial_mode.setCurrentIndex(self.initial_mode.findData(self.model.initial.mode))
+                self.initial_mode.setCurrentIndex(
+                    self.initial_mode.findData(self.model.initial.mode)
+                )
                 self.initial_mode.blockSignals(False)
                 self.update_timeline()
 
