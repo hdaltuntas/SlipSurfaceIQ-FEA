@@ -398,26 +398,35 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
     beam_specs = _beam_specs(text)
     beam_records: dict[int, tuple[int, int, str]] = {}
     beam_blocks = []
-    active_beams: set[str] = set()
     current_beam_specs = dict(beam_specs)
     stage_beam_states: list[tuple[frozenset[str], dict[str, LinerSpec]]] = []
+    beam_presence: dict[int, set[int]] = {}
     unsupported_beam_types: set[str] = set()
-    for stage_text in stage_texts:
+    for stage_index, stage_text in enumerate(stage_texts):
         current_beam_specs = _beam_material_changes(stage_text, current_beam_specs)
         records, unknown_types = _beam_stage_records(stage_text, node_map)
         unsupported_beam_types.update(unknown_types)
+        active_beams: set[str] = set()
         for element_id, n1, n2, material in records:
             if material not in beam_specs:
                 raise RS2ImportError(
                     f"Beam {element_id} references unknown beam material '{material}'"
                 )
             beam_records[element_id] = (n1, n2, material)
+            beam_presence.setdefault(element_id, set()).add(stage_index)
             active_beams.add(material)
         stage_beam_states.append(
-            (frozenset(active_beams), {
-                tag: current_beam_specs[tag] for tag in active_beams
-            })
+            (
+                frozenset(active_beams),
+                {tag: current_beam_specs[tag] for tag in active_beams},
+            )
         )
+    activation_signatures: dict[str, set[tuple[int, ...]]] = {}
+    for element_id, (_, _, material) in beam_records.items():
+        signature = tuple(sorted(beam_presence[element_id]))
+        activation_signatures.setdefault(material, set()).add(signature)
+    if any(len(signatures) > 1 for signatures in activation_signatures.values()):
+        unsupported_beam_types.add("per-element activation histories within one beam material")
     for tag in sorted({record[2] for record in beam_records.values()}):
         selected = [
             (eid, n1, n2) for eid, (n1, n2, material) in sorted(beam_records.items())
