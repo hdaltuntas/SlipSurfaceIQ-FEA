@@ -165,6 +165,32 @@ def _stage_body_forces(
     return snapshots
 
 
+def _bolt_paths(text: str) -> list[tuple[str, tuple[tuple[float, float], ...]]]:
+    """Extract RS2 bolt polylines for CAD preview only, not for solver transfer."""
+    section_start = text.rfind("bolts start:")
+    if section_start < 0:
+        return []
+    section_end = text.find("bolts end:", section_start)
+    if section_end < 0:
+        return []
+    section = text[section_start:section_end]
+    paths = []
+    for match in re.finditer(
+        r"(?ms)^\s*bolt\s+(\d+)\s+start:\s*(.*?)(?=^\s*bolt\s+\d+\s+end:)",
+        section,
+    ):
+        points = tuple(
+            (float(x), float(y))
+            for x, y in re.findall(
+                rf"(?m)^\s*\d+:\s*({_NUMBER})\s*,\s*({_NUMBER})\s*$",
+                match.group(2),
+            )
+        )
+        if len(points) >= 2:
+            paths.append((f"RS2Bolt{int(match.group(1)):03d}", points))
+    return paths
+
+
 def _bolt_group_count(text: str) -> int:
     section_start = text.rfind("bolts start:")
     if section_start < 0:
@@ -534,6 +560,21 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         )
         if initial_complete else InitialStress(mode="gravity")
     )
+    from ..cad.geometry import Drawing, Entity
+
+    preview_entities = [
+        Entity(name, "line", points) for name, points in _bolt_paths(text)
+    ]
+    for element_id, (n1, n2, _) in sorted(beam_records.items()):
+        preview_entities.append(
+            Entity(
+                f"RS2Beam{element_id}",
+                "line",
+                (tuple(coords[n1]), tuple(coords[n2])),
+            )
+        )
+    drawing = Drawing(entities=tuple(preview_entities))
+
     model = Model(
         analysis=Analysis.PLANE_STRAIN,
         mesh=mesh,
@@ -544,6 +585,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
         initial=initial,
         stages=stages,
         settings=SolverSettings(method="initial", max_iter=500, tol_force=1e-3),
+        geometry=drawing.to_dict(),
     )
     model.validate()
 
@@ -587,6 +629,7 @@ def import_rs2(path: str | Path) -> RS2ImportResult:
             "RS2 element body forces are transferred cumulatively by stage and "
             "converted from MN/m3 to kN/m3.",
             "Euler-Bernoulli beam segments and stage-specific section changes are transferred.",
+            "Bolt and beam paths are shown in CAD preview; bolt constitutive transfer is not imported.",
             "Continuum deletion/material reassignment and supported beam section "
             "changes are transferred.",
             "RS2 result files are not imported as SlipSurface solver results.",
